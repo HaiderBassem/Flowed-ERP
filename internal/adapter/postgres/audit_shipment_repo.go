@@ -133,13 +133,21 @@ func (r *AuditShipmentRepository) Gaps(ctx context.Context, destination string) 
 	return gaps, pg.WrapQuery("audit_shipment.Gaps", rows.Err())
 }
 
+// PendingEntries reads from the whole trail, live and archived.
+//
+// Archived entries are old, not gone: they were moved out of the working set
+// only because a copy already existed off-host. Reading the live table alone
+// would mean a newly configured archive destination could never receive the
+// history — its first block would start mid-sequence and every coverage check
+// would report the missing prefix as a hole, which is exactly the alarm this
+// system should not raise about its own housekeeping.
 func (r *AuditShipmentRepository) PendingEntries(ctx context.Context, after int64, limit int) ([]port.ShippedEntry, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
 	query := `
 		SELECT` + shippedColumns + `
-		FROM audit_log
+		FROM v_audit_trail
 		WHERE sequence_no > $1
 		ORDER BY sequence_no
 		LIMIT $2`
@@ -156,7 +164,7 @@ func (r *AuditShipmentRepository) PendingEntries(ctx context.Context, after int6
 func (r *AuditShipmentRepository) EntriesInRange(ctx context.Context, from, to int64) ([]port.ShippedEntry, error) {
 	query := `
 		SELECT` + shippedColumns + `
-		FROM audit_log
+		FROM v_audit_trail
 		WHERE sequence_no BETWEEN $1 AND $2
 		ORDER BY sequence_no`
 
@@ -172,7 +180,10 @@ func (r *AuditShipmentRepository) EntriesInRange(ctx context.Context, from, to i
 func (r *AuditShipmentRepository) HeadSequence(ctx context.Context) (int64, error) {
 	var head int64
 	q := r.db.Conn(ctx)
-	err := q.QueryRow(ctx, `SELECT coalesce(max(sequence_no), 0) FROM audit_log`).Scan(&head)
+	// Over the whole trail: with everything archived, the live table's maximum
+	// is zero and the lag would read as "nothing to ship" while the archive
+	// destination had never seen any of it.
+	err := q.QueryRow(ctx, `SELECT coalesce(max(sequence_no), 0) FROM v_audit_trail`).Scan(&head)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return 0, pg.WrapQuery("audit_shipment.HeadSequence", err)
 	}

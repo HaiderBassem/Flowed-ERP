@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -387,6 +388,18 @@ func (r *ReconciliationRepository) CheckRefunds(ctx context.Context, limit int) 
 	return found, total, pg.WrapQuery("reconciliation.CheckRefunds", rows.Err())
 }
 
+// CheckAuditChain re-walks the hash chain from the last clean checkpoint.
+//
+// Walking from zero every night is work that grows forever, and the growth is
+// invisible until the night it does not finish: at half a million entries a
+// full pass is 662 ms, and it is linear. So a clean pass records where it got
+// to and the hash it stopped at, and the next one resumes there.
+//
+// The prefix is not thereby trusted on faith. The checkpoint stores the hash,
+// so an entry rewritten behind it breaks the join at the resume point and the
+// very first row of the next pass reports it. A full pass still runs on the
+// slower schedule the operations guide describes, and the off-host archive
+// covers what neither can see — a deleted entry, which leaves an intact chain.
 func (r *ReconciliationRepository) CheckAuditChain(ctx context.Context, limit int) ([]port.ObservedFinding, int64, error) {
 	var total int64
 	q := r.db.Conn(ctx)
@@ -394,21 +407,66 @@ func (r *ReconciliationRepository) CheckAuditChain(ctx context.Context, limit in
 		return nil, 0, pg.WrapQuery("reconciliation.CheckAuditChain", err)
 	}
 
+	var (
+		from      int64
+		fromHash  *string
+		checkedTo int64
+	)
+	if err := q.QueryRow(ctx,
+		`SELECT coalesce(sequence_no, 0), entry_hash FROM audit_verification_checkpoint()`,
+	).Scan(&from, &fromHash); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, total, pg.WrapQuery("reconciliation.CheckAuditChain", err)
+	}
+
+	// The checkpoint's own entry must still hash to what was recorded. This is
+	// the one row that makes resuming safe rather than merely cheap.
+	var found []port.ObservedFinding
+	if fromHash != nil {
+		var stillThere bool
+		if err := q.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM audit_log WHERE sequence_no = $1 AND entry_hash = $2)`,
+			from, *fromHash).Scan(&stillThere); err != nil {
+			return nil, total, pg.WrapQuery("reconciliation.CheckAuditChain", err)
+		}
+		if !stillThere {
+			found = append(found, port.ObservedFinding{
+				Kind:        port.ReconcileAuditChain,
+				SubjectType: "audit_entry",
+				SubjectID:   shared.NewID(),
+				Detail: map[string]any{
+					"sequence_no": from,
+					"problem": "the entry the last verification stopped at is gone or altered; " +
+						"the trail was changed behind the checkpoint",
+					"remedy": "compare against the off-host archive: api audit-ship verify",
+				},
+			})
+			// Start again from the beginning: something moved behind us, and
+			// the resume point cannot be trusted to bound the damage.
+			from = 0
+		}
+	}
+
+	if err := q.QueryRow(ctx, `SELECT coalesce(max(sequence_no), 0) FROM audit_log`).
+		Scan(&checkedTo); err != nil {
+		return nil, total, pg.WrapQuery("reconciliation.CheckAuditChain", err)
+	}
+
+	started := time.Now()
 	rows, err := q.Query(ctx,
-		`SELECT sequence_no, id, occurred_at, problem FROM verify_audit_chain(0) LIMIT $1`,
-		boundedLimit(limit, 1000))
+		`SELECT sequence_no, id, occurred_at, problem FROM verify_audit_chain($2) LIMIT $1`,
+		boundedLimit(limit, 1000), from)
 	if err != nil {
 		return nil, total, pg.WrapQuery("reconciliation.CheckAuditChain", err)
 	}
 	defer rows.Close()
 
-	var found []port.ObservedFinding
 	for rows.Next() {
 		var sequence int64
 		var id shared.ID
 		var occurred time.Time
 		var problem string
 		if err := rows.Scan(&sequence, &id, &occurred, &problem); err != nil {
+			rows.Close()
 			return nil, total, pg.WrapQuery("reconciliation.CheckAuditChain", err)
 		}
 		found = append(found, port.ObservedFinding{
@@ -423,7 +481,44 @@ func (r *ReconciliationRepository) CheckAuditChain(ctx context.Context, limit in
 			},
 		})
 	}
-	return found, total, pg.WrapQuery("reconciliation.CheckAuditChain", rows.Err())
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, total, pg.WrapQuery("reconciliation.CheckAuditChain", err)
+	}
+
+	// The pass is recorded whether or not it found anything — including the
+	// passes that found something, so a later reader can see when the trail
+	// stopped being clean rather than only that it is not clean now.
+	if err := r.recordVerification(ctx, from, checkedTo, len(found), time.Since(started)); err != nil {
+		return found, total, err
+	}
+	return found, total, nil
+}
+
+// recordVerification writes the checkpoint. A pass that found problems is
+// recorded too, and its row is excluded from the resume point by the partial
+// index, so the next pass starts from the last position that was actually
+// clean rather than from the last position that was merely reached.
+func (r *ReconciliationRepository) recordVerification(
+	ctx context.Context, from, to int64, problems int, took time.Duration,
+) error {
+	kind := "incremental"
+	if from == 0 {
+		kind = "full"
+	}
+
+	const query = `
+		INSERT INTO audit_verification (
+			id, sequence_no, entry_hash, entries, kind, problems, took_ms)
+		SELECT $1, $2, coalesce(
+			(SELECT entry_hash FROM audit_log WHERE sequence_no = $2),
+			'empty'), $3, $4, $5, $6
+		WHERE EXISTS (SELECT 1 FROM audit_log)`
+
+	q := r.db.Conn(ctx)
+	_, err := q.Exec(ctx, query,
+		shared.NewID(), to, max(to-from, 0), kind, problems, took.Milliseconds())
+	return pg.WrapQuery("reconciliation.recordVerification", err)
 }
 
 func scanFinding(row pgx.CollectableRow) (*port.ReconciliationFinding, error) {
