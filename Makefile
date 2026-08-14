@@ -2,8 +2,26 @@ SHELL := /bin/bash
 BINARY_API     := bin/api
 BINARY_MIGRATE := bin/migrate
 PKG            := ./...
-VERSION        ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS        := -X main.version=$(VERSION)
+
+# Version comes from the VERSION file, which is the single source of truth and
+# is reviewed like any other change. `git describe` is not: it reports whatever
+# tags happen to exist in the cloning developer's remote, and its old fallback
+# to the literal string "dev" meant a mis-built production binary was
+# indistinguishable from a laptop build. The commit and build time are stamped
+# beside it so a running process can be traced to an exact tree.
+VERSION        ?= $(shell cat VERSION 2>/dev/null || echo unknown)
+GIT_COMMIT     ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+BUILD_TIME     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+TREE_STATE     ?= $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo clean || echo dirty)
+BUILDINFO      := github.com/swibit/flowed/internal/platform/buildinfo
+LDFLAGS        := -X $(BUILDINFO).version=$(VERSION) \
+                  -X $(BUILDINFO).commit=$(GIT_COMMIT) \
+                  -X $(BUILDINFO).buildTime=$(BUILD_TIME) \
+                  -X $(BUILDINFO).treeState=$(TREE_STATE)
+
+# Test database. Kept separate from DB_NAME so `make test-integration` cannot
+# drop the database a developer is exploring in another window.
+TEST_DB_NAME   ?= flowed_test
 
 # Local development defaults. Override by exporting them or by creating a .env
 # file and running `set -a && source .env && set +a` before make.
@@ -150,10 +168,90 @@ docker-down:
 docker-clean:
 	docker compose down -v
 
-## check: everything CI runs
-check: lint test migrate-validate
+## version: print the build identity this tree would produce
+version:
+	@echo "version=$(VERSION) commit=$(GIT_COMMIT) built=$(BUILD_TIME) tree=$(TREE_STATE)"
 
-.PHONY: help build run stop test test-short cover lint fmt tidy \
+## test-integration: run only the tests that need a real database
+test-integration:
+	DB_NAME=$(TEST_DB_NAME) go test -race -count=1 ./test/... ./internal/adapter/postgres/...
+
+## test-db-setup: create and migrate the dedicated test database
+test-db-setup:
+	@createdb $(TEST_DB_NAME) 2>/dev/null || true
+	@DB_NAME=$(TEST_DB_NAME) go run ./cmd/migrate up
+
+## test-db-drop: drop the dedicated test database
+test-db-drop:
+	@dropdb --if-exists $(TEST_DB_NAME)
+
+## staticcheck: run staticcheck if it is installed (CI always installs it)
+staticcheck:
+	@if command -v staticcheck >/dev/null 2>&1; then \
+		staticcheck $(PKG); \
+	else \
+		echo "staticcheck not installed: go install honnef.co/go/tools/cmd/staticcheck@latest"; \
+		exit 1; \
+	fi
+
+## vuln: check dependencies and stdlib against the Go vulnerability database
+vuln:
+	@if command -v govulncheck >/dev/null 2>&1; then \
+		govulncheck $(PKG); \
+	else \
+		echo "govulncheck not installed: go install golang.org/x/vuln/cmd/govulncheck@latest"; \
+		exit 1; \
+	fi
+
+## secrets: refuse obvious secrets committed to the tree
+secrets:
+	@bash scripts/check-secrets.sh
+
+## openapi-validate: check the OpenAPI document against the implemented routes
+openapi-validate: build
+	go test -run TestOpenAPI -count=1 ./internal/adapter/httpapi/...
+
+## ui-build: build the operator UI bundle
+ui-build:
+	@bash scripts/build-ui.sh
+
+## perf-seed: load the performance dataset (SCALE=small|medium|full)
+perf-seed: build
+	$(BINARY_API) perf-seed --scale=$(or $(SCALE),small)
+
+## perf: run the performance suite against a seeded database
+perf: build
+	@bash scripts/perf-run.sh
+
+## backup: take a verified backup (see docs/operations/backup-restore.md)
+backup:
+	@bash scripts/backup.sh
+
+## restore-drill: prove a backup restores into a scratch database
+restore-drill:
+	@bash scripts/restore-drill.sh
+
+## audit-verify-external: verify the off-host audit archive
+audit-verify-external: build
+	$(BINARY_API) audit-ship verify
+
+## check: everything CI runs, in the order CI runs it
+check: fmt-check lint staticcheck secrets test-short test-integration migrate-validate
+
+## ci: the full pipeline, exactly as CI executes it
+ci: fmt-check lint staticcheck vuln secrets build test-short test-db-setup \
+    test-integration migrate-validate openapi-validate ui-build
+
+## fmt-check: fail if anything is unformatted (lint does this too; kept separate for CI clarity)
+fmt-check:
+	@unformatted=$$(gofmt -l . | grep -v '^vendor/' | grep -v '^web/' || true); \
+	if [ -n "$$unformatted" ]; then \
+		echo "these files need gofmt:"; echo "$$unformatted"; exit 1; \
+	fi
+
+.PHONY: help build run stop test test-short cover lint fmt tidy version \
         db-create db-drop db-reset migrate-up migrate-down migrate-status \
         migrate-validate migrate-new verify-audit seed demo demo-reset \
-        docker-up docker-down docker-clean check
+        docker-up docker-down docker-clean check ci fmt-check staticcheck vuln \
+        secrets openapi-validate ui-build perf perf-seed backup restore-drill \
+        test-integration test-db-setup test-db-drop audit-verify-external

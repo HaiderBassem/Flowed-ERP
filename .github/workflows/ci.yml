@@ -1,0 +1,209 @@
+# Continuous integration for Flowed.
+#
+# Every job here has a `make` target that runs the identical command locally —
+# `make ci` runs the whole pipeline. That equivalence is the point: a pipeline
+# whose steps exist only in YAML is a pipeline developers cannot reproduce, and
+# the failure then arrives after the push instead of before it.
+#
+# The database jobs run against the same PostgreSQL major version production
+# uses. The financial guarantees this system relies on (partial unique indexes,
+# NULLS NOT DISTINCT, generated columns, deferred constraint triggers) are
+# database behaviour, so testing them against a different engine or an older
+# major would test something the university does not run.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch cancels the first: the older run's verdict
+# is about a tree nobody will merge.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned to the patch release go.mod requires. The pin is deliberate: the
+  # previous patch carried a net/http advisory this project's health probe and
+  # trace exporter both reach, and "whatever 1.26 is today" is not a statement
+  # a security scan can be run against twice with the same answer.
+  GO_VERSION: "1.26.6"
+
+jobs:
+  static:
+    name: Format, vet, staticcheck, secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # buildinfo resolves the commit from VCS data; a shallow clone with
+          # no history stamps a binary that cannot be traced to a tree.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Formatting
+        run: make fmt-check
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
+
+      - name: Staticcheck
+        run: make staticcheck
+
+      - name: Secret scan
+        run: make secrets
+
+      - name: Module tidiness
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+  vulnerabilities:
+    name: Vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Scan
+        run: make vuln
+
+  unit:
+    name: Unit tests (no database)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Build
+        run: make build
+      - name: Unit tests with race detector
+        run: go test -short -race -count=1 ./...
+
+  database:
+    name: Integration, migrations, end to end
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: flowed
+          POSTGRES_PASSWORD: flowed
+          POSTGRES_DB: flowed_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U flowed"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_USER: flowed
+      DB_PASSWORD: flowed
+      DB_NAME: flowed_test
+      DB_SSLMODE: disable
+      TEST_DB_NAME: flowed_test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Apply migrations
+        run: go run ./cmd/migrate up
+
+      - name: Validate schema against this build
+        run: make migrate-validate
+
+      - name: Migration reversibility
+        # Every migration must roll back. A one-way door in a financial schema
+        # is a door that stays shut during an incident.
+        run: |
+          go run ./cmd/migrate down 3
+          go run ./cmd/migrate up
+          go run ./cmd/migrate validate
+
+      - name: Integration and end-to-end tests with race detector
+        run: go test -race -count=1 ./test/... ./internal/...
+
+      - name: Financial integrity checks
+        # The four queries the project treats as the definition of a healthy
+        # database. They run here against the schema CI just built, so a
+        # migration that breaks reconciliation fails the build rather than the
+        # month-end close.
+        run: |
+          export PGPASSWORD=flowed
+          for view in v_account_reconciliation v_installment_reconciliation v_over_refunded_payments; do
+            count=$(psql -h localhost -U flowed -d flowed_test -tAc "SELECT count(*) FROM $view")
+            echo "$view = $count"
+            [ "$count" = "0" ] || { echo "$view is not empty"; exit 1; }
+          done
+          count=$(psql -h localhost -U flowed -d flowed_test -tAc "SELECT count(*) FROM verify_audit_chain(0)")
+          echo "verify_audit_chain = $count"
+          [ "$count" = "0" ] || { echo "audit chain is broken"; exit 1; }
+
+      - name: Demo dataset loads through the real commands
+        # The demo is generated by calling the same application services the API
+        # calls, so a successful load is itself an integration test of
+        # registration, pricing, collection, refunding, superseding and closing.
+        env:
+          APP_ENV: development
+          AUTH_JWT_SECRET: ci-only-secret-not-used-in-any-deployment
+        run: |
+          dropdb -h localhost -U flowed --if-exists flowed_demo
+          createdb -h localhost -U flowed flowed_demo
+          DB_NAME=flowed_demo go run ./cmd/migrate up
+          DB_NAME=flowed_demo go run ./cmd/api demo
+        # PGPASSWORD is needed by createdb/dropdb.
+
+  contract:
+    name: OpenAPI contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Contract matches the router
+        # The specification is generated from the route table, so drift is a
+        # test failure rather than a discovery made by whoever writes the client.
+        run: go test -run 'TestOpenAPI' -count=1 ./internal/adapter/httpapi/...
+      - name: Specification is valid OpenAPI
+        run: |
+          npx --yes @redocly/cli@1.25.11 lint api/openapi.yaml
+
+  ui:
+    name: Operator UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build UI
+        run: make ui-build
+      - name: UI tests
+        run: node --test web/test/

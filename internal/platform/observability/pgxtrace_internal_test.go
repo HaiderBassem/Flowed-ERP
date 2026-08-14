@@ -134,7 +134,7 @@ func spanText(span tracetest.SpanStub) string {
 	for _, attr := range span.Attributes {
 		b.WriteString(string(attr.Key))
 		b.WriteString("=")
-		b.WriteString(attr.Value.Emit())
+		b.WriteString(attr.Value.String())
 		b.WriteString("\n")
 	}
 	for _, event := range span.Events {
@@ -143,7 +143,7 @@ func spanText(span tracetest.SpanStub) string {
 		for _, attr := range event.Attributes {
 			b.WriteString(string(attr.Key))
 			b.WriteString("=")
-			b.WriteString(attr.Value.Emit())
+			b.WriteString(attr.Value.String())
 			b.WriteString("\n")
 		}
 	}

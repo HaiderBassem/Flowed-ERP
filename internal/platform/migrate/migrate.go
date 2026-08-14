@@ -685,9 +685,9 @@ func (r *Runner) verifyChecksums(applied map[int64]AppliedMigration) error {
 	if len(drift) > 0 {
 		sort.Strings(drift)
 		return fmt.Errorf(
-			"migration files changed after they were applied: %s\n"+
-				"An applied migration must never be edited — the database cannot be rebuilt from these files. "+
-				"Restore the original content and write a new migration for the change.",
+			"migration files changed after they were applied: %s; "+
+				"an applied migration must never be edited — the database cannot be rebuilt from these "+
+				"files, so restore the original content and write a new migration for the change",
 			strings.Join(drift, "; "))
 	}
 	return nil

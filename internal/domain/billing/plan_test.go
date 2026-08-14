@@ -188,7 +188,7 @@ func TestResplitLeavesPaidInstallmentsUntouched(t *testing.T) {
 
 	// Net drops from 2,000,000 to 1,500,000. The two installments carrying
 	// money total 1,000,000 and stay; the remaining 500,000 is re-spread.
-	keep, replace, err := billing.ResplitUnpaid(billing.ResplitSpec{
+	result, err := billing.ResplitUnpaid(billing.ResplitSpec{
 		Existing:     existing,
 		NewNetAmount: 1_500_000,
 		YearStart:    shared.NewDate(2025, 9, 1),
@@ -201,21 +201,33 @@ func TestResplitLeavesPaidInstallmentsUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(keep) != 2 {
-		t.Fatalf("kept %d installments, want the 2 carrying money", len(keep))
+	if len(result.Keep) != 2 {
+		t.Fatalf("kept %d installments, want the 2 carrying money", len(result.Keep))
 	}
-	for _, inst := range keep {
+	for _, inst := range result.Keep {
 		if !inst.PaidAmount.IsPositive() {
 			t.Errorf("installment %d was kept but carries no money", inst.Number)
 		}
 	}
 
 	var replacedTotal money.Amount
-	for _, inst := range replace {
+	for _, inst := range result.Fresh {
 		replacedTotal = replacedTotal.MustAdd(inst.Amount)
 	}
 	if replacedTotal != 500_000 {
 		t.Errorf("replacement installments total %s, want 500,000", replacedTotal)
+	}
+
+	// The two unpaid rows the new shares replace must come back so the caller
+	// can retire them. Leaving them live beside their replacements would make
+	// the plan sum to more than the account owes.
+	if len(result.Supersede) != 2 {
+		t.Fatalf("returned %d rows to supersede, want the 2 unpaid ones", len(result.Supersede))
+	}
+	for _, inst := range result.Supersede {
+		if inst.PaidAmount.IsPositive() {
+			t.Errorf("installment %d carries money and must never be superseded", inst.Number)
+		}
 	}
 }
 
@@ -228,7 +240,7 @@ func TestResplitRefusesToGoBelowSettledInstallments(t *testing.T) {
 			PaidAmount: 1_000_000, Status: billing.InstallmentPaid, DueDate: shared.NewDate(2025, 9, 1)},
 	}
 
-	_, _, err := billing.ResplitUnpaid(billing.ResplitSpec{
+	_, err := billing.ResplitUnpaid(billing.ResplitSpec{
 		Existing:     existing,
 		NewNetAmount: 600_000,
 		YearStart:    shared.NewDate(2025, 9, 1),
