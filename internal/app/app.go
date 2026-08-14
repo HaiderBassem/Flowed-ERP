@@ -49,8 +49,14 @@ type Deps struct {
 	Sessions     port.CashierSessionRepository
 	Audit        port.AuditRepository
 	Users        port.UserRepository
-	Clock        shared.Clock
-	Log          *slog.Logger
+	// Lifecycle stores the decisions that end or reshape a student's
+	// relationship with the university: graduation clearance, installment plan
+	// revisions and identity merges. Nil-safe at every call site, so a service
+	// wired without it — a test, a one-shot CLI command — still works, and the
+	// records it would have written are simply not written.
+	Lifecycle port.LifecycleRepository
+	Clock     shared.Clock
+	Log       *slog.Logger
 	// Metrics records what the commands did. A nil value is a working no-op,
 	// so tests and one-shot CLI commands leave it unset and every service
 	// records unconditionally — a recording guarded by a nil check at the call

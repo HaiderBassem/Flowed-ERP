@@ -393,18 +393,49 @@ func (h *Handlers) ChangeEnrollmentStatus(c *gin.Context) {
 		return
 	}
 
-	updated, err := h.Enrollments.ChangeEnrollmentStatus(requestContext(c), httpx.MustActor(c), app.ChangeStatusInput{
-		EnrollmentID: id,
-		Target:       academic.EnrollmentStatus(req.Status),
-		OrderRef:     req.OrderRef,
-		Reason:       req.Reason,
-		Result:       academic.AcademicResult(req.Result),
+	var charge money.Amount
+	if req.ChargeInstead != nil {
+		charge = money.Amount(*req.ChargeInstead)
+	}
+
+	result, err := h.Enrollments.ChangeEnrollmentStatus(requestContext(c), httpx.MustActor(c), app.ChangeStatusInput{
+		EnrollmentID:             id,
+		Target:                   academic.EnrollmentStatus(req.Status),
+		OrderRef:                 req.OrderRef,
+		Reason:                   req.Reason,
+		Result:                   academic.AcademicResult(req.Result),
+		FinancialTreatment:       academic.FinancialTreatment(req.FinancialTreatment),
+		ChargeInstead:            charge,
+		GraduationOverrideReason: req.GraduationOverrideReason,
 	})
 	if err != nil {
 		httpx.Respond(c, err)
 		return
 	}
-	httpx.OK(c, toEnrollmentView(updated))
+
+	response := ChangeStatusResponse{Enrollment: toEnrollmentView(result.Enrollment)}
+	if result.Treatment.Treatment != "" {
+		response.Treatment = &TreatmentView{
+			Treatment:           string(result.Treatment.Treatment),
+			Applied:             result.Treatment.Applied,
+			Waived:              result.Treatment.Waived.Int64(),
+			CreditRaised:        result.Treatment.CreditRaised.Int64(),
+			RemainingObligation: result.Treatment.RemainingObligation.Int64(),
+		}
+		if result.Treatment.AccountID != nil {
+			response.Treatment.AccountID = ptr(result.Treatment.AccountID.String())
+		}
+	}
+	if result.Clearance != nil {
+		response.Clearance = &ClearanceView{
+			Cleared:        result.Clearance.Cleared,
+			Policy:         string(result.Clearance.Policy),
+			Outstanding:    result.Clearance.Outstanding.Int64(),
+			OverrideReason: result.Clearance.OverrideReason,
+			DecidedAt:      result.Clearance.DecidedAt,
+		}
+	}
+	httpx.OK(c, response)
 }
 
 // ---------------------------------------------------------------------------

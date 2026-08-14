@@ -29,6 +29,7 @@ var _ port.AcademicYearRepository = (*AcademicYearRepository)(nil)
 
 const yearColumns = `
 	id, code, start_date, end_date, status, registration_deadline, debt_block_policy,
+	graduation_clearance_policy,
 	financially_closed_at, financially_closed_by, closed_at, closed_by,
 	adjustment_window_ends, adjustment_reason, created_at, updated_at`
 
@@ -41,6 +42,7 @@ func scanYear(row pgx.Row) (*academic.Year, error) {
 	)
 	if err := row.Scan(
 		&y.ID, &y.Code, &start, &end, &y.Status, &deadline, &y.DebtBlockPolicy,
+		&y.GraduationClearancePolicy,
 		&y.FinanciallyClosedAt, &y.FinanciallyClosedBy, &y.ClosedAt, &y.ClosedBy,
 		&y.AdjustmentWindowEnds, &y.AdjustmentReason, &y.CreatedAt, &y.UpdatedAt,
 	); err != nil {
@@ -60,15 +62,16 @@ func (r *AcademicYearRepository) Create(ctx context.Context, y *academic.Year) e
 	const query = `
 		INSERT INTO academic_year (
 			id, code, start_date, end_date, status, registration_deadline, debt_block_policy,
+			graduation_clearance_policy,
 			financially_closed_at, financially_closed_by, closed_at, closed_by,
 			adjustment_window_ends, adjustment_reason
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING created_at, updated_at`
 
 	q := r.db.Conn(ctx)
 	err := q.QueryRow(ctx, query,
 		y.ID, y.Code, y.StartDate.Time(), y.EndDate.Time(), y.Status,
-		timeOrNil(y.RegistrationDeadline), y.DebtBlockPolicy,
+		timeOrNil(y.RegistrationDeadline), y.DebtBlockPolicy, clearanceOrDefault(y.GraduationClearancePolicy),
 		y.FinanciallyClosedAt, y.FinanciallyClosedBy, y.ClosedAt, y.ClosedBy,
 		y.AdjustmentWindowEnds, y.AdjustmentReason,
 	).Scan(&y.CreatedAt, &y.UpdatedAt)
@@ -88,19 +91,20 @@ func (r *AcademicYearRepository) Update(ctx context.Context, y *academic.Year) e
 			status                 = $5,
 			registration_deadline  = $6,
 			debt_block_policy      = $7,
-			financially_closed_at  = $8,
-			financially_closed_by  = $9,
-			closed_at              = $10,
-			closed_by              = $11,
-			adjustment_window_ends = $12,
-			adjustment_reason      = $13
+			graduation_clearance_policy = $8,
+			financially_closed_at  = $9,
+			financially_closed_by  = $10,
+			closed_at              = $11,
+			closed_by              = $12,
+			adjustment_window_ends = $13,
+			adjustment_reason      = $14
 		WHERE id = $1
 		RETURNING updated_at`
 
 	q := r.db.Conn(ctx)
 	err := q.QueryRow(ctx, query,
 		y.ID, y.Code, y.StartDate.Time(), y.EndDate.Time(), y.Status,
-		timeOrNil(y.RegistrationDeadline), y.DebtBlockPolicy,
+		timeOrNil(y.RegistrationDeadline), y.DebtBlockPolicy, clearanceOrDefault(y.GraduationClearancePolicy),
 		y.FinanciallyClosedAt, y.FinanciallyClosedBy, y.ClosedAt, y.ClosedBy,
 		y.AdjustmentWindowEnds, y.AdjustmentReason,
 	).Scan(&y.UpdatedAt)
@@ -206,6 +210,7 @@ const enrollmentColumns = `
 	e.result_recorded_at, e.result_recorded_by,
 	e.previous_enrollment_id, e.supersedes_id, e.supersede_reason, e.supersede_date,
 	e.deferral_order_ref, e.transfer_order_ref, e.return_order_ref, e.notes,
+	e.financial_treatment, e.financial_treatment_at, e.financial_treatment_by,
 	e.registered_at, e.registered_by, e.created_at, e.updated_at`
 
 // scanEnrollment reads one enrollment row. Extra destinations serve the queries
@@ -223,6 +228,7 @@ func scanEnrollment(row pgx.Row, extra ...any) (*academic.Enrollment, error) {
 		&e.ResultRecordedAt, &e.ResultRecordedBy,
 		&e.PreviousEnrollmentID, &e.SupersedesID, &e.SupersedeReason, &supersedeDate,
 		&e.DeferralOrderRef, &e.TransferOrderRef, &e.ReturnOrderRef, &e.Notes,
+		&e.FinancialTreatment, &e.FinancialTreatmentAt, &e.FinancialTreatmentBy,
 		&e.RegisteredAt, &e.RegisteredBy, &e.CreatedAt, &e.UpdatedAt,
 	}
 	if err := row.Scan(append(dest, extra...)...); err != nil {
@@ -299,7 +305,10 @@ func (r *EnrollmentRepository) Update(ctx context.Context, e *academic.Enrollmen
 			deferral_order_ref     = $18,
 			transfer_order_ref     = $19,
 			return_order_ref       = $20,
-			notes                  = $21
+			notes                  = $21,
+			financial_treatment    = $22,
+			financial_treatment_at = $23,
+			financial_treatment_by = $24
 		WHERE id = $1
 		RETURNING updated_at`
 
@@ -312,6 +321,7 @@ func (r *EnrollmentRepository) Update(ctx context.Context, e *academic.Enrollmen
 		e.ResultRecordedAt, e.ResultRecordedBy,
 		e.PreviousEnrollmentID, e.SupersedesID, e.SupersedeReason, timeOrNil(e.SupersedeDate),
 		e.DeferralOrderRef, e.TransferOrderRef, e.ReturnOrderRef, e.Notes,
+		e.FinancialTreatment, e.FinancialTreatmentAt, e.FinancialTreatmentBy,
 	).Scan(&e.UpdatedAt)
 	return pg.WrapQuery("enrollment.Update", err)
 }
@@ -558,4 +568,127 @@ func (r *EnrollmentRepository) GetHostingRecord(ctx context.Context, enrollmentI
 	h.PeriodFrom = dateOrNil(from)
 	h.PeriodTo = dateOrNil(to)
 	return &h, nil
+}
+
+// UpdateHostingRecord writes back a hosting overlay.
+//
+// The fee-collector flag is the field that actually changes: agreements are
+// renegotiated, and whether we or the home institution collect decides whether
+// an account is generated here at all.
+func (r *EnrollmentRepository) UpdateHostingRecord(ctx context.Context, h *academic.HostingRecord) error {
+	if err := r.db.RequireTx(ctx, "enrollment.UpdateHostingRecord"); err != nil {
+		return err
+	}
+	const query = `
+		UPDATE hosting_record SET
+			direction          = $2,
+			home_university    = $3,
+			home_college       = $4,
+			home_department    = $5,
+			home_study_type_id = $6,
+			host_university    = $7,
+			host_college       = $8,
+			host_department    = $9,
+			host_study_type_id = $10,
+			fee_collector      = $11,
+			period_from        = $12,
+			period_to          = $13,
+			agreement_ref      = $14,
+			notes              = $15
+		WHERE id = $1
+		RETURNING updated_at`
+
+	q := r.db.Conn(ctx)
+	err := q.QueryRow(ctx, query,
+		h.ID, h.Direction,
+		h.HomeUniversity, h.HomeCollege, h.HomeDepartment, h.HomeStudyTypeID,
+		h.HostUniversity, h.HostCollege, h.HostDepartment, h.HostStudyTypeID,
+		h.FeeCollector, timeOrNil(h.PeriodFrom), timeOrNil(h.PeriodTo), h.AgreementRef, h.Notes,
+	).Scan(&h.UpdatedAt)
+	return pg.WrapQuery("enrollment.UpdateHostingRecord", err)
+}
+
+// ListHostingRecords returns hosting overlays, optionally for one year and one
+// direction.
+//
+// Incoming and outgoing students are counted and reported separately, because
+// an incoming student's fees may not be ours to collect and an outgoing one is
+// still ours to teach.
+func (r *EnrollmentRepository) ListHostingRecords(
+	ctx context.Context, yearID *shared.ID, direction *academic.HostingDirection,
+) ([]*academic.HostingRecord, error) {
+	const query = `
+		SELECT h.id, h.enrollment_id, h.direction,
+		       h.home_university, h.home_college, h.home_department, h.home_study_type_id,
+		       h.host_university, h.host_college, h.host_department, h.host_study_type_id,
+		       h.fee_collector, h.period_from, h.period_to, h.agreement_ref, h.notes,
+		       h.created_at, h.updated_at, h.created_by
+		FROM hosting_record h
+		JOIN enrollment e ON e.id = h.enrollment_id
+		WHERE ($1::uuid IS NULL OR e.academic_year_id = $1::uuid)
+		  AND ($2::text IS NULL OR h.direction = $2::text)
+		ORDER BY h.created_at DESC
+		LIMIT 1000`
+
+	var dir *string
+	if direction != nil {
+		value := string(*direction)
+		dir = &value
+	}
+
+	q := r.db.Conn(ctx)
+	rows, err := q.Query(ctx, query, yearID, dir)
+	if err != nil {
+		return nil, pg.WrapQuery("enrollment.ListHostingRecords", err)
+	}
+	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*academic.HostingRecord, error) {
+		var (
+			h    academic.HostingRecord
+			from *time.Time
+			to   *time.Time
+		)
+		err := row.Scan(
+			&h.ID, &h.EnrollmentID, &h.Direction,
+			&h.HomeUniversity, &h.HomeCollege, &h.HomeDepartment, &h.HomeStudyTypeID,
+			&h.HostUniversity, &h.HostCollege, &h.HostDepartment, &h.HostStudyTypeID,
+			&h.FeeCollector, &from, &to, &h.AgreementRef, &h.Notes,
+			&h.CreatedAt, &h.UpdatedAt, &h.CreatedBy,
+		)
+		h.PeriodFrom = dateOrNil(from)
+		h.PeriodTo = dateOrNil(to)
+		return &h, err
+	})
+	if err != nil {
+		return nil, pg.WrapQuery("enrollment.ListHostingRecords", err)
+	}
+	return out, nil
+}
+
+// Reassign moves an enrollment to another student.
+//
+// The one operation that changes whose enrollment a row is, and it exists for
+// exactly one caller: the merge command, folding a duplicate person record into
+// the canonical one. Nothing financial moves with it — the account stays
+// attached to this enrollment, its payments stay attached to the account, and
+// every receipt already printed still resolves.
+func (r *EnrollmentRepository) Reassign(ctx context.Context, enrollmentID, toStudentID shared.ID) error {
+	if err := r.db.RequireTx(ctx, "enrollment.Reassign"); err != nil {
+		return err
+	}
+	const query = `UPDATE enrollment SET student_id = $2 WHERE id = $1 RETURNING id`
+
+	q := r.db.Conn(ctx)
+	var id shared.ID
+	err := q.QueryRow(ctx, query, enrollmentID, toStudentID).Scan(&id)
+	return pg.WrapQuery("enrollment.Reassign", err)
+}
+
+// clearanceOrDefault keeps a Year built before this column existed — a test
+// fixture, a value decoded from an older payload — from writing an empty string
+// the check constraint refuses.
+func clearanceOrDefault(p academic.ClearancePolicy) string {
+	if p == "" {
+		return string(academic.ClearanceWarn)
+	}
+	return string(p)
 }

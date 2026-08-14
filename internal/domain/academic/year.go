@@ -53,6 +53,10 @@ type Year struct {
 	Status               YearStatus
 	RegistrationDeadline *shared.Date
 	DebtBlockPolicy      DebtBlockPolicy
+	// GraduationClearancePolicy decides what an outstanding balance does to a
+	// graduation. Per year, because a university changes the rule and every
+	// historical graduation must keep showing the rule that applied to it.
+	GraduationClearancePolicy ClearancePolicy
 
 	FinanciallyClosedAt  *time.Time
 	FinanciallyClosedBy  *shared.ID
@@ -82,12 +86,13 @@ func NewYear(code string, start, end shared.Date) (*Year, error) {
 			"code %q starts with %s but the year starts in %d", code, got, start.Year)
 	}
 	return &Year{
-		ID:              shared.NewID(),
-		Code:            code,
-		StartDate:       start,
-		EndDate:         end,
-		Status:          YearDraft,
-		DebtBlockPolicy: DebtWarn,
+		ID:                        shared.NewID(),
+		Code:                      code,
+		StartDate:                 start,
+		EndDate:                   end,
+		Status:                    YearDraft,
+		DebtBlockPolicy:           DebtWarn,
+		GraduationClearancePolicy: ClearanceWarn,
 	}, nil
 }
 

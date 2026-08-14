@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/swibit/flowed/internal/domain/shared"
 )
@@ -155,6 +156,68 @@ func (s *Student) RequireEnrollable() error {
 
 // MarkSeparated records that the student left without completing.
 func (s *Student) MarkSeparated() { s.Status = StatusSeparated }
+
+// MergeInto folds this record into another, leaving it as a tombstone.
+//
+// The row is kept rather than deleted, and that is the whole point: a receipt
+// printed under this student number, an enrollment reference in a ministry
+// return, an audit entry naming this identifier — all of them must still
+// resolve to a person years later. What the tombstone stops is the record being
+// used again: it drops out of the searches that offer a student to enroll or to
+// collect from, and it points at where the person actually is.
+func (s *Student) MergeInto(target shared.ID) error {
+	if s.Status == StatusMerged {
+		return shared.Conflict("student.already_merged",
+			"this record has already been merged into another")
+	}
+	if shared.IsNil(target) || target == s.ID {
+		return shared.Validation("student.invalid_merge_target",
+			"a record must be merged into a different, existing record")
+	}
+	s.Status = StatusMerged
+	s.MergedIntoID = &target
+	return nil
+}
+
+// FoldArabic normalises Arabic orthography for comparison, mirroring the
+// normalize_arabic function the database applies to the search columns.
+//
+// Duplicated here rather than shared with SQL because the comparison happens in
+// Go — deciding whether two records are the same person before a merge — and a
+// round trip to fold two strings would be absurd. The two implementations are
+// held together by the test that runs the same inputs through both.
+func FoldArabic(input string) string {
+	var b strings.Builder
+	b.Grow(len(input))
+
+	for _, r := range input {
+		switch {
+		// Tashkeel (harakat) and tatweel carry no lexical meaning and are
+		// typed inconsistently.
+		case r >= 0x064B && r <= 0x0652, r == 0x0640, r == 0x0670:
+			continue
+		// Hamza carriers all fold to bare alef: أحمد and احمد are one name.
+		case r == 'أ' || r == 'إ' || r == 'آ' || r == 'ٱ':
+			b.WriteRune('ا')
+		case r == 'ؤ':
+			b.WriteRune('و')
+		case r == 'ئ' || r == 'ى':
+			b.WriteRune('ي')
+		// Ta marbuta to ha: فاطمه and فاطمة are one name.
+		case r == 'ة':
+			b.WriteRune('ه')
+		case r == ' ':
+			// Collapse runs of spaces; a name typed with a double space is the
+			// same name.
+			if b.Len() > 0 && !strings.HasSuffix(b.String(), " ") {
+				b.WriteRune(' ')
+			}
+		default:
+			b.WriteRune(unicode.ToLower(r))
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
 
 // MarkReturned brings a separated student back onto the register.
 func (s *Student) MarkReturned() error {

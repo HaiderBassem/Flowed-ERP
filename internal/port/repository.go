@@ -134,11 +134,19 @@ type EnrollmentRepository interface {
 	// NextSequenceNo returns the next supersede-chain position for a student
 	// in a year.
 	NextSequenceNo(ctx context.Context, studentID, yearID shared.ID) (int16, error)
+
+	// Reassign moves an enrollment to another student. Used by the merge
+	// command and by nothing else: it is the one operation that changes whose
+	// enrollment a row is, and it exists because a duplicate person record
+	// splits one student's history across two identities.
+	Reassign(ctx context.Context, enrollmentID, toStudentID shared.ID) error
 	// PendingResults counts enrollments in a year with no recorded outcome,
 	// which gates the academic close.
 	PendingResults(ctx context.Context, yearID shared.ID) (int, error)
 	CreateHostingRecord(ctx context.Context, h *academic.HostingRecord) error
 	GetHostingRecord(ctx context.Context, enrollmentID shared.ID) (*academic.HostingRecord, error)
+	UpdateHostingRecord(ctx context.Context, h *academic.HostingRecord) error
+	ListHostingRecords(ctx context.Context, yearID *shared.ID, direction *academic.HostingDirection) ([]*academic.HostingRecord, error)
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +393,70 @@ type CashierSessionRepository interface {
 // ---------------------------------------------------------------------------
 // Cross-cutting
 // ---------------------------------------------------------------------------
+
+// GraduationClearance is one clearance decision (براءة الذمة), including the
+// ones that refused.
+type GraduationClearance struct {
+	ID             shared.ID
+	StudentID      shared.ID
+	EnrollmentID   shared.ID
+	AcademicYearID shared.ID
+	Outstanding    money.Amount
+	Policy         academic.ClearancePolicy
+	Cleared        bool
+	OverrideReason *string
+	OverrideBy     *shared.ID
+	DecidedAt      time.Time
+	DecidedBy      *shared.ID
+}
+
+// PlanRevision records why an installment plan changed.
+type PlanRevision struct {
+	ID                 shared.ID
+	AccountID          shared.ID
+	PlanVersion        int16
+	Kind               string
+	Reason             string
+	InstallmentsBefore int16
+	InstallmentsAfter  int16
+	UnpaidBefore       money.Amount
+	UnpaidAfter        money.Amount
+	ApprovedBy         *shared.ID
+	CreatedAt          time.Time
+	CreatedBy          *shared.ID
+}
+
+// StudentMerge records one duplicate folded into a canonical record.
+type StudentMerge struct {
+	ID               shared.ID
+	SourceID         shared.ID
+	TargetID         shared.ID
+	Reason           string
+	EnrollmentsMoved int16
+	AccountsMoved    int16
+	DiscountsMoved   int16
+	MergedAt         time.Time
+	MergedBy         *shared.ID
+}
+
+// LifecycleRepository stores the records of the decisions that end or reshape a
+// student's relationship with the university.
+//
+// Grouped in one interface because they share a property: each is append-only,
+// each exists to make a decision answerable years later, and none of them is
+// read on a hot path.
+type LifecycleRepository interface {
+	RecordClearance(ctx context.Context, c *GraduationClearance) error
+	ListClearances(ctx context.Context, studentID shared.ID) ([]*GraduationClearance, error)
+	LatestClearance(ctx context.Context, enrollmentID shared.ID) (*GraduationClearance, error)
+
+	RecordPlanRevision(ctx context.Context, r *PlanRevision) error
+	ListPlanRevisions(ctx context.Context, accountID shared.ID) ([]*PlanRevision, error)
+
+	RecordMerge(ctx context.Context, m *StudentMerge) error
+	ListMerges(ctx context.Context, targetID shared.ID) ([]*StudentMerge, error)
+	MergeOf(ctx context.Context, sourceID shared.ID) (*StudentMerge, error)
+}
 
 // AuditEntry is one record of who changed what.
 type AuditEntry struct {

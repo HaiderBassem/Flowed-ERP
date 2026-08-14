@@ -103,6 +103,43 @@ type ChangeStatusRequest struct {
 	OrderRef *string `json:"order_ref"`
 	Reason   *string `json:"reason"`
 	Result   string  `json:"result"`
+
+	// FinancialTreatment is required for deferral, withdrawal, dropout and
+	// transfer out. There is no default: charging a student who withdrew and
+	// waiving what they owe are both defensible, and only the university can
+	// choose. Omitting it is refused with the options named.
+	FinancialTreatment string `json:"financial_treatment" binding:"omitempty,oneof=keep waive_unpaid waive_all partial"`
+	// ChargeInstead is the amount to charge under the "partial" treatment.
+	ChargeInstead *int64 `json:"charge_instead"`
+	// GraduationOverrideReason clears a debtor whose year blocks graduation.
+	// Recorded by name against the clearance decision.
+	GraduationOverrideReason string `json:"graduation_override_reason"`
+}
+
+// ChangeStatusResponse is the enrollment plus what the change did to the money.
+type ChangeStatusResponse struct {
+	Enrollment EnrollmentView `json:"enrollment"`
+	Treatment  *TreatmentView `json:"financial_treatment,omitempty"`
+	Clearance  *ClearanceView `json:"graduation_clearance,omitempty"`
+}
+
+// TreatmentView says what a status change did to the account.
+type TreatmentView struct {
+	Treatment           string  `json:"treatment"`
+	Applied             bool    `json:"applied"`
+	Waived              int64   `json:"waived"`
+	CreditRaised        int64   `json:"credit_raised"`
+	RemainingObligation int64   `json:"remaining_obligation"`
+	AccountID           *string `json:"account_id,omitempty"`
+}
+
+// ClearanceView is a graduation clearance decision (براءة الذمة).
+type ClearanceView struct {
+	Cleared        bool      `json:"cleared"`
+	Policy         string    `json:"policy"`
+	Outstanding    int64     `json:"outstanding"`
+	OverrideReason *string   `json:"override_reason,omitempty"`
+	DecidedAt      time.Time `json:"decided_at"`
 }
 
 // GenerateAccountRequest prices an enrollment.
@@ -731,4 +768,146 @@ type LoginAttemptView struct {
 	FailureCode *string   `json:"failure_code,omitempty"`
 	IPAddress   *string   `json:"ip_address,omitempty"`
 	OccurredAt  time.Time `json:"occurred_at"`
+}
+
+// ---------------------------------------------------------------------------
+// Hosting, identity, merge and plan adjustment
+// ---------------------------------------------------------------------------
+
+// RegisterHostingRequest records a hosting agreement over an enrollment.
+type RegisterHostingRequest struct {
+	EnrollmentID string `json:"enrollment_id" binding:"required,uuid"`
+	Direction    string `json:"direction" binding:"required,oneof=incoming outgoing"`
+
+	HomeUniversity  *string `json:"home_university"`
+	HomeCollege     *string `json:"home_college"`
+	HomeDepartment  *string `json:"home_department"`
+	HomeStudyTypeID *string `json:"home_study_type_id" binding:"omitempty,uuid"`
+
+	HostUniversity  *string `json:"host_university"`
+	HostCollege     *string `json:"host_college"`
+	HostDepartment  *string `json:"host_department"`
+	HostStudyTypeID *string `json:"host_study_type_id" binding:"omitempty,uuid"`
+
+	// FeeCollector is which institution collects tuition under this agreement.
+	// Deliberately per-agreement: Iraqi practice varies, and the design refuses
+	// to assume one answer in code.
+	FeeCollector string  `json:"fee_collector" binding:"omitempty,oneof=home host split"`
+	PeriodFrom   *string `json:"period_from"`
+	PeriodTo     *string `json:"period_to"`
+	AgreementRef *string `json:"agreement_ref"`
+	Notes        *string `json:"notes"`
+}
+
+// UpdateHostingRequest amends an agreement.
+type UpdateHostingRequest struct {
+	FeeCollector *string `json:"fee_collector" binding:"omitempty,oneof=home host split"`
+	PeriodTo     *string `json:"period_to"`
+	AgreementRef *string `json:"agreement_ref"`
+	Notes        *string `json:"notes"`
+	Reason       string  `json:"reason" binding:"required"`
+}
+
+// HostingView is a hosting agreement.
+type HostingView struct {
+	ID                    string  `json:"id"`
+	EnrollmentID          string  `json:"enrollment_id"`
+	Direction             string  `json:"direction"`
+	HomeUniversity        *string `json:"home_university,omitempty"`
+	HomeCollege           *string `json:"home_college,omitempty"`
+	HomeDepartment        *string `json:"home_department,omitempty"`
+	HostUniversity        *string `json:"host_university,omitempty"`
+	HostCollege           *string `json:"host_college,omitempty"`
+	HostDepartment        *string `json:"host_department,omitempty"`
+	FeeCollector          string  `json:"fee_collector"`
+	GeneratesLocalAccount bool    `json:"generates_local_account"`
+	PeriodFrom            *string `json:"period_from,omitempty"`
+	PeriodTo              *string `json:"period_to,omitempty"`
+	AgreementRef          *string `json:"agreement_ref,omitempty"`
+}
+
+// RecordIdentityChangeRequest documents a court-ordered identity change.
+type RecordIdentityChangeRequest struct {
+	FullName          *string `json:"full_name"`
+	MotherName        *string `json:"mother_name"`
+	NationalID        *string `json:"national_id"`
+	BirthDate         *string `json:"birth_date"`
+	CourtDecisionNo   string  `json:"court_decision_no" binding:"required"`
+	CourtDecisionDate string  `json:"court_decision_date" binding:"required"`
+	EffectiveFrom     string  `json:"effective_from"`
+	DocumentRef       *string `json:"document_ref"`
+	Reason            string  `json:"reason" binding:"required"`
+}
+
+// MergeStudentsRequest folds one duplicate record into another.
+type MergeStudentsRequest struct {
+	SourceStudentID string `json:"source_student_id" binding:"required,uuid"`
+	Reason          string `json:"reason" binding:"required"`
+	// AcknowledgeDifferentIdentity confirms a merge whose two records disagree
+	// on name, mother's name or national identifier. Merging two people is far
+	// worse than leaving two records for one, so it must be said explicitly.
+	AcknowledgeDifferentIdentity bool `json:"acknowledge_different_identity"`
+}
+
+// MergeStudentsResponse reports what moved.
+type MergeStudentsResponse struct {
+	SourceStudentID  string `json:"source_student_id"`
+	TargetStudentID  string `json:"target_student_id"`
+	EnrollmentsMoved int16  `json:"enrollments_moved"`
+	AccountsMoved    int16  `json:"accounts_moved"`
+	DiscountsMoved   int16  `json:"discounts_moved"`
+}
+
+// AdjustPlanRequest reschedules or re-splits an installment plan.
+type AdjustPlanRequest struct {
+	Kind   string `json:"kind" binding:"required,oneof=reschedule resplit"`
+	Reason string `json:"reason" binding:"required"`
+	// DueDates maps installment id to its new due date, for a reschedule.
+	DueDates map[string]string `json:"due_dates"`
+	// Shares divides the unpaid remainder, for a resplit.
+	Shares     []PlanShareRequest `json:"shares"`
+	TemplateID *string            `json:"installment_template_id" binding:"omitempty,uuid"`
+}
+
+// PlanShareRequest is one share of a resplit remainder.
+type PlanShareRequest struct {
+	ShareBP       int32   `json:"share_bp" binding:"required"`
+	DueOffsetDays int     `json:"due_offset_days"`
+	Label         *string `json:"label"`
+}
+
+// AdjustPlanResponse is the plan after the change.
+type AdjustPlanResponse struct {
+	Installments []InstallmentView `json:"installments"`
+	Revision     *PlanRevisionView `json:"revision,omitempty"`
+}
+
+// PlanRevisionView is one recorded change to a schedule.
+type PlanRevisionView struct {
+	ID                 string    `json:"id"`
+	Kind               string    `json:"kind"`
+	Reason             string    `json:"reason"`
+	PlanVersion        int16     `json:"plan_version"`
+	InstallmentsBefore int16     `json:"installments_before"`
+	InstallmentsAfter  int16     `json:"installments_after"`
+	UnpaidBefore       int64     `json:"unpaid_before"`
+	UnpaidAfter        int64     `json:"unpaid_after"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
+// IdentityVersionView is one frozen version of a person's legal identity.
+//
+// Kept because Iraqi courts change names and civil-registry details, and a
+// certificate issued before the change must keep naming the person as it named
+// them. Nothing here is editable.
+type IdentityVersionView struct {
+	VersionNo         int32     `json:"version_no"`
+	FullName          string    `json:"full_name"`
+	MotherName        string    `json:"mother_name"`
+	NationalID        *string   `json:"national_id,omitempty"`
+	EffectiveFrom     *string   `json:"effective_from,omitempty"`
+	CourtDecisionNo   *string   `json:"court_decision_no,omitempty"`
+	CourtDecisionDate *string   `json:"court_decision_date,omitempty"`
+	Reason            string    `json:"reason"`
+	RecordedAt        time.Time `json:"recorded_at"`
 }

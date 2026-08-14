@@ -166,6 +166,21 @@ const (
 	CollectorSplit FeeCollector = "split"
 )
 
+// AllFeeCollectors lists every arrangement, for validation and for a UI to
+// offer. The design leaves which one applies deliberately unresolved: it is
+// settled per agreement with the other institution, not in code.
+var AllFeeCollectors = []FeeCollector{CollectorHome, CollectorHost, CollectorSplit}
+
+// Valid reports whether the collector is one the system recognises.
+func (c FeeCollector) Valid() bool {
+	for _, known := range AllFeeCollectors {
+		if c == known {
+			return true
+		}
+	}
+	return false
+}
+
 // HostingRecord is the overlay that turns an ordinary enrollment into a hosted
 // one, in either direction.
 type HostingRecord struct {

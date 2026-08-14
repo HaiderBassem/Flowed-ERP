@@ -571,25 +571,85 @@ type ChangeStatusInput struct {
 	OrderRef     *string
 	Reason       *string
 	Result       academic.AcademicResult
+
+	// FinancialTreatment is required for every status that ends an enrollment:
+	// deferral, withdrawal, dropout and transfer out. There is no default. The
+	// design is explicit that the financial consequence must be chosen rather
+	// than inferred, and both plausible answers — the student consumed the
+	// year, or the family could not continue — are defensible policies that
+	// only the university can pick between.
+	FinancialTreatment academic.FinancialTreatment
+	// ChargeInstead is the amount to charge under the "partial" treatment,
+	// which is what a pro-rata withdrawal rule amounts to.
+	ChargeInstead money.Amount
+	// GraduationOverrideReason clears a debtor whose year blocks graduation.
+	// Requires the authority to waive the block, and is recorded against the
+	// clearance decision by name.
+	GraduationOverrideReason string
+}
+
+// ChangeStatusResult carries the enrollment and what the change did to the
+// money, so a caller does not have to re-read the account to find out.
+type ChangeStatusResult struct {
+	Enrollment *academic.Enrollment
+	Treatment  TreatmentOutcome
+	// Clearance is set when completing a final-stage enrollment, which is
+	// where graduation clearance (براءة الذمة) is decided.
+	Clearance *port.GraduationClearance
 }
 
 // ChangeEnrollmentStatus defers, withdraws, transfers out, marks a dropout, or
 // completes an enrollment.
 //
-// Note what none of these do: they never clear a debt. A student who stops
-// attending still owes what they owed, and the account stays exactly where it
-// is so the debt report can still find it.
-func (s *EnrollmentService) ChangeEnrollmentStatus(ctx context.Context, actor shared.Actor, in ChangeStatusInput) (*academic.Enrollment, error) {
+// Every status that ends an enrollment carries an explicit financial
+// treatment. What these commands did before was leave the account exactly as it
+// was — which is the "keep" treatment, applied silently, to a student who may
+// have withdrawn in the first week. The debt then sat on an aging report nobody
+// could act on, and the correction was made by hand in psql or not at all.
+//
+// Completing a final-stage enrollment additionally decides graduation clearance
+// (براءة الذمة) under the year's policy: ignore, warn, or block with a named
+// override.
+func (s *EnrollmentService) ChangeEnrollmentStatus(ctx context.Context, actor shared.Actor, in ChangeStatusInput) (*ChangeStatusResult, error) {
 	if err := actor.RequireAnyRole("ChangeEnrollmentStatus",
 		shared.RoleRegistrar, shared.RoleAcademicOfficer, shared.RoleAdmin); err != nil {
 		return nil, err
 	}
 
-	var enrollment *academic.Enrollment
+	// A treatment that moves money is a financial act, whoever asked for it.
+	// A registrar may withdraw a student; writing off what they owe needs the
+	// authority that writes off anything else.
+	if in.FinancialTreatment.ChangesMoney() {
+		if err := actor.RequireAnyRole("ChangeEnrollmentStatus.waive",
+			shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
+			return nil, err
+		}
+	}
+	if academic.RequiresFinancialTreatment(in.Target) && in.FinancialTreatment == "" {
+		return nil, shared.Validation("enrollment.financial_treatment_required",
+			"%s ends the enrollment, so the command must say what happens to the money", in.Target).
+			WithDetail("field", "financial_treatment").
+			WithDetail("options", academic.AllTreatments).
+			WithDetail("remedy", "choose keep, waive_unpaid, waive_all or partial; there is no default "+
+				"because both charging and waiving are defensible and only the university can decide")
+	}
+	if in.FinancialTreatment != "" && !in.FinancialTreatment.Valid() {
+		return nil, shared.Validation("enrollment.unknown_treatment",
+			"%q is not a financial treatment", in.FinancialTreatment).
+			WithDetail("options", academic.AllTreatments)
+	}
+
+	result := &ChangeStatusResult{}
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
+		var enrollment *academic.Enrollment
 		var err error
 		enrollment, err = s.deps.Enrollments.GetByID(ctx, in.EnrollmentID)
 		if err != nil {
+			return err
+		}
+		result.Enrollment = enrollment
+		if err := actor.RequireScope("ChangeEnrollmentStatus",
+			&enrollment.CollegeID, &enrollment.DepartmentID); err != nil {
 			return err
 		}
 		year, err := s.deps.Years.GetByID(ctx, enrollment.AcademicYearID)
@@ -631,12 +691,59 @@ func (s *EnrollmentService) ChangeEnrollmentStatus(ctx context.Context, actor sh
 			return err
 		}
 
+		now := nowOr(s.deps.Clock)
+
+		// Graduation clearance, before the status is written. A blocking policy
+		// with money outstanding and no override refuses the whole command, so
+		// the enrollment is not left completed with the clearance unrecorded.
+		if in.Target == academic.StatusCompleted {
+			clearance, err := s.decideGraduationClearance(ctx, actor, enrollment, year, in.GraduationOverrideReason, now)
+			if err != nil {
+				return err
+			}
+			result.Clearance = clearance
+		}
+
+		// The money is settled before the status changes, so a treatment that
+		// cannot be applied — a closed year with nothing open to post against —
+		// leaves the enrollment active rather than half-settled.
+		if in.FinancialTreatment != "" {
+			reason := "financial treatment on " + string(in.Target)
+			if in.Reason != nil && *in.Reason != "" {
+				reason = *in.Reason
+			}
+			outcome, err := s.applyFinancialTreatment(
+				ctx, actor, enrollment, in.FinancialTreatment, in.ChargeInstead, reason, now)
+			if err != nil {
+				return err
+			}
+			result.Treatment = outcome
+
+			treatment := in.FinancialTreatment
+			enrollment.FinancialTreatment = &treatment
+			enrollment.FinancialTreatmentAt = &now
+			enrollment.FinancialTreatmentBy = &actor.UserID
+		}
+
 		if err := s.deps.Enrollments.Update(ctx, enrollment); err != nil {
 			return err
 		}
 
 		if err := s.syncStudentStanding(ctx, enrollment); err != nil {
 			return err
+		}
+
+		metadata := map[string]any{"new_status": string(in.Target)}
+		if in.FinancialTreatment != "" {
+			metadata["financial_treatment"] = string(in.FinancialTreatment)
+			metadata["waived"] = result.Treatment.Waived.Int64()
+			metadata["credit_raised"] = result.Treatment.CreditRaised.Int64()
+			metadata["remaining_obligation"] = result.Treatment.RemainingObligation.Int64()
+		}
+		if result.Clearance != nil {
+			metadata["clearance_cleared"] = result.Clearance.Cleared
+			metadata["clearance_outstanding"] = result.Clearance.Outstanding.Int64()
+			metadata["clearance_policy"] = string(result.Clearance.Policy)
 		}
 
 		return s.record(ctx, port.AuditEntry{
@@ -649,13 +756,93 @@ func (s *EnrollmentService) ChangeEnrollmentStatus(ctx context.Context, actor sh
 			AcademicYearID: &year.ID,
 			StudentID:      &enrollment.StudentID,
 			Reason:         in.Reason,
-			Metadata:       map[string]any{"new_status": string(in.Target)},
+			Metadata:       metadata,
 		})
 	})
 	if err != nil {
 		return nil, err
 	}
-	return enrollment, nil
+	return result, nil
+}
+
+// decideGraduationClearance applies the year's clearance policy to what the
+// student owes across every account they hold.
+//
+// Across every account, not just this year's: a student who owes for 2023 has
+// not settled with the university, and a certificate is the last moment anyone
+// has leverage to collect. The decision is recorded whichever way it goes,
+// including the refusals, because "why was this student not allowed to
+// graduate" is asked at a counter by a parent.
+func (s *EnrollmentService) decideGraduationClearance(
+	ctx context.Context,
+	actor shared.Actor,
+	enrollment *academic.Enrollment,
+	year *academic.Year,
+	overrideReason string,
+	now time.Time,
+) (*port.GraduationClearance, error) {
+	if s.deps.Lifecycle == nil {
+		return nil, nil
+	}
+
+	// Only a final-stage completion is a graduation. Completing stage two of
+	// six is a promotion, and blocking it on a debt would stop a student
+	// continuing rather than stop them leaving.
+	department, err := s.deps.Reference.GetDepartment(ctx, enrollment.DepartmentID)
+	if err != nil {
+		return nil, err
+	}
+	if department.StageCount > 0 && enrollment.Stage < department.StageCount {
+		return nil, nil
+	}
+
+	outstanding, err := s.deps.Accounts.OutstandingForStudent(ctx, enrollment.StudentID, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	overridden := overrideReason != ""
+	if overridden {
+		// Waiving a block is a financial authority, not a registrar's.
+		if err := actor.RequireAnyRole("GraduationClearance.override",
+			shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
+			return nil, err
+		}
+	}
+
+	decision, err := academic.DecideClearance(year.GraduationClearancePolicy, outstanding, overridden)
+	if err != nil {
+		return nil, err
+	}
+
+	record := &port.GraduationClearance{
+		ID:             shared.NewID(),
+		StudentID:      enrollment.StudentID,
+		EnrollmentID:   enrollment.ID,
+		AcademicYearID: year.ID,
+		Outstanding:    decision.Outstanding,
+		Policy:         decision.Policy,
+		Cleared:        decision.Cleared,
+		DecidedAt:      now,
+		DecidedBy:      &actor.UserID,
+	}
+	if overridden && !decision.Outstanding.IsZero() {
+		record.OverrideReason = &overrideReason
+		record.OverrideBy = &actor.UserID
+	}
+	if err := s.deps.Lifecycle.RecordClearance(ctx, record); err != nil {
+		return nil, err
+	}
+
+	if !decision.Cleared {
+		return record, shared.PreconditionFailed("enrollment.graduation_blocked",
+			"this student owes %s and academic year %s blocks graduation until it is settled",
+			decision.Outstanding, year.Code).
+			WithDetail("outstanding", decision.Outstanding.Int64()).
+			WithDetail("policy", string(decision.Policy)).
+			WithDetail("remedy", "collect the balance, or have a finance manager record a written override")
+	}
+	return record, nil
 }
 
 // syncStudentStanding derives the person's standing from what just happened to

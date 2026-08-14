@@ -1015,6 +1015,15 @@ func (f *bulkEnrollments) CreateHostingRecord(context.Context, *academic.Hosting
 func (f *bulkEnrollments) GetHostingRecord(context.Context, shared.ID) (*academic.HostingRecord, error) {
 	return nil, bulkNotFound("hosting record")
 }
+func (f *bulkEnrollments) UpdateHostingRecord(context.Context, *academic.HostingRecord) error {
+	return nil
+}
+func (f *bulkEnrollments) ListHostingRecords(
+	context.Context, *shared.ID, *academic.HostingDirection,
+) ([]*academic.HostingRecord, error) {
+	return nil, nil
+}
+func (f *bulkEnrollments) Reassign(context.Context, shared.ID, shared.ID) error { return nil }
 
 func sortBulkEnrollments(list []*academic.Enrollment) {
 	for i := 1; i < len(list); i++ {

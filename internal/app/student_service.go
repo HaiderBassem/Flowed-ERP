@@ -206,6 +206,21 @@ func (s *StudentService) UpdateContactDetails(ctx context.Context, actor shared.
 	return person, nil
 }
 
+// IdentityHistory returns every version of a person's legal identity, oldest
+// first.
+//
+// The register behind a reprint: a document issued in 2024 names the person as
+// they were named in 2024, and this is where a clerk checks that the name on
+// the paper in front of them belonged to this student at that time.
+func (s *StudentService) IdentityHistory(ctx context.Context, actor shared.Actor, studentID shared.ID) ([]*student.IdentityVersion, error) {
+	if err := actor.RequireAnyRole("IdentityHistory",
+		shared.RoleRegistrar, shared.RoleAdmin, shared.RoleAuditor,
+		shared.RoleAcademicOfficer, shared.RoleFinanceManager); err != nil {
+		return nil, err
+	}
+	return s.deps.Students.IdentityHistory(ctx, studentID)
+}
+
 // RecordIdentityChangeInput documents a legal identity change.
 type RecordIdentityChangeInput struct {
 	StudentID         shared.ID

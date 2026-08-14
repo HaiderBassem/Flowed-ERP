@@ -262,6 +262,7 @@ func buildEngine(
 	series := postgres.NewNumberSeriesRepository(db)
 	sessions := postgres.NewCashierSessionRepository(db)
 	audit := postgres.NewAuditRepository(db)
+	lifecycle := postgres.NewLifecycleRepository(db)
 	idempotency := postgres.NewIdempotencyRepository(db)
 	users := postgres.NewUserRepository(db)
 	authSessions := postgres.NewSessionRepository(db)
@@ -295,6 +296,7 @@ func buildEngine(
 		Sessions:     sessions,
 		Audit:        audit,
 		Users:        users,
+		Lifecycle:    lifecycle,
 		Clock:        clock,
 		Log:          log,
 		Metrics:      obs.Instruments(),
@@ -373,6 +375,7 @@ func buildEngine(
 		Handlers:      handlers,
 		Auth:          httpapi.NewAuthHandlers(authService, userService, log),
 		UserAdmin:     httpapi.NewUserHandlers(userService),
+		Lifecycle:     httpapi.NewLifecycleHandlers(enrollmentService, studentService, accountService),
 		AuthService:   authService,
 		Users:         users,
 		Reports:       httpapi.NewReportHandlers(reports),

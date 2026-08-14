@@ -323,7 +323,11 @@ const (
 	CreditFromRetroactiveDiscount CreditSource = "retroactive_discount"
 	CreditFromTransfer            CreditSource = "transfer_credit"
 	CreditFromRefundReversal      CreditSource = "refund_reversal"
-	CreditFromOther               CreditSource = "other"
+	// CreditFromWaiver is money already collected against an obligation that
+	// was later reduced — a withdrawal treated as a waiver, most often. The
+	// payment stays exactly as it was; what changed is what was owed.
+	CreditFromWaiver CreditSource = "waiver"
+	CreditFromOther  CreditSource = "other"
 )
 
 // CreditStatus is the state of a credit entry.

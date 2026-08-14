@@ -108,6 +108,14 @@ type Enrollment struct {
 	ReturnOrderRef   *string
 	Notes            *string
 
+	// FinancialTreatment records what was decided about the money when this
+	// enrollment stopped being active. Nil while it is still active; never
+	// inferred from the status, because "keep charging" and "nobody thought
+	// about it" are different answers and only one is defensible.
+	FinancialTreatment   *FinancialTreatment
+	FinancialTreatmentAt *time.Time
+	FinancialTreatmentBy *shared.ID
+
 	RegisteredAt time.Time
 	RegisteredBy *shared.ID
 	CreatedAt    time.Time
