@@ -207,9 +207,14 @@ vuln:
 secrets:
 	@bash scripts/check-secrets.sh
 
-## openapi-validate: check the OpenAPI document against the implemented routes
-openapi-validate: build
-	go test -run TestOpenAPI -count=1 ./internal/adapter/httpapi/...
+## openapi: regenerate the API contract from the router
+openapi:
+	go run ./cmd/openapi api/openapi.json
+
+## openapi-validate: fail if the checked-in contract has drifted from the router
+openapi-validate:
+	go test -run 'TestOpenAPI|TestEveryRoute|TestPublicRoutes|TestMoneyIsDocumented|TestIdempotentOperations' \
+		-count=1 ./internal/adapter/httpapi/...
 
 ## ui-build: build the operator UI bundle
 ui-build:
@@ -253,5 +258,5 @@ fmt-check:
         db-create db-drop db-reset migrate-up migrate-down migrate-status \
         migrate-validate migrate-new verify-audit seed demo demo-reset \
         docker-up docker-down docker-clean check ci fmt-check staticcheck vuln \
-        secrets openapi-validate ui-build perf perf-seed backup restore-drill \
+        secrets openapi openapi-validate ui-build perf perf-seed backup restore-drill \
         test-integration test-db-setup test-db-drop audit-verify-external

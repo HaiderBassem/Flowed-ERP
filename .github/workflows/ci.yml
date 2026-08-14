@@ -190,10 +190,10 @@ jobs:
       - name: Contract matches the router
         # The specification is generated from the route table, so drift is a
         # test failure rather than a discovery made by whoever writes the client.
-        run: go test -run 'TestOpenAPI' -count=1 ./internal/adapter/httpapi/...
+        run: make openapi-validate
       - name: Specification is valid OpenAPI
         run: |
-          npx --yes @redocly/cli@1.25.11 lint api/openapi.yaml
+          npx --yes @redocly/cli@1.25.11 lint api/openapi.json
 
   ui:
     name: Operator UI
