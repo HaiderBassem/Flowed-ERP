@@ -89,9 +89,19 @@ func (r *AuditShipmentRepository) List(ctx context.Context, destination string, 
 }
 
 func (r *AuditShipmentRepository) Gaps(ctx context.Context, destination string) ([]port.ShipmentGap, error) {
-	// The first block is expected to start at 1: an installation that begins
-	// shipping after a year of operation has a gap covering that year, and
-	// pretending otherwise would hide exactly what this reports.
+	// The first block is expected to start where the trail does, which is not
+	// always 1 — a restored database or a re-seeded sequence can begin higher,
+	// and reporting that as a missing entry would be an alarm about arithmetic.
+	// An installation that genuinely began shipping after a year of operation
+	// still shows the gap, because its trail starts at 1 and its first block
+	// does not.
+	var firstInTrail int64
+	q0 := r.db.Conn(ctx)
+	if err := q0.QueryRow(ctx,
+		`SELECT coalesce(min(sequence_no), 1) FROM v_audit_trail`).Scan(&firstInTrail); err != nil {
+		return nil, pg.WrapQuery("audit_shipment.Gaps", err)
+	}
+
 	const query = `
 		SELECT from_sequence, to_sequence, gap_before
 		FROM v_audit_shipment_coverage

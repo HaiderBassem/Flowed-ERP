@@ -142,3 +142,123 @@ func TestArchivingRefusesWithoutAnOffHostCopy(t *testing.T) {
 			"the two must not overlap", archived, live)
 	}
 }
+
+// TestAnAppendWaitingOnAnotherSeesWhatItWrote reproduces the fork exactly.
+//
+// The chain used to be serialised with a transaction-scoped advisory lock taken
+// inside the insert trigger, which looks right and is not. Under READ COMMITTED
+// a statement's snapshot is taken when the statement starts — before the
+// trigger runs and before the lock is requested — so a transaction that waited
+// for the lock resumed with a snapshot that still could not see what the winner
+// had committed. Both chained onto the same predecessor. The trail forked, one
+// entry's hash was referenced by nobody, and the next verification called it
+// tampering, on a system whose whole claim is that it can tell tampering from
+// ordinary operation.
+//
+// Racing goroutines reproduce it only sometimes. Two connections driven by hand
+// reproduce it every time: A takes the lock and holds it, B starts its insert
+// and blocks, A commits, B proceeds. That is the interleaving, and it is what
+// two cashiers posting at the same moment produce.
+func TestAnAppendWaitingOnAnotherSeesWhatItWrote(t *testing.T) {
+	ctx := context.Background()
+	db := shipTestDB(t)
+
+	var before int64
+	if err := db.Pool().QueryRow(ctx,
+		`SELECT coalesce(max(sequence_no), 0) FROM audit_log`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := db.Pool().Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Release()
+	second, err := db.Pool().Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Release()
+
+	tx, err := first.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const insert = `
+		INSERT INTO audit_log (id, entity_type, action, actor_username, occurred_at, reason)
+		VALUES (gen_random_uuid(), 'test_fixture', $1, 'integration', now(), $2)
+		RETURNING sequence_no, previous_hash, entry_hash`
+
+	marker := "fork-" + shared.NewID().String()
+
+	// A writes and holds the lock by not committing.
+	var firstSeq int64
+	var firstPrev *string
+	var firstHash string
+	if err := tx.QueryRow(ctx, insert, "concurrent.first", marker).
+		Scan(&firstSeq, &firstPrev, &firstHash); err != nil {
+		t.Fatalf("the first append: %v", err)
+	}
+
+	// B starts while A still holds it. It will block inside the trigger.
+	type result struct {
+		seq  int64
+		prev *string
+		hash string
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		var r result
+		r.err = second.QueryRow(ctx, insert, "concurrent.second", marker).
+			Scan(&r.seq, &r.prev, &r.hash)
+		done <- r
+	}()
+
+	// Long enough for the second insert to reach the lock and block on it.
+	time.Sleep(300 * time.Millisecond)
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("committing the first append: %v", err)
+	}
+
+	var r result
+	select {
+	case r = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the second append never completed; it is still waiting for a lock " +
+			"the first one released")
+	}
+	if r.err != nil {
+		t.Fatalf("the second append: %v", r.err)
+	}
+
+	// The whole point: the waiter must chain onto the entry that committed
+	// while it waited, not onto the one it could see when it started.
+	if r.prev == nil || *r.prev != firstHash {
+		got := "nothing"
+		if r.prev != nil {
+			got = *r.prev
+		}
+		t.Errorf("the second entry chained onto %s; it must chain onto the first "+
+			"entry's hash %s, which committed while it waited", got, firstHash)
+	}
+	if r.seq <= firstSeq {
+		t.Errorf("the second entry is numbered %d against the first's %d; the number "+
+			"is allocated under the same lock and must follow", r.seq, firstSeq)
+	}
+
+	// And nothing this test wrote is reported as a problem. Scoped to its own
+	// range: a shared database carries whatever earlier runs left in it,
+	// including — until this fix — forks caused by the very defect under test.
+	var problems int
+	if err := db.Pool().QueryRow(ctx,
+		`SELECT count(*) FROM verify_audit_chain($1)`, before).Scan(&problems); err != nil {
+		t.Fatal(err)
+	}
+	if problems != 0 {
+		t.Errorf("verification reports %d problem(s) among the entries this test wrote",
+			problems)
+	}
+}

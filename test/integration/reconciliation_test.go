@@ -115,26 +115,47 @@ func TestTheChecksReportWhatTheyLookedAt(t *testing.T) {
 	db := shipTestDB(t)
 	store := postgres.NewReconciliationRepository(db)
 
-	checks := map[string]func(context.Context, int) ([]port.ObservedFinding, int64, error){
-		"accounts":     store.CheckAccounts,
-		"installments": store.CheckInstallments,
-		"refunds":      store.CheckRefunds,
-		"audit_chain":  store.CheckAuditChain,
+	checks := []struct {
+		name  string
+		check func(context.Context, int) ([]port.ObservedFinding, int64, error)
+		// The population the check is over, so the reported figure can be
+		// compared against the truth rather than against a guess. Asserting
+		// "more than zero" encoded an assumption that the database already had
+		// data in it, which on a freshly created one is simply false — and a
+		// test that fails on an empty database teaches people to seed before
+		// running it, which is how a suite stops being runnable.
+		population string
+	}{
+		{"accounts", store.CheckAccounts, "SELECT count(*) FROM financial_account"},
+		{"installments", store.CheckInstallments, "SELECT count(*) FROM installment"},
+		{"refunds", store.CheckRefunds, "SELECT count(*) FROM payment WHERE status = 'posted'"},
+		{"audit_chain", store.CheckAuditChain, "SELECT count(*) FROM audit_log"},
 	}
 
-	for name, check := range checks {
-		found, checked, err := check(ctx, 100)
+	for _, tc := range checks {
+		found, checked, err := tc.check(ctx, 100)
 		if err != nil {
-			t.Errorf("%s: %v", name, err)
+			t.Errorf("%s: %v", tc.name, err)
 			continue
 		}
 		if len(found) != 0 {
 			t.Errorf("%s reported %d violation(s) on a database the suite maintains: %+v",
-				name, len(found), found[0].Detail)
+				tc.name, len(found), found[0].Detail)
 		}
-		if checked == 0 {
-			t.Errorf("%s reported checking no rows at all; a check with nothing to check "+
-				"must not be read as a clean one", name)
+
+		var population int64
+		if err := db.Pool().QueryRow(ctx, tc.population).Scan(&population); err != nil {
+			t.Fatal(err)
+		}
+		// The end-to-end suite runs in parallel and writes as it goes, so the
+		// population can only have grown between the check and this count.
+		if checked > population {
+			t.Errorf("%s reported checking %d rows out of %d that exist",
+				tc.name, checked, population)
+		}
+		if population > 0 && checked == 0 {
+			t.Errorf("%s reported checking no rows while %d exist; a check that looks "+
+				"at nothing must not read as a clean one", tc.name, population)
 		}
 	}
 }
