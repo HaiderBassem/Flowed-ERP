@@ -7,6 +7,7 @@
 //	api create-user     add an operator with the given roles
 //	api demo            load an exploration dataset (development only)
 //	api audit-ship      copy the audit trail off-host; "verify" checks the copy
+//	api perf-seed       load a synthetic dataset for measuring (development only)
 package main
 
 import (
@@ -58,10 +59,12 @@ func main() {
 		err = demo()
 	case "audit-ship":
 		err = auditShip()
+	case "perf-seed":
+		err = perfSeed()
 	default:
 		fmt.Fprintf(os.Stderr,
 			"unknown command %q; expected serve, version, healthcheck, seed, create-user, "+
-				"demo or audit-ship\n",
+				"demo, audit-ship or perf-seed\n",
 			command)
 		os.Exit(2)
 	}
