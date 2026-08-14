@@ -132,6 +132,28 @@ type StudentCategory struct {
 	UpdatedAt time.Time
 }
 
+// NewStudentCategory builds a category.
+//
+// The code is the part that matters: fee policy resolves against it, so
+// creating one is how a university introduces a new pricing rule — a
+// scholarship cohort, a returning-student rate — without a branch in code.
+func NewStudentCategory(code, nameAr string) (*StudentCategory, error) {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if !codePattern.MatchString(code) {
+		return nil, shared.Validation("student_category.invalid_code",
+			"a category code must be 2 to 32 upper-case letters, digits or underscores, got %q", code)
+	}
+	if strings.TrimSpace(nameAr) == "" {
+		return nil, shared.Validation("student_category.name_required", "the Arabic name is required")
+	}
+	return &StudentCategory{
+		ID:       shared.NewID(),
+		Code:     code,
+		NameAr:   strings.TrimSpace(nameAr),
+		IsActive: true,
+	}, nil
+}
+
 // Well-known category codes, seeded by migration.
 const (
 	CategoryRegular  = "REGULAR"

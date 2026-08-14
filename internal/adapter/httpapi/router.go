@@ -37,6 +37,7 @@ type RouterDeps struct {
 	Receipts    *ReceiptHandlers
 	UserAdmin   *UserHandlers
 	Lifecycle   *LifecycleHandlers
+	MasterData  *MasterDataHandlers
 	// AuthService backs the session-revocation middleware as well as the
 	// credential endpoints: a token whose session was revoked must stop
 	// working on the next request, not at the end of its lifetime.
@@ -175,6 +176,9 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	}
 	if deps.Lifecycle != nil {
 		deps.Lifecycle.Register(secured)
+	}
+	if deps.MasterData != nil {
+		deps.MasterData.Register(secured)
 	}
 
 	return engine

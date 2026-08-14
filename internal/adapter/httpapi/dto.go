@@ -911,3 +911,105 @@ type IdentityVersionView struct {
 	Reason            string    `json:"reason"`
 	RecordedAt        time.Time `json:"recorded_at"`
 }
+
+// ---------------------------------------------------------------------------
+// Master data administration
+// ---------------------------------------------------------------------------
+
+// UpdateMasterRequest renames a reference row or retires it.
+//
+// Codes are absent on purpose. They travel into receipt numbers, fee-policy
+// scopes and ministry returns, so a code that changes meaning is worse than one
+// that is merely ugly: retire the row and create a new one instead.
+type UpdateMasterRequest struct {
+	NameAr   *string `json:"name_ar"`
+	NameEn   *string `json:"name_en"`
+	IsActive *bool   `json:"is_active"`
+	Reason   string  `json:"reason"`
+}
+
+// UpdateDepartmentRequest additionally changes how many years a programme runs.
+type UpdateDepartmentRequest struct {
+	NameAr *string `json:"name_ar"`
+	NameEn *string `json:"name_en"`
+	// StageCount cannot be reduced below a stage students are registered in:
+	// the final stage decides who is a graduate.
+	StageCount *int16 `json:"stage_count"`
+	IsActive   *bool  `json:"is_active"`
+	Reason     string `json:"reason"`
+}
+
+// UpdateStudyTypeRequest renames, reorders or retires a study type.
+type UpdateStudyTypeRequest struct {
+	NameAr    *string `json:"name_ar"`
+	NameEn    *string `json:"name_en"`
+	SortOrder *int16  `json:"sort_order"`
+	IsActive  *bool   `json:"is_active"`
+	Reason    string  `json:"reason"`
+}
+
+// CreateStudentCategoryRequest adds a category fee policy can resolve against.
+type CreateStudentCategoryRequest struct {
+	Code   string  `json:"code" binding:"required"`
+	NameAr string  `json:"name_ar" binding:"required"`
+	NameEn *string `json:"name_en"`
+}
+
+// StudentCategoryView is a category.
+type StudentCategoryView struct {
+	ID       string `json:"id"`
+	Code     string `json:"code"`
+	NameAr   string `json:"name_ar"`
+	IsActive bool   `json:"is_active"`
+}
+
+// CreatePaymentMethodRequest adds a way of paying.
+type CreatePaymentMethodRequest struct {
+	Code   string `json:"code" binding:"required"`
+	NameAr string `json:"name_ar" binding:"required"`
+	// IsCash puts the collection in a drawer that is counted at shift close.
+	IsCash bool `json:"is_cash"`
+	// RequiresReference demands the bank or terminal reference without which
+	// the collection cannot be matched against a statement.
+	RequiresReference bool  `json:"requires_reference"`
+	SortOrder         int16 `json:"sort_order"`
+}
+
+// UpdatePaymentMethodRequest renames a method, changes its rules or retires it.
+type UpdatePaymentMethodRequest struct {
+	NameAr *string `json:"name_ar"`
+	// IsCash is refused once payments exist: it decides what a drawer was
+	// expected to hold, and changing it would unbalance a shift that balanced.
+	IsCash            *bool  `json:"is_cash"`
+	RequiresReference *bool  `json:"requires_reference"`
+	IsActive          *bool  `json:"is_active"`
+	SortOrder         *int16 `json:"sort_order"`
+	Reason            string `json:"reason"`
+}
+
+// PaymentMethodView is a way of paying.
+type PaymentMethodView struct {
+	ID                string `json:"id"`
+	Code              string `json:"code"`
+	NameAr            string `json:"name_ar"`
+	IsCash            bool   `json:"is_cash"`
+	RequiresReference bool   `json:"requires_reference"`
+	IsActive          bool   `json:"is_active"`
+}
+
+// CreateCashierDeskRequest opens a window money can be taken at.
+type CreateCashierDeskRequest struct {
+	// Code appears inside every receipt number the desk issues
+	// (2025-D03-000917), so it is short and fixed for the desk's life.
+	Code      string  `json:"code" binding:"required"`
+	NameAr    string  `json:"name_ar" binding:"required"`
+	CollegeID *string `json:"college_id" binding:"omitempty,uuid"`
+}
+
+// UpdateCashierDeskRequest renames a desk or closes it.
+type UpdateCashierDeskRequest struct {
+	NameAr    *string `json:"name_ar"`
+	CollegeID *string `json:"college_id" binding:"omitempty,uuid"`
+	IsActive  *bool   `json:"is_active"`
+	Reason    string  `json:"reason"`
+}

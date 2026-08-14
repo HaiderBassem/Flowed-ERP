@@ -24,12 +24,16 @@ import (
 // repository interface for them would add a layer that only forwards.
 type CashierHandlers struct {
 	Sessions *app.CashierService
-	DB       *pg.DB
+	// Master answers the desk list. The handler used to query cashier_desk
+	// directly, which was the one place the HTTP layer reached past the
+	// services into the database.
+	Master *app.MasterDataService
+	DB     *pg.DB
 }
 
 // NewCashierHandlers wires the cashier session routes.
-func NewCashierHandlers(sessions *app.CashierService, db *pg.DB) *CashierHandlers {
-	return &CashierHandlers{Sessions: sessions, DB: db}
+func NewCashierHandlers(sessions *app.CashierService, master *app.MasterDataService, db *pg.DB) *CashierHandlers {
+	return &CashierHandlers{Sessions: sessions, Master: master, DB: db}
 }
 
 // Register mounts the cashier session and desk routes.
@@ -148,6 +152,7 @@ type CashierDeskView struct {
 	Code      string  `json:"code"`
 	NameAr    string  `json:"name_ar"`
 	CollegeID *string `json:"college_id,omitempty"`
+	IsActive  bool    `json:"is_active"`
 }
 
 // ---------------------------------------------------------------------------
@@ -271,44 +276,25 @@ func (h *CashierHandlers) SessionSummary(c *gin.Context) {
 }
 
 // ListDesks returns the windows a cashier may sign in at.
+//
+// It reads through the reference repository rather than issuing its own SQL.
+// The query it replaced was the only place in the HTTP layer that talked to the
+// database directly, which meant the desk list quietly bypassed the service
+// layer — and when desks became administrable, two code paths would have had to
+// agree about what "active" meant.
 func (h *CashierHandlers) ListDesks(c *gin.Context) {
-	const query = `
-		SELECT id, code, name_ar, college_id
-		FROM cashier_desk
-		WHERE is_active
-		ORDER BY code`
-
-	ctx := requestContext(c)
-	rows, err := h.DB.Conn(ctx).Query(ctx, query)
+	desks, err := h.Master.ListCashierDesks(
+		requestContext(c), httpx.MustActor(c), !queryBool(c, "include_inactive"))
 	if err != nil {
-		httpx.Respond(c, pg.WrapQuery("cashier_desk.List", err))
+		httpx.Respond(c, err)
 		return
 	}
-	defer rows.Close()
 
-	desks := make([]CashierDeskView, 0, 8)
-	for rows.Next() {
-		var (
-			id        shared.ID
-			code      string
-			nameAr    string
-			collegeID *shared.ID
-		)
-		if err := rows.Scan(&id, &code, &nameAr, &collegeID); err != nil {
-			httpx.Respond(c, pg.WrapQuery("cashier_desk.List.scan", err))
-			return
-		}
-		view := CashierDeskView{ID: id.String(), Code: code, NameAr: nameAr}
-		if collegeID != nil {
-			view.CollegeID = ptrString(collegeID.String())
-		}
-		desks = append(desks, view)
+	views := make([]CashierDeskView, 0, len(desks))
+	for _, desk := range desks {
+		views = append(views, toDeskView(desk))
 	}
-	if err := rows.Err(); err != nil {
-		httpx.Respond(c, pg.WrapQuery("cashier_desk.List.rows", err))
-		return
-	}
-	httpx.OK(c, desks)
+	httpx.OK(c, views)
 }
 
 // sessionActivity itemises a shift: what was taken by method, what was voided,

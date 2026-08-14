@@ -341,6 +341,7 @@ func buildEngine(
 	bulkService := app.NewBulkService(deps, accountService, enrollmentService)
 	importService := app.NewImportService(deps, imports, studentService, enrollmentService)
 	cashierService := app.NewCashierService(deps)
+	masterDataService := app.NewMasterDataService(deps)
 
 	// A receipt states Baghdad local time even though every stored timestamp is
 	// UTC: it records the moment the cashier and the student were both standing
@@ -376,12 +377,13 @@ func buildEngine(
 		Auth:          httpapi.NewAuthHandlers(authService, userService, log),
 		UserAdmin:     httpapi.NewUserHandlers(userService),
 		Lifecycle:     httpapi.NewLifecycleHandlers(enrollmentService, studentService, accountService),
+		MasterData:    httpapi.NewMasterDataHandlers(masterDataService),
 		AuthService:   authService,
 		Users:         users,
 		Reports:       httpapi.NewReportHandlers(reports),
 		ConfigAdmin:   httpapi.NewConfigHandlers(app.NewConfigService(deps)),
 		Bulk:          httpapi.NewBulkHandlers(bulkService, importService, imports),
-		Cashier:       httpapi.NewCashierHandlers(cashierService, db),
+		Cashier:       httpapi.NewCashierHandlers(cashierService, masterDataService, db),
 		Receipts:      httpapi.NewReceiptHandlers(receiptService),
 		Tokens:        tokens,
 		Idempotency:   idempotency,

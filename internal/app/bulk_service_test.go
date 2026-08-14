@@ -1080,6 +1080,37 @@ func (f *bulkReference) GetStudyTypeByCode(_ context.Context, code string) (*aca
 }
 func (f *bulkReference) CreateStudyType(context.Context, *academic.StudyType) error { return nil }
 
+// The administration half of the reference repository. The bulk commands do
+// not touch master data, so these are stubs — but the interface is one
+// interface, and a stub that lies about succeeding is safer here than a panic
+// in a test that never calls it.
+func (f *bulkReference) UpdateCollege(context.Context, *academic.College) error       { return nil }
+func (f *bulkReference) UpdateDepartment(context.Context, *academic.Department) error { return nil }
+func (f *bulkReference) UpdateStudyType(context.Context, *academic.StudyType) error   { return nil }
+func (f *bulkReference) CreateStudentCategory(context.Context, *academic.StudentCategory) error {
+	return nil
+}
+func (f *bulkReference) GetStudentCategory(context.Context, shared.ID) (*academic.StudentCategory, error) {
+	return nil, bulkNotFound("student category")
+}
+func (f *bulkReference) UpdateStudentCategory(context.Context, *academic.StudentCategory) error {
+	return nil
+}
+func (f *bulkReference) CreatePaymentMethod(context.Context, *payment.Method) error { return nil }
+func (f *bulkReference) UpdatePaymentMethod(context.Context, *payment.Method) error { return nil }
+func (f *bulkReference) ListCashierDesks(context.Context, bool) ([]*payment.CashierDesk, error) {
+	return nil, nil
+}
+func (f *bulkReference) GetCashierDesk(context.Context, shared.ID) (*payment.CashierDesk, error) {
+	return nil, bulkNotFound("cashier desk")
+}
+func (f *bulkReference) CreateCashierDesk(context.Context, *payment.CashierDesk) error { return nil }
+func (f *bulkReference) UpdateCashierDesk(context.Context, *payment.CashierDesk) error { return nil }
+func (f *bulkReference) UsageCount(context.Context, port.MasterDataKind, shared.ID) (int, error) {
+	return 0, nil
+}
+func (f *bulkReference) HighestStageInUse(context.Context, shared.ID) (int16, error) { return 0, nil }
+
 func (f *bulkReference) ListStudentCategories(context.Context, bool) ([]*academic.StudentCategory, error) {
 	return nil, nil
 }

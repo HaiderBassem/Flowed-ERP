@@ -9,6 +9,8 @@
 package payment
 
 import (
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/swibit/flowed/internal/domain/money"
@@ -48,6 +50,82 @@ type Method struct {
 	IsActive          bool
 	SortOrder         int16
 }
+
+// NewMethod builds a way of paying.
+//
+// Both flags are decisions about how the money will be handled rather than
+// labels. IsCash puts the collection in a drawer that gets counted at shift
+// close; RequiresReference demands the bank or terminal reference without
+// which the collection cannot be matched to a statement.
+func NewMethod(code, nameAr string, isCash, requiresReference bool) (*Method, error) {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if !methodCodePattern.MatchString(code) {
+		return nil, shared.Validation("payment_method.invalid_code",
+			"a method code is 2 to 32 upper-case letters, digits or underscores, got %q", code)
+	}
+	if strings.TrimSpace(nameAr) == "" {
+		return nil, shared.Validation("payment_method.name_required", "the Arabic name is required")
+	}
+	if isCash && requiresReference {
+		return nil, shared.Validation("payment_method.cash_needs_no_reference",
+			"cash has no external reference to record; requiring one would leave the cashier "+
+				"inventing a number to get past the form")
+	}
+	return &Method{
+		ID:                shared.NewID(),
+		Code:              code,
+		NameAr:            strings.TrimSpace(nameAr),
+		IsCash:            isCash,
+		RequiresReference: requiresReference,
+		IsActive:          true,
+	}, nil
+}
+
+// methodCodePattern mirrors the schema's check constraint.
+var methodCodePattern = regexp.MustCompile(`^[A-Z0-9_]{2,32}$`)
+
+// CashierDesk is a physical window where money is taken.
+//
+// A desk is not decoration: receipt series run per (academic year, desk), so
+// the desk is what makes a paper receipt book reconcilable against the system.
+// A cashier signs in at one, and a payment cannot be posted without it.
+type CashierDesk struct {
+	ID        shared.ID
+	Code      string
+	NameAr    string
+	CollegeID *shared.ID
+	IsActive  bool
+	CreatedAt time.Time
+}
+
+// NewCashierDesk builds a desk after validating its code.
+//
+// The code appears inside every receipt number issued at this desk
+// (2025-D03-000917), which is why it is short, upper-case and fixed for the
+// life of the desk: changing it would make two receipt numbers that look like
+// they came from different desks come from the same one.
+func NewCashierDesk(code, nameAr string, collegeID *shared.ID) (*CashierDesk, error) {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if !deskCodePattern.MatchString(code) {
+		return nil, shared.Validation("desk.invalid_code",
+			"a desk code is 1 to 16 upper-case letters, digits or underscores, got %q", code).
+			WithDetail("example", "D01")
+	}
+	if strings.TrimSpace(nameAr) == "" {
+		return nil, shared.Validation("desk.name_required", "a desk needs a name")
+	}
+	return &CashierDesk{
+		ID:        shared.NewID(),
+		Code:      code,
+		NameAr:    strings.TrimSpace(nameAr),
+		CollegeID: collegeID,
+		IsActive:  true,
+	}, nil
+}
+
+// deskCodePattern mirrors the schema's check constraint, so a bad code is
+// refused with a readable message rather than a constraint violation.
+var deskCodePattern = regexp.MustCompile(`^[A-Z0-9_]{1,16}$`)
 
 // Well-known method codes, seeded by migration.
 const (

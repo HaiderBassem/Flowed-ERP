@@ -153,6 +153,21 @@ type EnrollmentRepository interface {
 // Reference data
 // ---------------------------------------------------------------------------
 
+// MasterDataKind names a table whose usage the reference repository can count.
+//
+// Used by the guards that decide whether a field may still be edited: a payment
+// method cannot stop being cash once cash has been taken through it.
+type MasterDataKind string
+
+const (
+	MasterCollege         MasterDataKind = "college"
+	MasterDepartment      MasterDataKind = "department"
+	MasterStudyType       MasterDataKind = "study_type"
+	MasterStudentCategory MasterDataKind = "student_category"
+	MasterPaymentMethod   MasterDataKind = "payment_method"
+	MasterCashierDesk     MasterDataKind = "cashier_desk"
+)
+
 // College, Department, StudyType and StudentCategory are configuration the
 // administration owns. They are grouped into one repository because they are
 // always read together when validating an enrollment's context.
@@ -175,6 +190,36 @@ type ReferenceRepository interface {
 
 	ListPaymentMethods(ctx context.Context, activeOnly bool) ([]*payment.Method, error)
 	GetPaymentMethod(ctx context.Context, id shared.ID) (*payment.Method, error)
+
+	// Updates. Master data is edited in place — a college renamed is the same
+	// college — but never deleted: a row referenced by an enrollment from 2019
+	// cannot go away, and the retirement flag is what takes it out of use.
+	UpdateCollege(ctx context.Context, c *academic.College) error
+	UpdateDepartment(ctx context.Context, d *academic.Department) error
+	UpdateStudyType(ctx context.Context, s *academic.StudyType) error
+
+	CreateStudentCategory(ctx context.Context, c *academic.StudentCategory) error
+	GetStudentCategory(ctx context.Context, id shared.ID) (*academic.StudentCategory, error)
+	UpdateStudentCategory(ctx context.Context, c *academic.StudentCategory) error
+
+	CreatePaymentMethod(ctx context.Context, m *payment.Method) error
+	UpdatePaymentMethod(ctx context.Context, m *payment.Method) error
+
+	ListCashierDesks(ctx context.Context, activeOnly bool) ([]*payment.CashierDesk, error)
+	GetCashierDesk(ctx context.Context, id shared.ID) (*payment.CashierDesk, error)
+	CreateCashierDesk(ctx context.Context, d *payment.CashierDesk) error
+	UpdateCashierDesk(ctx context.Context, d *payment.CashierDesk) error
+
+	// UsageCount reports how many rows depend on a piece of master data.
+	//
+	// The guard behind every edit that could rewrite history: a payment method
+	// cannot stop being cash once cash has been taken through it, and a
+	// department cannot shrink below the stages students are actually
+	// registered in. Nothing else can answer that question — the domain has no
+	// view of how widely a row is referenced.
+	UsageCount(ctx context.Context, kind MasterDataKind, id shared.ID) (int, error)
+	// HighestStageInUse bounds how far a department's stage count may shrink.
+	HighestStageInUse(ctx context.Context, departmentID shared.ID) (int16, error)
 }
 
 // ---------------------------------------------------------------------------
