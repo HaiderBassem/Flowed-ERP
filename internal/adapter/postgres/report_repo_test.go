@@ -165,7 +165,7 @@ func newFixture(t *testing.T, ctx context.Context) *fixture {
 	f.yearID = f.scan(`
 		INSERT INTO academic_year (id, code, start_date, end_date, status)
 		VALUES (gen_random_uuid(), $1, '2025-09-01', '2026-07-01', 'open')
-		RETURNING id`, fmt.Sprintf("5%03d-5%03d", suffix%1000, (suffix%1000)+1))
+		RETURNING id`, f.nextYearCode())
 	f.studentID = f.scan(`
 		INSERT INTO student (id, student_no, full_name, mother_name, phone)
 		VALUES (gen_random_uuid(), $1, 'علي محمد حسن', 'زينب', '07701234567')
@@ -180,6 +180,25 @@ func newFixture(t *testing.T, ctx context.Context) *fixture {
 		fmt.Sprintf("rfinance%d", suffix))
 
 	return f
+}
+
+// nextYearCode picks a year code nobody has taken.
+//
+// From the codes already in the database rather than from the clock: the rows a
+// previous run created are still there, and on darwin UnixNano always ends in
+// three zeros, so a code derived from the timestamp was the same string every
+// run. One allocator over every four-digit code rather than a per-package
+// family, because a family runs out — at 4999 the next code was 5000, which was
+// another package's.
+func (f *fixture) nextYearCode() string {
+	var highest int
+	err := reportDB.Conn(f.ctx).QueryRow(f.ctx, `
+		SELECT coalesce(max(left(code, 4)::int), 2999)
+		FROM academic_year WHERE code ~ '^[0-9]{4}-[0-9]{4}$'`).Scan(&highest)
+	if err != nil || highest < 2999 {
+		highest = 2999
+	}
+	return fmt.Sprintf("%d-%d", highest+1, highest+2)
 }
 
 func (f *fixture) scan(sql string, args ...any) shared.ID {

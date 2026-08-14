@@ -290,16 +290,52 @@ func TestSupersedeRequiresAReplacementByCommit(t *testing.T) {
 
 // newCommittedFixture creates fixture rows that survive commit, for the tests
 // that need a real transaction boundary. It returns a cleanup that removes them.
-// yearCode builds a distinct academic year code for a fixture.
+// insertYear creates an academic year with a code nobody has taken.
 //
-// It reads the microseconds rather than the nanoseconds: on darwin the clock is
-// microsecond-granular, so UnixNano always ends in three zeros and a code taken
-// from suffix%1000 was the same string on every run — the second run collided
-// on uq_academic_year_code. The trailing half stays below 1000 so the code keeps
-// the four-digit shape the domain requires.
-func yearCode(prefix int, suffix int64) string {
-	base := int((suffix/1000)%899) + 100
-	return fmt.Sprintf("%d%03d-%d%03d", prefix, base, prefix, base+1)
+// Two earlier versions of this derived the code from the clock — first the
+// nanoseconds, which on darwin always end in three zeros and so produced the
+// same string every run, then the microseconds, which only made the collision
+// rarer. A third took the highest code in a per-fixture family, and that family
+// ran out: at 4999 the next code was 5000, which belongs to another package's
+// fixtures.
+//
+// So: one allocator over every four-digit code, and a retry, because two
+// packages running in parallel against one database can read the same maximum.
+// The unique index is what actually decides, and losing that race is a normal
+// outcome rather than a failure.
+func insertYear(t *testing.T, ctx context.Context) string {
+	t.Helper()
+
+	for attempt := 0; attempt < 8; attempt++ {
+		var highest int
+		if err := pool.QueryRow(ctx, `
+			SELECT coalesce(max(left(code, 4)::int), 2999)
+			FROM academic_year WHERE code ~ '^[0-9]{4}-[0-9]{4}$'`).Scan(&highest); err != nil {
+			t.Fatalf("reading the taken year codes: %v", err)
+		}
+		if highest < 2999 {
+			highest = 2999
+		}
+		base := highest + 1 + attempt
+
+		var id string
+		err := pool.QueryRow(ctx, `
+			INSERT INTO academic_year (id, code, start_date, end_date, status)
+			VALUES (gen_random_uuid(), $1, $2::date, $3::date, 'open')
+			RETURNING id`,
+			fmt.Sprintf("%d-%d", base, base+1),
+			fmt.Sprintf("%d-09-01", base),
+			fmt.Sprintf("%d-07-01", base+1),
+		).Scan(&id)
+		if err == nil {
+			return id
+		}
+		if !strings.Contains(err.Error(), "uq_academic_year_code") {
+			t.Fatalf("creating an academic year: %v", err)
+		}
+	}
+	t.Fatal("could not find a free academic year code after eight attempts")
+	return ""
 }
 
 func newCommittedFixture(t *testing.T) (*fixture, func()) {
@@ -325,9 +361,7 @@ func newCommittedFixture(t *testing.T) (*fixture, func()) {
 	scan(&f.departmentID, `INSERT INTO department (id, college_id, code, name_ar, stage_count)
 		VALUES (gen_random_uuid(), $1, $2, 'قسم', 4) RETURNING id`,
 		f.collegeID, fmt.Sprintf("Q%d", suffix%100000))
-	scan(&f.yearID, `INSERT INTO academic_year (id, code, start_date, end_date, status)
-		VALUES (gen_random_uuid(), $1, '2025-09-01', '2026-07-01', 'open') RETURNING id`,
-		yearCode(4, suffix))
+	f.yearID = insertYear(t, ctx)
 	scan(&f.studentID, `INSERT INTO student (id, student_no, full_name, mother_name)
 		VALUES (gen_random_uuid(), $1, 'طالب', 'أم') RETURNING id`, fmt.Sprintf("Y%d", suffix))
 
@@ -754,18 +788,35 @@ func TestAuditEntriesAreChainedAndImmutable(t *testing.T) {
 		RETURNING id, entry_hash`).Scan(&firstID, &firstHash); err != nil {
 		t.Fatal(err)
 	}
+	var secondSequence int64
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO audit_log (id, entity_type, action, actor_username, metadata)
 		VALUES (gen_random_uuid(), 'test', 'chain.second', 'tester', '{"t":2}'::jsonb)
-		RETURNING id, previous_hash`).Scan(&secondID, &secondPrev); err != nil {
+		RETURNING id, previous_hash, sequence_no`,
+	).Scan(&secondID, &secondPrev, &secondSequence); err != nil {
 		t.Fatal(err)
 	}
 
 	if firstHash == "" {
 		t.Error("the trigger must compute an entry hash; an unchained entry is not possible")
 	}
-	if secondPrev != firstHash {
-		t.Errorf("the second entry's previous_hash = %q, want the first's hash %q", secondPrev, firstHash)
+
+	// The invariant is that an entry names the entry immediately before it, not
+	// that it names this test's first entry: the suite runs packages in
+	// parallel against one database, so another test's payment can legitimately
+	// land between these two inserts. Asserting on "the first one" made a
+	// correct chain look broken.
+	var predecessorHash string
+	if err := pool.QueryRow(ctx, `
+		SELECT entry_hash FROM audit_log
+		WHERE sequence_no < $1
+		ORDER BY sequence_no DESC
+		LIMIT 1`, secondSequence).Scan(&predecessorHash); err != nil {
+		t.Fatal(err)
+	}
+	if secondPrev != predecessorHash {
+		t.Errorf("previous_hash = %q, but the preceding entry hashes to %q",
+			secondPrev, predecessorHash)
 	}
 
 	for _, tc := range []struct{ name, sql string }{
@@ -814,9 +865,7 @@ func TestConcurrentPaymentsSerialiseOnTheAccountLock(t *testing.T) {
 		RETURNING id`, fmt.Sprintf("C%d", suffix%100000))
 	exec(&departmentID, `INSERT INTO department (id, college_id, code, name_ar, stage_count)
 		VALUES (gen_random_uuid(), $1, $2, 'ق', 4) RETURNING id`, collegeID, fmt.Sprintf("P%d", suffix%100000))
-	exec(&yearID, `INSERT INTO academic_year (id, code, start_date, end_date, status)
-		VALUES (gen_random_uuid(), $1, '2025-09-01', '2026-07-01', 'open') RETURNING id`,
-		yearCode(3, suffix))
+	yearID = insertYear(t, ctx)
 	exec(&studentID, `INSERT INTO student (id, student_no, full_name, mother_name)
 		VALUES (gen_random_uuid(), $1, 'طالب', 'أم') RETURNING id`, fmt.Sprintf("X%d", suffix))
 	exec(&enrollmentID, `INSERT INTO enrollment (
