@@ -423,6 +423,25 @@ func (r *EnrollmentRepository) List(ctx context.Context, f port.EnrollmentFilter
 
 func enrollmentPredicates(f port.EnrollmentFilter, args *argList) []string {
 	where := []string{"true"}
+
+	// Organisational scope, applied in the query. A scoped caller with no
+	// grants matches nothing rather than everything: a filter that fails open
+	// is not a filter.
+	if !f.Scope.Unrestricted() {
+		if f.Scope.Empty() {
+			where = append(where, "false")
+		} else {
+			var clauses []string
+			if len(f.Scope.Colleges) > 0 {
+				clauses = append(clauses, "e.college_id = ANY("+args.next(f.Scope.Colleges)+")")
+			}
+			if len(f.Scope.Departments) > 0 {
+				clauses = append(clauses, "e.department_id = ANY("+args.next(f.Scope.Departments)+")")
+			}
+			where = append(where, "("+strings.Join(clauses, " OR ")+")")
+		}
+	}
+
 	if f.AcademicYearID != nil {
 		where = append(where, "e.academic_year_id = "+args.next(*f.AcademicYearID))
 	}

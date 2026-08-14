@@ -113,24 +113,45 @@ func (a Actor) RequireScope(operation string, collegeID, departmentID *ID) error
 // point is to not read it. A repository takes this and adds a WHERE clause, so
 // a scoped user's report contains their colleges rather than everyone's with
 // the others filtered out afterwards, which would still have read them.
+//
+// The zero value is unrestricted, matching the zero Scope on an actor. The two
+// defaults have to agree: they did not at first, and the result was that a
+// repository call which simply omitted the field returned nothing at all —
+// silently, and only in the paths nobody had converted yet. One rule, stated
+// once: an unset scope is university-wide, and narrowing is deliberate.
 type ScopeFilter struct {
-	// Unrestricted skips filtering entirely.
-	Unrestricted bool
-	Colleges     []ID
-	Departments  []ID
+	// Mode is ScopeLimited when the lists below bound the query. Anything else,
+	// including the zero value, means no organisational restriction.
+	Mode        ScopeMode
+	Colleges    []ID
+	Departments []ID
+}
+
+// Unrestricted reports whether the filter imposes no organisational limit.
+func (f ScopeFilter) Unrestricted() bool { return f.Mode != ScopeLimited }
+
+// LimitedTo builds a filter restricted to the given colleges and departments.
+// Used by tests and by any caller assembling a scope by hand; ordinary code
+// takes the actor's own through QueryScope.
+func LimitedTo(colleges, departments []ID) ScopeFilter {
+	return ScopeFilter{Mode: ScopeLimited, Colleges: colleges, Departments: departments}
 }
 
 // QueryScope renders the actor's scope as a filter for repositories.
 func (a Actor) QueryScope() ScopeFilter {
 	if a.Scope.IsUniversityWide() {
-		return ScopeFilter{Unrestricted: true}
+		return ScopeFilter{}
 	}
-	return ScopeFilter{Colleges: a.Scope.Colleges, Departments: a.Scope.Departments}
+	return ScopeFilter{
+		Mode:        ScopeLimited,
+		Colleges:    a.Scope.Colleges,
+		Departments: a.Scope.Departments,
+	}
 }
 
 // Empty reports whether the filter would match nothing. A scoped actor holding
 // no grants is in exactly this position, and a query must return nothing rather
 // than everything — the difference between failing closed and failing open.
 func (f ScopeFilter) Empty() bool {
-	return !f.Unrestricted && len(f.Colleges) == 0 && len(f.Departments) == 0
+	return f.Mode == ScopeLimited && len(f.Colleges) == 0 && len(f.Departments) == 0
 }

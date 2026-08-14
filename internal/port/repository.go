@@ -57,8 +57,12 @@ type StudentSearch struct {
 	Status         *student.Status
 	// OnlyWithDebt narrows to students with an outstanding balance.
 	OnlyWithDebt bool
-	Limit        int
-	Offset       int
+	// Scope restricts the result to the colleges and departments the caller may
+	// see. Applied in the query rather than by filtering afterwards: the point
+	// of a scope is not to read the other colleges' rows at all.
+	Scope  shared.ScopeFilter
+	Limit  int
+	Offset int
 }
 
 // StudentRepository stores student identity.
@@ -100,6 +104,8 @@ type AcademicYearRepository interface {
 
 // EnrollmentFilter narrows an enrollment query.
 type EnrollmentFilter struct {
+	// Scope restricts the result to the caller's colleges and departments.
+	Scope          shared.ScopeFilter
 	AcademicYearID *shared.ID
 	StudentID      *shared.ID
 	CollegeID      *shared.ID

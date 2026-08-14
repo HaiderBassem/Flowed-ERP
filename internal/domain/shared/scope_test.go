@@ -95,12 +95,18 @@ func TestObjectsWithNoOrganisationAreReachable(t *testing.T) {
 func TestQueryScopeMirrorsTheActor(t *testing.T) {
 	college := shared.NewID()
 	unrestricted := shared.Actor{}.QueryScope()
-	if !unrestricted.Unrestricted || unrestricted.Empty() {
+	if !unrestricted.Unrestricted() || unrestricted.Empty() {
 		t.Error("a university-wide actor must produce an unrestricted filter")
+	}
+	// The zero filter and the zero scope have to agree. When they did not, a
+	// repository call that simply omitted the field returned nothing at all,
+	// silently, in every path nobody had converted yet.
+	if !(shared.ScopeFilter{}).Unrestricted() {
+		t.Error("the zero filter must be unrestricted, like the zero scope")
 	}
 
 	limited := shared.Actor{Scope: shared.Scope{Mode: shared.ScopeLimited, Colleges: []shared.ID{college}}}.QueryScope()
-	if limited.Unrestricted {
+	if limited.Unrestricted() {
 		t.Error("a scoped actor must not produce an unrestricted filter")
 	}
 	if len(limited.Colleges) != 1 || limited.Colleges[0] != college {

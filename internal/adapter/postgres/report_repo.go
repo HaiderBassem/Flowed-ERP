@@ -125,6 +125,11 @@ func summaryPredicates(f port.SummaryFilter, alias string, args *argList) []stri
 	if f.DepartmentID != nil {
 		where = append(where, alias+".department_id = "+args.next(*f.DepartmentID))
 	}
+
+	// Organisational scope, enforced in the query rather than after it.
+	if predicate := reportScope(f.Scope, alias, args); predicate != "" {
+		where = append(where, predicate)
+	}
 	if f.StudyTypeID != nil {
 		where = append(where, alias+".study_type_id = "+args.next(*f.StudyTypeID))
 	}
@@ -474,6 +479,11 @@ func (r *ReportRepository) InstallmentReport(ctx context.Context, f port.Install
 	if f.DepartmentID != nil {
 		where = append(where, "vi.department_id = "+args.next(*f.DepartmentID))
 	}
+
+	// Organisational scope, enforced in the query rather than after it.
+	if predicate := reportScope(f.Scope, "fa", args); predicate != "" {
+		where = append(where, predicate)
+	}
 	if f.StudyTypeID != nil {
 		where = append(where, "vi.study_type_id = "+args.next(*f.StudyTypeID))
 	}
@@ -581,6 +591,11 @@ func (r *ReportRepository) ExpectedCashFlow(ctx context.Context, f port.CashFlow
 	if f.DepartmentID != nil {
 		where = append(where, "vi.department_id = "+args.next(*f.DepartmentID))
 	}
+
+	// Organisational scope, enforced in the query rather than after it.
+	if predicate := reportScope(f.Scope, "vi", args); predicate != "" {
+		where = append(where, predicate)
+	}
 	if f.Through != nil {
 		where = append(where, "vi.due_date <= "+args.next(timeOrNil(f.Through)))
 	}
@@ -681,6 +696,11 @@ func (r *ReportRepository) DebtReport(ctx context.Context, f port.DebtFilter) ([
 		if f.DepartmentID != nil {
 			where = append(where, "v.department_id = "+args.next(*f.DepartmentID))
 		}
+
+		// Organisational scope, enforced in the query rather than after it.
+		if predicate := reportScope(f.Scope, "v", args); predicate != "" {
+			where = append(where, predicate)
+		}
 		if f.MinimumAmount > 0 {
 			where = append(where, "v.remaining >= "+args.next(f.MinimumAmount))
 		}
@@ -766,6 +786,11 @@ func (r *ReportRepository) AgingReport(ctx context.Context, f port.AgingFilter) 
 	}
 	if f.DepartmentID != nil {
 		where = append(where, "vi.department_id = "+args.next(*f.DepartmentID))
+	}
+
+	// Organisational scope, enforced in the query rather than after it.
+	if predicate := reportScope(f.Scope, "fa", args); predicate != "" {
+		where = append(where, predicate)
 	}
 
 	query := `
@@ -1091,6 +1116,11 @@ func (r *ReportRepository) trendMonths(ctx context.Context, f port.TrendFilter) 
 	if f.DepartmentID != nil {
 		scope = append(scope, "fa.department_id = "+args.next(*f.DepartmentID))
 	}
+
+	// Organisational scope, enforced in the query rather than after it.
+	if predicate := reportScope(f.Scope, "fa", args); predicate != "" {
+		scope = append(scope, predicate)
+	}
 	accountScope := joinWhere(scope)
 
 	// Refunds are netted into the month they were paid out, not the month of the
@@ -1175,6 +1205,11 @@ func (r *ReportRepository) trendMonths(ctx context.Context, f port.TrendFilter) 
 		}
 		if f.DepartmentID != nil {
 			netScope = append(netScope, "fa.department_id = "+netArgs.next(*f.DepartmentID))
+		}
+
+		// Organisational scope, enforced in the query rather than after it.
+		if predicate := reportScope(f.Scope, "fa", netArgs); predicate != "" {
+			netScope = append(netScope, predicate)
 		}
 		netQuery := `
 			SELECT coalesce(sum(b.effective_net), 0)::bigint
@@ -1798,4 +1833,28 @@ func derefString(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// reportScope renders an organisational scope as a predicate on a report query.
+//
+// Every aggregate in this file carries college_id and department_id on the row
+// or the view it selects from, so one helper serves all of them. An
+// unrestricted scope adds nothing; a scoped caller with no grants gets "false",
+// which returns an empty report rather than the whole university.
+func reportScope(scope shared.ScopeFilter, alias string, args *argList) string {
+	if scope.Unrestricted() {
+		return ""
+	}
+	if scope.Empty() {
+		return "false"
+	}
+
+	var clauses []string
+	if len(scope.Colleges) > 0 {
+		clauses = append(clauses, alias+".college_id = ANY("+args.next(scope.Colleges)+")")
+	}
+	if len(scope.Departments) > 0 {
+		clauses = append(clauses, alias+".department_id = ANY("+args.next(scope.Departments)+")")
+	}
+	return "(" + strings.Join(clauses, " OR ") + ")"
 }

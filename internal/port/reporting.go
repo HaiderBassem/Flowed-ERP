@@ -57,6 +57,11 @@ import (
 // reads every account the university has ever opened, and the answer means
 // nothing anyway because two years' prices are not comparable.
 type SummaryFilter struct {
+	// Scope restricts the report to the colleges and departments the
+	// caller may see. Applied inside the query: a scoped operator's
+	// report contains their colleges rather than everyone's with the
+	// others filtered out after the rows were already read.
+	Scope          shared.ScopeFilter
 	AcademicYearID *shared.ID
 	CollegeID      *shared.ID
 	DepartmentID   *shared.ID
@@ -66,6 +71,11 @@ type SummaryFilter struct {
 
 // InstallmentFilter narrows the installment schedule report.
 type InstallmentFilter struct {
+	// Scope restricts the report to the colleges and departments the
+	// caller may see. Applied inside the query: a scoped operator's
+	// report contains their colleges rather than everyone's with the
+	// others filtered out after the rows were already read.
+	Scope          shared.ScopeFilter
 	AcademicYearID *shared.ID
 	CollegeID      *shared.ID
 	DepartmentID   *shared.ID
@@ -80,6 +90,11 @@ type InstallmentFilter struct {
 // bounds that keep the report from scanning every open balance in the
 // institution's history.
 type DebtFilter struct {
+	// Scope restricts the report to the colleges and departments the
+	// caller may see. Applied inside the query: a scoped operator's
+	// report contains their colleges rather than everyone's with the
+	// others filtered out after the rows were already read.
+	Scope          shared.ScopeFilter
 	AcademicYearID *shared.ID
 	CollegeID      *shared.ID
 	DepartmentID   *shared.ID
@@ -98,6 +113,11 @@ type DebtFilter struct {
 // debt is, and its prior-year bucket is empty by construction once the report
 // is pinned to a single year.
 type AgingFilter struct {
+	// Scope restricts the report to the colleges and departments the
+	// caller may see. Applied inside the query: a scoped operator's
+	// report contains their colleges rather than everyone's with the
+	// others filtered out after the rows were already read.
+	Scope          shared.ScopeFilter
 	AcademicYearID *shared.ID
 	CollegeID      *shared.ID
 	DepartmentID   *shared.ID
@@ -105,6 +125,11 @@ type AgingFilter struct {
 
 // DiscountFilter narrows the discount cost report.
 type DiscountFilter struct {
+	// Scope restricts the report to the colleges and departments the
+	// caller may see. Applied inside the query: a scoped operator's
+	// report contains their colleges rather than everyone's with the
+	// others filtered out after the rows were already read.
+	Scope          shared.ScopeFilter
 	AcademicYearID *shared.ID
 	DefinitionID   *shared.ID
 	Category       *string
@@ -114,6 +139,11 @@ type DiscountFilter struct {
 // required: it is what bounds a report whose rows have no academic year of
 // their own, because a cashier's day belongs to a shift and not to a year.
 type CashierDailyFilter struct {
+	// Scope restricts the report to the colleges and departments the
+	// caller may see. Applied inside the query: a scoped operator's
+	// report contains their colleges rather than everyone's with the
+	// others filtered out after the rows were already read.
+	Scope         shared.ScopeFilter
 	From          *shared.Date
 	To            *shared.Date
 	CashierUserID *shared.ID
@@ -121,6 +151,8 @@ type CashierDailyFilter struct {
 
 // TrendFilter narrows the collection trend.
 type TrendFilter struct {
+	// Scope restricts the report to the caller's colleges and departments.
+	Scope          shared.ScopeFilter
 	AcademicYearID *shared.ID
 	CollegeID      *shared.ID
 	DepartmentID   *shared.ID
@@ -128,6 +160,8 @@ type TrendFilter struct {
 
 // CashFlowFilter narrows the expected inflow projection.
 type CashFlowFilter struct {
+	// Scope restricts the report to the caller's colleges and departments.
+	Scope          shared.ScopeFilter
 	AcademicYearID *shared.ID
 	CollegeID      *shared.ID
 	DepartmentID   *shared.ID
@@ -140,6 +174,11 @@ type CashFlowFilter struct {
 // are bounded by posting year, and optionally by a range over the instant the
 // event was recorded.
 type RegisterFilter struct {
+	// Scope restricts the report to the colleges and departments the
+	// caller may see. Applied inside the query: a scoped operator's
+	// report contains their colleges rather than everyone's with the
+	// others filtered out after the rows were already read.
+	Scope          shared.ScopeFilter
 	AcademicYearID *shared.ID
 	From           *shared.Date
 	To             *shared.Date

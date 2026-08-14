@@ -123,6 +123,10 @@ func (h *Handlers) SearchStudents(c *gin.Context) {
 		OnlyWithDebt: c.Query("with_debt") == "true",
 		Limit:        limit,
 		Offset:       offset,
+		// The caller's organisational reach bounds the query itself. Filtering
+		// the page afterwards would have read the other colleges' students
+		// first, which is the thing scope exists to prevent.
+		Scope: httpx.MustActor(c).QueryScope(),
 	}
 	if id, ok := optionalQueryID(c, "department_id"); ok {
 		q.DepartmentID = id

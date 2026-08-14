@@ -281,6 +281,15 @@ func (r *StudentRepository) searchPredicates(s port.StudentSearch, args *argList
 		  )`)
 	}
 
+	// Organisational scope. A student is visible when any of their
+	// non-superseded enrollments sits in a college or department the caller
+	// holds — a student who transferred out of engineering into medicine is
+	// visible to both, which is correct: both of them taught the person and
+	// both hold money against them.
+	if predicate := scopeExists(s.Scope, args, "s.id"); predicate != "" {
+		where = append(where, predicate)
+	}
+
 	if s.OnlyWithDebt {
 		// Mirrors the ix_account_outstanding predicate exactly, so the partial
 		// index can serve it.
@@ -367,4 +376,32 @@ func (r *StudentRepository) IdentityHistory(ctx context.Context, studentID share
 		return nil, pg.WrapQuery("student.IdentityHistory", err)
 	}
 	return history, nil
+}
+
+// scopeExists renders a scope filter as an EXISTS predicate over enrollment.
+//
+// An unrestricted scope adds nothing. A restricted scope with no grants
+// produces "false", which returns an empty page rather than everything: a
+// filter that fails open is not a filter.
+func scopeExists(filter shared.ScopeFilter, args *argList, studentColumn string) string {
+	if filter.Unrestricted() {
+		return ""
+	}
+	if filter.Empty() {
+		return "false"
+	}
+
+	var clauses []string
+	if len(filter.Colleges) > 0 {
+		clauses = append(clauses, "e.college_id = ANY("+args.next(filter.Colleges)+")")
+	}
+	if len(filter.Departments) > 0 {
+		clauses = append(clauses, "e.department_id = ANY("+args.next(filter.Departments)+")")
+	}
+	return `EXISTS (
+		        SELECT 1 FROM enrollment e
+		        WHERE e.student_id = ` + studentColumn + `
+		          AND e.enrollment_status <> 'superseded'
+		          AND (` + strings.Join(clauses, " OR ") + `)
+		  )`
 }

@@ -216,7 +216,7 @@ func (s *BulkService) PromoteStudentsBulk(
 	if in.DryRun {
 		var result *PromoteBulkResult
 		err := s.deps.Tx.Read(ctx, func(ctx context.Context) error {
-			plan, err := s.buildPromotionPlan(ctx, in)
+			plan, err := s.buildPromotionPlan(ctx, actor, in)
 			if err != nil {
 				return err
 			}
@@ -244,7 +244,7 @@ func (s *BulkService) PromoteStudentsBulk(
 
 	var result *PromoteBulkResult
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
-		plan, err := s.buildPromotionPlan(ctx, in)
+		plan, err := s.buildPromotionPlan(ctx, actor, in)
 		if err != nil {
 			return err
 		}
@@ -295,7 +295,7 @@ func (s *BulkService) PromoteStudentsBulk(
 
 // buildPromotionPlan decides, for every enrollment in scope, what would happen
 // to it. It writes nothing, and it is the same code the commit re-runs.
-func (s *BulkService) buildPromotionPlan(ctx context.Context, in PromoteBulkInput) (*PromoteBulkResult, error) {
+func (s *BulkService) buildPromotionPlan(ctx context.Context, actor shared.Actor, in PromoteBulkInput) (*PromoteBulkResult, error) {
 	// The source year is read for its own sake: a mistyped identifier would
 	// otherwise match no enrollments and produce an empty plan, which reads
 	// exactly like a cohort that has already been promoted.
@@ -316,6 +316,7 @@ func (s *BulkService) buildPromotionPlan(ctx context.Context, in PromoteBulkInpu
 	}
 
 	filter := port.EnrollmentFilter{
+		Scope:             actor.QueryScope(),
 		AcademicYearID:    &in.SourceYearID,
 		CollegeID:         in.CollegeID,
 		DepartmentID:      in.DepartmentID,

@@ -151,7 +151,7 @@ func (h *ReportHandlers) YearSummary(c *gin.Context) {
 
 // InstallmentReport returns expected against collected by due month.
 func (h *ReportHandlers) InstallmentReport(c *gin.Context) {
-	f := port.InstallmentFilter{}
+	f := port.InstallmentFilter{Scope: httpx.MustActor(c).QueryScope()}
 	if id, ok := optionalQueryID(c, "academic_year_id"); ok {
 		f.AcademicYearID = id
 	}
@@ -188,6 +188,7 @@ func (h *ReportHandlers) InstallmentReport(c *gin.Context) {
 func (h *ReportHandlers) DebtReport(c *gin.Context) {
 	limit, offset := pagination(c)
 	f := port.DebtFilter{
+		Scope:          httpx.MustActor(c).QueryScope(),
 		PriorYearsOnly: c.Query("prior_years_only") == "true",
 		Limit:          limit,
 		Offset:         offset,
@@ -218,7 +219,7 @@ func (h *ReportHandlers) DebtReport(c *gin.Context) {
 
 // AgingReport buckets receivables by how long they have been owed.
 func (h *ReportHandlers) AgingReport(c *gin.Context) {
-	f := port.AgingFilter{}
+	f := port.AgingFilter{Scope: httpx.MustActor(c).QueryScope()}
 	if id, ok := optionalQueryID(c, "academic_year_id"); ok {
 		f.AcademicYearID = id
 	}
@@ -243,7 +244,7 @@ func (h *ReportHandlers) AgingReport(c *gin.Context) {
 
 // DiscountReport returns what discounts cost, per definition and version.
 func (h *ReportHandlers) DiscountReport(c *gin.Context) {
-	f := port.DiscountFilter{}
+	f := port.DiscountFilter{Scope: httpx.MustActor(c).QueryScope()}
 	if id, ok := optionalQueryID(c, "academic_year_id"); ok {
 		f.AcademicYearID = id
 	}
@@ -290,7 +291,7 @@ func (h *ReportHandlers) ExemptionRegister(c *gin.Context) {
 func (h *ReportHandlers) CashierDaily(c *gin.Context) {
 	actor := httpx.MustActor(c)
 
-	f := port.CashierDailyFilter{}
+	f := port.CashierDailyFilter{Scope: httpx.MustActor(c).QueryScope()}
 	from, err := reportDateParam(c, "from")
 	if err != nil {
 		httpx.Respond(c, err)
@@ -323,7 +324,7 @@ func (h *ReportHandlers) CashierDaily(c *gin.Context) {
 // CollectionTrend returns how a year's money arrived, by month and by
 // department.
 func (h *ReportHandlers) CollectionTrend(c *gin.Context) {
-	f := port.TrendFilter{}
+	f := port.TrendFilter{Scope: httpx.MustActor(c).QueryScope()}
 	if id, ok := optionalQueryID(c, "academic_year_id"); ok {
 		f.AcademicYearID = id
 	}
@@ -344,7 +345,7 @@ func (h *ReportHandlers) CollectionTrend(c *gin.Context) {
 
 // ExpectedCashFlow projects the inflow the remaining due dates imply.
 func (h *ReportHandlers) ExpectedCashFlow(c *gin.Context) {
-	f := port.CashFlowFilter{}
+	f := port.CashFlowFilter{Scope: httpx.MustActor(c).QueryScope()}
 	if id, ok := optionalQueryID(c, "academic_year_id"); ok {
 		f.AcademicYearID = id
 	}
@@ -412,7 +413,7 @@ func (h *ReportHandlers) RefundRegister(c *gin.Context) {
 // academic year is left to the repository to insist on, so that one refusal
 // message serves every route rather than each handler writing its own.
 func reportSummaryFilter(c *gin.Context) port.SummaryFilter {
-	f := port.SummaryFilter{}
+	f := port.SummaryFilter{Scope: httpx.MustActor(c).QueryScope()}
 	if id, ok := optionalQueryID(c, "academic_year_id"); ok {
 		f.AcademicYearID = id
 	}
@@ -435,7 +436,7 @@ func reportSummaryFilter(c *gin.Context) port.SummaryFilter {
 // the page it was asked for.
 func reportRegisterFilter(c *gin.Context) (port.RegisterFilter, int, int, error) {
 	limit, offset := pagination(c)
-	f := port.RegisterFilter{Limit: limit, Offset: offset}
+	f := port.RegisterFilter{Limit: limit, Offset: offset, Scope: httpx.MustActor(c).QueryScope()}
 	if id, ok := optionalQueryID(c, "academic_year_id"); ok {
 		f.AcademicYearID = id
 	}
