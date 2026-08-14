@@ -1,5 +1,7 @@
 package httpapi
 
+import "github.com/swibit/flowed/internal/app"
+
 // operationMetadata carries what a route table cannot: what an endpoint is
 // for, which roles reach it, and the Go types it binds and returns.
 //
@@ -311,6 +313,21 @@ var operationMetadata = map[string]operationMeta{
 		Description: "The new credential is always must-change, and every session issued under the " +
 			"old password ends.",
 		Request: ResetPasswordRequest{}, Response: CreateUserResponse{}, Roles: []string{"admin"},
+	},
+	"POST /api/v1/audit/archive/ship": {
+		Summary: "Copy the audit trail off-host now",
+		Description: "Ships every entry written since the last block. Scheduled as well; this is " +
+			"for the moment before a backup or an investigation, when waiting for the timer is " +
+			"the wrong answer.",
+		Response: app.ShipResult{}, Roles: []string{"admin"},
+	},
+	"GET /api/v1/audit/archive/verify": {
+		Summary: "Check the off-host copy against the database",
+		Description: "The only check in the system that can detect an audit entry having been " +
+			"deleted: the hash chain verifies whatever is present, so a removed tail leaves an " +
+			"intact chain. Answers 200 with `ok: false` when the two disagree — the request " +
+			"succeeded, and what it found is the answer.",
+		Response: app.VerifyReport{}, Roles: []string{"admin", "auditor"},
 	},
 	"GET /api/v1/users/:id/login-history": {
 		Summary:     "Sign-in attempts against an account",

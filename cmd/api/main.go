@@ -6,6 +6,7 @@
 //	api seed            create the first administrator, for development
 //	api create-user     add an operator with the given roles
 //	api demo            load an exploration dataset (development only)
+//	api audit-ship      copy the audit trail off-host; "verify" checks the copy
 package main
 
 import (
@@ -55,9 +56,12 @@ func main() {
 		err = createUser()
 	case "demo":
 		err = demo()
+	case "audit-ship":
+		err = auditShip()
 	default:
 		fmt.Fprintf(os.Stderr,
-			"unknown command %q; expected serve, version, healthcheck, seed, create-user or demo\n",
+			"unknown command %q; expected serve, version, healthcheck, seed, create-user, "+
+				"demo or audit-ship\n",
 			command)
 		os.Exit(2)
 	}

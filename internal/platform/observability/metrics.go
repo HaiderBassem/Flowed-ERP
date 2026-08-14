@@ -21,6 +21,14 @@ const (
 	attrOutcome   = attribute.Key("outcome")
 	attrTier      = attribute.Key("tier")
 	attrState     = attribute.Key("state")
+	attrStage     = attribute.Key("stage")
+	// attrReason, attrCode and attrKind carry fixed vocabularies only. None of
+	// them ever carries a username, a student number or anything else that
+	// identifies a person: a label outlives the request in a store with none
+	// of the database's access control.
+	attrReason = attribute.Key("reason")
+	attrCode   = attribute.Key("code")
+	attrKind   = attribute.Key("kind")
 )
 
 // Metrics holds every instrument this process records against.
@@ -57,6 +65,14 @@ type Metrics struct {
 
 	jobDuration metric.Float64Histogram
 	jobRuns     metric.Int64Counter
+
+	auditShipped     metric.Int64Counter
+	auditShipFailure metric.Int64Counter
+	auditShipLag     metric.Int64Gauge
+
+	authFailures    metric.Int64Counter
+	paymentFailures metric.Int64Counter
+	exportFailures  metric.Int64Counter
 
 	meter metric.Meter
 }
@@ -134,6 +150,23 @@ func newMetrics(meter metric.Meter) (*Metrics, error) {
 	}
 	m.jobRuns = int64Counter("flowed.scheduler.job.runs", "{run}",
 		"Scheduled job passes by outcome. A job whose runs stop is invisible in a log and obvious here.")
+
+	m.auditShipped = int64Counter("flowed.audit.shipped", "{entry}",
+		"Audit entries copied off-host. The counter that should never flatten while the system is in use.")
+	m.auditShipFailure = int64Counter("flowed.audit.ship.failures", "{failure}",
+		"Failures to ship or verify the audit archive, by stage. Any value means the off-host witness is stale.")
+	if err == nil {
+		m.auditShipLag, err = meter.Int64Gauge("flowed.audit.ship.lag",
+			metric.WithUnit("{entry}"),
+			metric.WithDescription("Audit entries written but not yet copied off-host."))
+	}
+
+	m.authFailures = int64Counter("flowed.auth.failures", "{failure}",
+		"Rejected sign-ins and rejected tokens, by reason. A climb on one username is somebody guessing.")
+	m.paymentFailures = int64Counter("flowed.payment.failures", "{failure}",
+		"Money commands refused, by the machine code of the refusal. A desk stuck on one code is a desk not collecting.")
+	m.exportFailures = int64Counter("flowed.export.failures", "{failure}",
+		"Report exports and receipt renders that failed, by kind.")
 
 	if err != nil {
 		return nil, fmt.Errorf("building instruments: %w", err)
@@ -312,6 +345,73 @@ func (m *Metrics) SchedulerJobFinished(ctx context.Context, job, outcome string,
 	m.jobRuns.Add(ctx, 1, set)
 	m.jobDuration.Record(ctx, elapsed.Seconds(),
 		metric.WithAttributeSet(attrs(attrJob.String(job))))
+}
+
+// ---------------------------------------------------------------------------
+// Audit shipping
+// ---------------------------------------------------------------------------
+
+// AuditShipped counts entries that reached the off-host archive.
+func (m *Metrics) AuditShipped(ctx context.Context, entries int) {
+	if m == nil || m.auditShipped == nil {
+		return
+	}
+	m.auditShipped.Add(ctx, int64(entries))
+}
+
+// AuditShipFailure records a failure by the stage it happened at: read,
+// encode, write, record, verify. The stage is what tells an operator whether
+// the archive host is unreachable or the archive itself disagrees.
+func (m *Metrics) AuditShipFailure(ctx context.Context, stage string) {
+	if m == nil || m.auditShipFailure == nil {
+		return
+	}
+	m.auditShipFailure.Add(ctx, 1, metric.WithAttributeSet(attrs(attrStage.String(stage))))
+}
+
+// AuditShipLag reports how many entries are on this host only.
+//
+// A gauge rather than a counter: the interesting question is always "how far
+// behind is the archive right now", and a lag that stops falling is the signal
+// — shipping that fails silently leaves this climbing while everything else
+// looks healthy.
+func (m *Metrics) AuditShipLag(ctx context.Context, entries int64) {
+	if m == nil || m.auditShipLag == nil {
+		return
+	}
+	m.auditShipLag.Record(ctx, entries)
+}
+
+// ---------------------------------------------------------------------------
+// Refusals
+// ---------------------------------------------------------------------------
+
+// AuthFailure counts a rejected credential or token by reason.
+//
+// The reason is a fixed vocabulary — bad_password, unknown_user, locked,
+// expired_token, revoked_session — and never the username: a label outlives the
+// request in a store with none of the database's access control.
+func (m *Metrics) AuthFailure(ctx context.Context, reason string) {
+	if m == nil || m.authFailures == nil {
+		return
+	}
+	m.authFailures.Add(ctx, 1, metric.WithAttributeSet(attrs(attrReason.String(reason))))
+}
+
+// PaymentFailure counts a refused money command by its machine code.
+func (m *Metrics) PaymentFailure(ctx context.Context, code string) {
+	if m == nil || m.paymentFailures == nil {
+		return
+	}
+	m.paymentFailures.Add(ctx, 1, metric.WithAttributeSet(attrs(attrCode.String(code))))
+}
+
+// ExportFailure counts a failed export or render, by kind.
+func (m *Metrics) ExportFailure(ctx context.Context, kind string) {
+	if m == nil || m.exportFailures == nil {
+		return
+	}
+	m.exportFailures.Add(ctx, 1, metric.WithAttributeSet(attrs(attrKind.String(kind))))
 }
 
 // PoolStats is the slice of connection-pool telemetry worth reporting.

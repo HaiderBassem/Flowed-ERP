@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/swibit/flowed/internal/adapter/auditship"
 	"github.com/swibit/flowed/internal/adapter/httpapi"
 	"github.com/swibit/flowed/internal/adapter/messaging"
 	"github.com/swibit/flowed/internal/adapter/payments"
@@ -178,14 +179,22 @@ func BuildEngine(
 		LogoDataURI:      cfg.Receipt.LogoDataURI,
 	}, location)
 
+	// The audit archive is off unless a destination was named. A university
+	// that has not set one keeps a hash chain that detects editing and cannot
+	// detect deletion, and it should hear that at every start-up rather than
+	// find out during an investigation.
+	auditShipper := BuildAuditShipper(cfg, deps, db, log)
+
 	// Defaults come from the scheduler itself; only a deployment with a reason
 	// to differ overrides them.
 	scheduler := app.NewScheduler(deps, db, idempotency, rateLimiter, app.SchedulerConfig{
-		RateLimitIdleTTL: cfg.HTTP.RateLimitIdleTTL,
-		Sessions:         authSessions,
-		LoginAttempts:    loginAttempts,
-		Notify:           notifyService,
-		Intents:          intentService,
+		RateLimitIdleTTL:  cfg.HTTP.RateLimitIdleTTL,
+		Sessions:          authSessions,
+		LoginAttempts:     loginAttempts,
+		Notify:            notifyService,
+		Intents:           intentService,
+		AuditShip:         auditShipper,
+		AuditShipInterval: cfg.AuditArchive.Interval,
 	})
 
 	engine := httpapi.NewRouter(httpapi.RouterDeps{
@@ -207,6 +216,7 @@ func BuildEngine(
 		ConfigAdmin:   httpapi.NewConfigHandlers(app.NewConfigService(deps)),
 		Bulk:          httpapi.NewBulkHandlers(bulkService, importService, imports),
 		Cashier:       httpapi.NewCashierHandlers(cashierService, masterDataService, db),
+		AuditArchive:  httpapi.NewAuditArchiveHandlers(auditShipper),
 		Receipts:      httpapi.NewReceiptHandlers(receiptService),
 		Tokens:        tokens,
 		Idempotency:   idempotency,
@@ -216,6 +226,46 @@ func BuildEngine(
 	})
 
 	return engine, scheduler
+}
+
+// BuildAuditShipper builds the off-host audit archive, or nothing.
+//
+// Nothing is a legitimate configuration — a small deployment may genuinely have
+// nowhere to ship to — but it is a weaker system than one with an archive, and
+// the log says which one is running. The service is nil in that case rather
+// than a stub that silently succeeds: a shipper that reports success while
+// writing nowhere is the worst of the three states.
+func BuildAuditShipper(cfg *config.Config, deps app.Deps, db *pg.DB, log *slog.Logger) *app.AuditShipService {
+	if !cfg.AuditArchive.Enabled() {
+		log.Warn("the audit trail is not copied off this host",
+			slog.String("consequence",
+				"the hash chain detects an altered entry but not a deleted one"),
+			slog.String("remedy", "set AUDIT_ARCHIVE_DIR or AUDIT_ARCHIVE_URL"))
+		return nil
+	}
+
+	var (
+		sink auditship.Sink
+		err  error
+	)
+	if cfg.AuditArchive.Dir != "" {
+		sink, err = auditship.NewDirSink(cfg.AuditArchive.Dir)
+	} else {
+		sink, err = auditship.NewHTTPSink(
+			cfg.AuditArchive.Endpoint, cfg.AuditArchive.Secret, cfg.AuditArchive.Timeout)
+	}
+	if err != nil {
+		// Not fatal: a university whose archive host is misconfigured should
+		// still be able to take money this morning. It is loud, and the
+		// shipping metric stays at zero, which is what an alert watches.
+		log.Error("the audit archive is configured but unusable",
+			slog.String("error", err.Error()))
+		return nil
+	}
+
+	log.Info("audit trail is copied off-host", slog.String("destination", sink.Name()))
+	return app.NewAuditShipService(deps, postgres.NewAuditShipmentRepository(db), sink,
+		app.AuditShipConfig{Batch: cfg.AuditArchive.Batch})
 }
 
 // buildProviderRegistry assembles the electronic collection channels this

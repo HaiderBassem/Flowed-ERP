@@ -24,6 +24,7 @@ type Config struct {
 	Receipt       Receipt
 	Payments      Payments
 	Notifications Notifications
+	AuditArchive  AuditArchive
 	Log           Log
 	Observability Observability
 }
@@ -230,6 +231,33 @@ type Notifications struct {
 	SMSTimeout time.Duration
 }
 
+// AuditArchive is where the audit trail is copied so that whoever can edit the
+// database cannot edit the copy.
+//
+// Off by default, and that is a deliberate default rather than a safe one: an
+// archive misconfigured to a directory on the same disk is worse than none,
+// because it looks like a control. The deployment has to name a destination
+// the application's own host cannot rewrite.
+type AuditArchive struct {
+	// Dir is a directory — in practice a mount of one on another machine.
+	Dir string
+	// Endpoint is an append-only HTTP destination, used when Dir is empty.
+	Endpoint string
+	// Secret signs what is posted to Endpoint. Required with it: an unsigned
+	// append endpoint accepts entries from anyone who finds the URL.
+	Secret string
+	// Batch is how many entries go in one block.
+	Batch int
+	// Interval is how often the shipping job runs. Frequent: the window
+	// between an entry being written and being witnessed is the window in
+	// which it can be removed without trace.
+	Interval time.Duration
+	Timeout  time.Duration
+}
+
+// Enabled reports whether a destination was configured.
+func (a AuditArchive) Enabled() bool { return a.Dir != "" || a.Endpoint != "" }
+
 // Receipt holds what a printed receipt says about the institution issuing it.
 //
 // Configuration rather than constants: one binary should serve any university,
@@ -356,6 +384,14 @@ func Load() (*Config, error) {
 			SMSAPIKey:  env("NOTIFY_SMS_API_KEY", ""),
 			SMSSender:  env("NOTIFY_SMS_SENDER", ""),
 			SMSTimeout: envDuration("NOTIFY_SMS_TIMEOUT", 15*time.Second),
+		},
+		AuditArchive: AuditArchive{
+			Dir:      env("AUDIT_ARCHIVE_DIR", ""),
+			Endpoint: env("AUDIT_ARCHIVE_URL", ""),
+			Secret:   env("AUDIT_ARCHIVE_SECRET", ""),
+			Batch:    envInt("AUDIT_ARCHIVE_BATCH", 500),
+			Interval: envDuration("AUDIT_ARCHIVE_INTERVAL", 15*time.Minute),
+			Timeout:  envDuration("AUDIT_ARCHIVE_TIMEOUT", 30*time.Second),
 		},
 		Receipt: Receipt{
 			UniversityNameAr: env("RECEIPT_UNIVERSITY_NAME", "الجامعة"),

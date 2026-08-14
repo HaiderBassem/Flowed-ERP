@@ -654,7 +654,11 @@ func NewSpecRouter() *gin.Engine {
 		Intents:     (*IntentHandlers)(nil),
 		Sponsors:    (*SponsorHandlers)(nil),
 		Portal:      (*PortalHandlers)(nil),
-		Version:     "spec",
+		// Mounted with no service behind it: the archive routes exist whether
+		// or not a destination is configured, and the specification should say
+		// so for the same reason the server does.
+		AuditArchive: NewAuditArchiveHandlers(nil),
+		Version:      "spec",
 	})
 }
 

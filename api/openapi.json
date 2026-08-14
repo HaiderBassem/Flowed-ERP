@@ -21,6 +21,9 @@
       "description": "Pricing an enrollment and everything that changes what it owes."
     },
     {
+      "name": "audit"
+    },
+    {
       "name": "auth",
       "description": "Signing in, renewing, signing out, and the caller's own account."
     },
@@ -1024,6 +1027,210 @@
         "responses": {
           "200": {
             "description": "Success."
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audit/archive/ship": {
+      "post": {
+        "operationId": "postAuditArchiveShip",
+        "summary": "Copy the audit trail off-host now",
+        "description": "Ships every entry written since the last block. Scheduled as well; this is for the moment before a backup or an investigation, when waiting for the timer is the wrong answer.\n\nRoles: admin.",
+        "tags": [
+          "audit"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShipResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audit/archive/verify": {
+      "get": {
+        "operationId": "getAuditArchiveVerify",
+        "summary": "Check the off-host copy against the database",
+        "description": "The only check in the system that can detect an audit entry having been deleted: the hash chain verifies whatever is present, so a removed tail leaves an intact chain. Answers 200 with `ok: false` when the two disagree — the request succeeded, and what it found is the answer.\n\nRoles: admin, auditor.",
+        "tags": [
+          "audit"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyReport"
+                }
+              }
+            }
           },
           "400": {
             "description": "The request is malformed, or a value is not one the domain accepts.",
@@ -11971,6 +12178,29 @@
           }
         }
       },
+      "ShipResult": {
+        "type": "object",
+        "properties": {
+          "blocks": {
+            "type": "integer"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "integer"
+          },
+          "from_sequence": {
+            "type": "integer"
+          },
+          "remaining": {
+            "type": "integer"
+          },
+          "to_sequence": {
+            "type": "integer"
+          }
+        }
+      },
       "StudentView": {
         "type": "object",
         "properties": {
@@ -12236,6 +12466,49 @@
           },
           "username": {
             "type": "string"
+          }
+        }
+      },
+      "VerifyProblem": {
+        "type": "object",
+        "properties": {
+          "artifact": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "sequence_no": {
+            "type": "integer"
+          }
+        }
+      },
+      "VerifyReport": {
+        "type": "object",
+        "properties": {
+          "archive_readable": {
+            "type": "boolean"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "entries_checked": {
+            "type": "integer"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VerifyProblem"
+            }
+          },
+          "shipments": {
+            "type": "integer"
+          },
+          "unshipped_entries": {
+            "type": "integer"
           }
         }
       },

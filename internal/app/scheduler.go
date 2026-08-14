@@ -31,6 +31,7 @@ const (
 	lockKeyReminderQueue    int64 = 8_531_224_907_150_008
 	lockKeyReminderDeliver  int64 = 8_531_224_907_150_009
 	lockKeyIntentExpiry     int64 = 8_531_224_907_150_010
+	lockKeyAuditShip        int64 = 8_531_224_907_150_011
 )
 
 // SchedulerConfig tunes the background jobs. The zero value is not usable;
@@ -104,6 +105,15 @@ type SchedulerConfig struct {
 	Notify  *NotifyService
 	Intents *IntentService
 
+	// AuditShip copies the audit trail off-host. Nil when the deployment named
+	// no destination, in which case the job is not registered — a job that
+	// runs and ships nowhere would report success for a control that is not
+	// running.
+	AuditShip *AuditShipService
+	// AuditShipInterval is how often it runs. The interval is the window in
+	// which an entry exists only where it can be deleted.
+	AuditShipInterval time.Duration
+
 	// Sessions and LoginAttempts are the stores the purge job sweeps. Left nil
 	// — by a test, or a deployment that has not migrated yet — the job is not
 	// registered at all rather than registered and failing every tick.
@@ -132,6 +142,7 @@ func DefaultSchedulerConfig() SchedulerConfig {
 		ReminderQueueInterval:    24 * time.Hour,
 		ReminderDeliverInterval:  10 * time.Minute,
 		IntentExpiryInterval:     30 * time.Minute,
+		AuditShipInterval:        15 * time.Minute,
 	}
 }
 
@@ -336,6 +347,15 @@ func NewScheduler(
 				lockKey:  lockKeyReminderDeliver,
 				run:      s.runReminderDelivery,
 			})
+	}
+
+	if cfg.AuditShip != nil {
+		s.jobs = append(s.jobs, job{
+			name:     "audit_ship",
+			interval: cfg.AuditShipInterval,
+			lockKey:  lockKeyAuditShip,
+			run:      s.runAuditShip,
+		})
 	}
 
 	if cfg.Intents != nil {
@@ -661,6 +681,32 @@ func (s *Scheduler) runIntentExpiry(ctx context.Context) (jobResult, error) {
 		return jobResult{}, err
 	}
 	return jobResult{Attrs: []slog.Attr{slog.Int("intents_expired", expired)}}, nil
+}
+
+// runAuditShip copies whatever the audit trail has gained since the last pass
+// to the archive host.
+//
+// The interval is the exposure: an entry written just after a pass exists only
+// where somebody with the database role can delete it until the next one. That
+// is why this runs every quarter of an hour rather than nightly — the cost of a
+// pass with nothing to do is one query.
+func (s *Scheduler) runAuditShip(ctx context.Context) (jobResult, error) {
+	result, err := s.cfg.AuditShip.Ship(ctx, s.actor)
+	if err != nil {
+		return jobResult{}, err
+	}
+	attrs := []slog.Attr{
+		slog.Int("blocks", result.Blocks),
+		slog.Int("entries", result.Entries),
+		slog.Int64("unshipped", result.Remaining),
+	}
+	// Still behind after a full pass means the batch ceiling was reached, not
+	// that anything failed — but a backlog that never clears is a defect, and
+	// the outcome is what an alert reads.
+	if result.Remaining > 0 {
+		return jobResult{Defect: true, Attrs: attrs}, nil
+	}
+	return jobResult{Attrs: attrs}, nil
 }
 
 // runStalledImportReaper fails import batches whose worker stopped reporting.
