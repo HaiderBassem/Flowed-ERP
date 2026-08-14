@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flowed — نظام أجور الطلبة</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<!--
+  The operator interface.
+
+  No build step and no framework, on purpose. This is a desk tool for a
+  university finance office: it has to load on whatever browser is on the
+  cashier's machine, keep working when the campus network is slow, and be
+  repairable by whoever is there in three years. A bundler and a framework
+  would each be a thing to keep current for a screen that shows a balance and
+  takes a payment.
+
+  Every rule about money lives in the API. This asks and displays; it never
+  decides. A total shown here is one the server computed.
+-->
+<div id="app" hidden>
+  <header class="topbar">
+    <div class="brand">
+      <strong>Flowed</strong>
+      <span class="muted" id="institution"></span>
+    </div>
+    <nav id="nav" class="nav"></nav>
+    <div class="session">
+      <span id="whoami" class="muted"></span>
+      <button id="logout" class="link" type="button">خروج</button>
+    </div>
+  </header>
+
+  <!--
+    The banner carries what an operator must not miss: a session about to
+    expire, a reconciliation defect, a settlement exception queue. It is above
+    the content rather than inside it because the thing it warns about is
+    usually not on the screen you are looking at.
+  -->
+  <div id="alerts" class="alerts" hidden></div>
+
+  <main id="view" class="view" tabindex="-1"></main>
+
+  <footer class="statusbar">
+    <span id="status" role="status" aria-live="polite"></span>
+    <span class="muted" id="build"></span>
+  </footer>
+</div>
+
+<!-- Sign-in stands alone: no navigation to a screen that would refuse. -->
+<div id="login" class="login" hidden>
+  <form id="login-form" class="card" autocomplete="on">
+    <h1>تسجيل الدخول</h1>
+    <label>اسم المستخدم
+      <input name="username" autocomplete="username" required autofocus>
+    </label>
+    <label>كلمة المرور
+      <input name="password" type="password" autocomplete="current-password" required>
+    </label>
+    <label>الشباك (للصرافين)
+      <select name="cashier_desk_id" id="desk-select">
+        <option value="">— بدون شباك —</option>
+      </select>
+      <small class="muted">
+        الصراف يجب أن يسجل دخوله على شباك: تسلسل الوصولات لكل شباك.
+      </small>
+    </label>
+    <button type="submit" class="primary">دخول</button>
+    <p id="login-error" class="error" role="alert" hidden></p>
+  </form>
+</div>
+
+<!--
+  A modal is used for exactly one thing: confirming an act that cannot be
+  undone. Voiding a receipt, posting a refund, merging a student. Anything
+  reversible happens without one, because a dialog that appears for everything
+  is a dialog nobody reads.
+-->
+<dialog id="confirm">
+  <form method="dialog" class="card">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-body"></p>
+    <div id="confirm-detail" class="detail"></div>
+    <label id="confirm-reason-label" hidden>السبب
+      <input id="confirm-reason" autocomplete="off">
+    </label>
+    <menu>
+      <button value="cancel" class="ghost">إلغاء</button>
+      <button value="confirm" class="danger" id="confirm-ok">تأكيد</button>
+    </menu>
+  </form>
+</dialog>
+
+<script src="app.js" type="module"></script>
+</body>
+</html>

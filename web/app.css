@@ -1,0 +1,205 @@
+/*
+  Styling for a desk, not a demo.
+
+  Three decisions run through this file. Figures are tabular and left-to-right
+  inside a right-to-left page, because a column of Arabic-aligned digits is
+  where a misread balance comes from. Destructive actions are the only red
+  things on the screen, so red means "this cannot be undone" rather than
+  "this is important". And the layout survives a 1366×768 laptop, which is what
+  a university finance office actually has.
+*/
+
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --ink: #16181d;
+  --muted: #6b7280;
+  --line: #d7dbe0;
+  --accent: #1d4ed8;
+  --accent-ink: #ffffff;
+  --danger: #b91c1c;
+  --warn: #b45309;
+  --ok: #15803d;
+  --radius: 6px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Segoe UI", Tahoma, "Noto Naskh Arabic", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Figures: monospaced digits, left-to-right, so columns line up and a
+   thousands separator cannot drift. */
+.num, td.num, .amount {
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: isolate;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand { display: flex; align-items: baseline; gap: 0.5rem; }
+.brand strong { font-size: 1.1rem; letter-spacing: 0.02em; }
+
+.nav { display: flex; flex-wrap: wrap; gap: 0.25rem; flex: 1; }
+.nav a {
+  padding: 0.35rem 0.7rem;
+  border-radius: var(--radius);
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 0.92rem;
+}
+.nav a:hover { background: #eef2ff; }
+.nav a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); }
+
+.session { display: flex; align-items: center; gap: 0.6rem; font-size: 0.9rem; }
+
+.view { padding: 1rem; max-width: 1280px; margin: 0 auto; }
+.view:focus { outline: none; }
+
+.statusbar {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.35rem 1rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.muted { color: var(--muted); }
+.error { color: var(--danger); }
+.ok { color: var(--ok); }
+.warn { color: var(--warn); }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+.card h3 { margin: 1rem 0 0.5rem; font-size: 0.95rem; }
+
+.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+
+/* The figure a cashier reads across the counter. Large enough to be read from
+   the student's side of the desk, which is where disputes start. */
+.headline {
+  font-size: 1.8rem;
+  font-weight: 600;
+}
+.headline.owing { color: var(--danger); }
+.headline.settled { color: var(--ok); }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.45rem 0.6rem; text-align: right; }
+th { font-weight: 600; color: var(--muted); font-size: 0.85rem; }
+tbody tr:hover { background: #f9fafb; }
+tr.clickable { cursor: pointer; }
+tr.overdue td { background: #fff5f5; }
+tr.voided td { text-decoration: line-through; color: var(--muted); }
+
+form label { display: block; margin-bottom: 0.7rem; font-size: 0.9rem; }
+input, select, textarea {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  margin-top: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font: inherit;
+  background: #fff;
+}
+input:focus, select:focus, textarea:focus, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+input[type="number"], input.amount { direction: ltr; text-align: left; font-variant-numeric: tabular-nums; }
+
+button {
+  font: inherit;
+  padding: 0.45rem 0.9rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: #fff;
+  cursor: pointer;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+/* Red is reserved for what cannot be undone. */
+button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+button.ghost { background: transparent; }
+button.link { border: none; background: none; color: var(--accent); text-decoration: underline; padding: 0; }
+button[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+.row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end; }
+.row > * { flex: 1 1 180px; }
+.row > button { flex: 0 0 auto; }
+
+.alerts { padding: 0 1rem; }
+.alert {
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: var(--radius);
+  padding: 0.5rem 0.8rem;
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}
+.alert.bad { background: #fee2e2; border-color: #fca5a5; }
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  border: 1px solid var(--line);
+  background: #f3f4f6;
+}
+.badge.paid { background: #dcfce7; border-color: #86efac; }
+.badge.open { background: #fef9c3; border-color: #fde047; }
+.badge.late { background: #fee2e2; border-color: #fca5a5; }
+
+.login { display: grid; place-items: center; min-height: 100vh; padding: 1rem; }
+.login .card { width: min(420px, 100%); }
+.login h1 { margin: 0 0 1rem; font-size: 1.2rem; }
+
+dialog { border: none; border-radius: var(--radius); padding: 0; max-width: 480px; }
+dialog::backdrop { background: rgba(0,0,0,0.4); }
+dialog menu { display: flex; gap: 0.5rem; justify-content: flex-start; padding: 0; margin: 1rem 0 0; }
+.detail { background: #f9fafb; border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5rem; font-size: 0.88rem; }
+
+/* A receipt is printed from the browser; everything else disappears. */
+@media print {
+  .topbar, .statusbar, .nav, .alerts, button { display: none !important; }
+  .view { padding: 0; }
+  .card { border: none; }
+}
+
+kbd {
+  font: inherit;
+  font-size: 0.8rem;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 0.3rem;
+  background: #f3f4f6;
+}

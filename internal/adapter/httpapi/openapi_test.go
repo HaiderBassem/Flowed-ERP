@@ -43,6 +43,10 @@ func TestEveryRouteIsInTheSpec(t *testing.T) {
 	spec := BuildSpec(engine, "test")
 
 	for _, route := range engine.Routes() {
+		// The interface shell is deliberately absent; see BuildSpec.
+		if strings.HasPrefix(route.Path, "/app/") {
+			continue
+		}
 		item, ok := spec.Paths[route.Path]
 		if !ok {
 			t.Errorf("%s %s is served but absent from the specification", route.Method, route.Path)

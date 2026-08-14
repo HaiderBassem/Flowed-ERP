@@ -215,6 +215,13 @@ refused by either, and the codes differ (` + "`insufficient_role`" + ` and
 	seenTags := map[string]bool{}
 	for _, route := range engine.Routes() {
 		key := route.Method + " " + route.Path
+		// The operator interface is served by this binary but is not part of
+		// the API contract: it is a static page, and a client generator has no
+		// use for "GET /app/{filepath}". Excluded here rather than filtered by
+		// whoever reads the document.
+		if strings.HasPrefix(route.Path, "/app/") {
+			continue
+		}
 		meta := operationMetadata[key]
 
 		operation := Operation{

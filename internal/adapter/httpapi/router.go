@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +18,7 @@ import (
 	"github.com/swibit/flowed/internal/platform/observability"
 	"github.com/swibit/flowed/internal/platform/pg"
 	"github.com/swibit/flowed/internal/port"
+	"github.com/swibit/flowed/web"
 )
 
 // RouterDeps is everything the router needs to wire itself.
@@ -126,6 +129,7 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	})
 
 	registerHealth(engine, deps)
+	registerUI(engine)
 
 	v1 := engine.Group("/api/v1")
 
@@ -229,6 +233,54 @@ func mustChangePassword(users port.UserRepository) func(ctx context.Context, use
 // registerHealth mounts the probes outside authentication: a load balancer has
 // no credentials, and a readiness check that needs a token cannot report that
 // authentication itself is broken.
+// registerUI serves the operator interface from the binary.
+//
+// Mounted before the API group and under its own prefix, so an interface asset
+// can never shadow an endpoint. It is served without authentication because it
+// is a static page: everything it can do it does through the API, which
+// authenticates every call. Serving the shell to an anonymous browser is what
+// lets that browser render a sign-in form.
+func registerUI(engine *gin.Engine) {
+	// Content types are set explicitly rather than sniffed. The API sets
+	// X-Content-Type-Options: nosniff for good reasons, and a stylesheet
+	// served as text/plain under that header is a stylesheet the browser
+	// refuses.
+	contentTypes := map[string]string{
+		".html": "text/html; charset=utf-8",
+		".css":  "text/css; charset=utf-8",
+		".js":   "text/javascript; charset=utf-8",
+	}
+
+	engine.GET("/app/*filepath", func(c *gin.Context) {
+		name := strings.TrimPrefix(c.Param("filepath"), "/")
+		if name == "" {
+			name = "index.html"
+		}
+
+		content, err := web.Assets.ReadFile(name)
+		if err != nil {
+			// The interface is a hash-router: every screen is /app/ plus a
+			// fragment, so an unknown path is a stale bookmark rather than a
+			// route. Serving the shell is what makes a refreshed page land
+			// where the operator was.
+			content, err = web.Assets.ReadFile("index.html")
+			if err != nil {
+				c.Status(http.StatusNotFound)
+				return
+			}
+			name = "index.html"
+		}
+
+		// The document-wide policy is written for JSON responses, which load
+		// nothing. The interface loads its own stylesheet and modules and
+		// nothing else, which is exactly what 'self' expresses.
+		c.Header("Content-Security-Policy",
+			"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "+
+				"connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		c.Data(http.StatusOK, contentTypes[filepath.Ext(name)], content)
+	})
+}
+
 func registerHealth(engine *gin.Engine, deps RouterDeps) {
 	engine.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
