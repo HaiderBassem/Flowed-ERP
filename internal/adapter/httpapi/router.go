@@ -1,12 +1,14 @@
 package httpapi
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/swibit/flowed/internal/app"
 	"github.com/swibit/flowed/internal/domain/shared"
 	"github.com/swibit/flowed/internal/platform/auth"
 	"github.com/swibit/flowed/internal/platform/config"
@@ -33,6 +35,14 @@ type RouterDeps struct {
 	Bulk        *BulkHandlers
 	Cashier     *CashierHandlers
 	Receipts    *ReceiptHandlers
+	UserAdmin   *UserHandlers
+	// AuthService backs the session-revocation middleware as well as the
+	// credential endpoints: a token whose session was revoked must stop
+	// working on the next request, not at the end of its lifetime.
+	AuthService *app.AuthService
+	// Users is read by the password-change gate, which needs the stored flag
+	// rather than the token's copy of it.
+	Users       port.UserRepository
 	Tokens      *auth.TokenService
 	Idempotency port.IdempotencyRepository
 	// RateLimiter is the cross-replica budget. Nil leaves the limiter
@@ -89,6 +99,7 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 		httpx.Observe(deps.Observability),
 		httpx.Logger(deps.Log),
 		httpx.Recovery(deps.Log),
+		httpx.SecurityHeaders(deps.Config.Auth.RequireHSTS),
 		httpx.CORS(deps.Config.HTTP),
 		httpx.BodyLimit(deps.Config.HTTP.MaxRequestBodyBytes),
 		// Comfortably inside the server's write timeout, so a handler that runs
@@ -116,10 +127,30 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	v1.POST("/auth/login", deps.Auth.Login)
 	v1.POST("/auth/refresh", deps.Auth.Refresh)
 
-	secured := v1.Group("")
-	secured.Use(httpx.Authenticate(deps.Tokens))
+	authenticated := v1.Group("")
+	authenticated.Use(httpx.Authenticate(deps.Tokens))
 
-	secured.GET("/auth/me", deps.Auth.Me)
+	// Session revocation is checked here rather than inside Authenticate,
+	// because the token is valid — it is the session behind it that was
+	// withdrawn, and the two failures deserve different codes.
+	if deps.Config.Auth.StrictSessionCheck && deps.AuthService != nil {
+		authenticated.Use(httpx.RequireLiveSession(deps.AuthService, deps.Log))
+	}
+
+	// Routes an operator holding a password somebody else set may still reach.
+	// Everything else is refused until they replace it: an administrator who
+	// reset the password knows it, and at a cashier desk the receipt would
+	// carry the cashier's name.
+	authenticated.GET("/auth/me", deps.Auth.Me)
+	authenticated.POST("/auth/logout", deps.Auth.Logout)
+	authenticated.POST("/auth/change-password", deps.Auth.ChangePassword)
+	authenticated.GET("/auth/sessions", deps.Auth.MySessions)
+	authenticated.POST("/auth/sessions/revoke-others", deps.Auth.RevokeMyOtherSessions)
+
+	secured := authenticated.Group("")
+	if deps.Users != nil {
+		secured.Use(httpx.PasswordChangeGate(mustChangePassword(deps.Users), nil))
+	}
 
 	registerReference(secured, deps.Handlers)
 	registerStudents(secured, deps.Handlers)
@@ -138,8 +169,30 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	deps.Bulk.Register(secured)
 	deps.Cashier.Register(secured)
 	deps.Receipts.Register(secured)
+	if deps.UserAdmin != nil {
+		deps.UserAdmin.Register(secured)
+	}
 
 	return engine
+}
+
+// mustChangePassword adapts the user store to the gate's narrow question.
+//
+// A read per request, which is why the gate answers from the row rather than
+// from the token: the token's copy is up to one access lifetime stale, and a
+// reset password that stayed usable for that long would defeat the point of
+// marking it at all.
+func mustChangePassword(users port.UserRepository) func(ctx context.Context, userID shared.ID) (bool, error) {
+	return func(ctx context.Context, userID shared.ID) (bool, error) {
+		if shared.IsNil(userID) {
+			return false, nil
+		}
+		user, err := users.GetByID(ctx, userID)
+		if err != nil {
+			return false, err
+		}
+		return user.MustChangePassword, nil
+	}
 }
 
 // registerHealth mounts the probes outside authentication: a load balancer has

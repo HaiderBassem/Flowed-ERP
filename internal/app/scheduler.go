@@ -27,6 +27,7 @@ const (
 	lockKeyStalledImports   int64 = 8_531_224_907_150_004
 	lockKeyOverdueSnapshot  int64 = 8_531_224_907_150_005
 	lockKeyRateLimitPurge   int64 = 8_531_224_907_150_006
+	lockKeySessionPurge     int64 = 8_531_224_907_150_007
 )
 
 // SchedulerConfig tunes the background jobs. The zero value is not usable;
@@ -72,6 +73,21 @@ type SchedulerConfig struct {
 	// full interval. Without it a daily job on a service that is redeployed
 	// every afternoon would never run at all.
 	RunOnStart bool
+
+	// SessionPurgeInterval is how often expired sessions and old login
+	// attempts are deleted.
+	SessionPurgeInterval time.Duration
+	// LoginAttemptRetention is how long sign-in attempts are kept. Long enough
+	// that an investigation opened weeks after a disputed receipt can still see
+	// whether the account was being guessed; short enough that the table does
+	// not become a permanent record of who signed in from where.
+	LoginAttemptRetention time.Duration
+
+	// Sessions and LoginAttempts are the stores the purge job sweeps. Left nil
+	// — by a test, or a deployment that has not migrated yet — the job is not
+	// registered at all rather than registered and failing every tick.
+	Sessions      port.SessionRepository
+	LoginAttempts port.LoginAttemptRepository
 }
 
 // DefaultSchedulerConfig is the production schedule.
@@ -90,6 +106,8 @@ func DefaultSchedulerConfig() SchedulerConfig {
 		ShutdownTimeout:          30 * time.Second,
 		StartupStagger:           15 * time.Second,
 		RunOnStart:               true,
+		SessionPurgeInterval:     6 * time.Hour,
+		LoginAttemptRetention:    90 * 24 * time.Hour,
 	}
 }
 
@@ -105,6 +123,12 @@ func (c SchedulerConfig) withDefaults() SchedulerConfig {
 	}
 	if c.AdjustmentReaperInterval <= 0 {
 		c.AdjustmentReaperInterval = d.AdjustmentReaperInterval
+	}
+	if c.SessionPurgeInterval <= 0 {
+		c.SessionPurgeInterval = d.SessionPurgeInterval
+	}
+	if c.LoginAttemptRetention <= 0 {
+		c.LoginAttemptRetention = d.LoginAttemptRetention
 	}
 	if c.IdempotencyPurgeInterval <= 0 {
 		c.IdempotencyPurgeInterval = d.IdempotencyPurgeInterval
@@ -254,6 +278,15 @@ func NewScheduler(
 			lockKey:  lockKeyOverdueSnapshot,
 			run:      s.runOverdueSnapshot,
 		},
+	}
+
+	if cfg.Sessions != nil && cfg.LoginAttempts != nil {
+		s.jobs = append(s.jobs, job{
+			name:     "session_purge",
+			interval: cfg.SessionPurgeInterval,
+			lockKey:  lockKeySessionPurge,
+			run:      s.runSessionPurge,
+		})
 	}
 
 	if rateLimiter != nil {
@@ -495,6 +528,31 @@ func (s *Scheduler) runIdempotencyPurge(ctx context.Context) (jobResult, error) 
 		return jobResult{}, err
 	}
 	return jobResult{Attrs: []slog.Attr{slog.Int64("records_purged", deleted)}}, nil
+}
+
+// runSessionPurge deletes expired sessions and old sign-in attempts.
+//
+// Neither is an audit trail. The audit log records the sign-in and the
+// revocation and is append-only and hash-chained; these two tables exist to
+// make revocation possible and throttling correct, and both lose their value
+// the moment they are past. Left to grow, the session table is read on every
+// refresh and the attempt table on every login, so the cost of keeping them
+// forever lands on the login path.
+func (s *Scheduler) runSessionPurge(ctx context.Context) (jobResult, error) {
+	now := nowOr(s.deps.Clock)
+
+	sessions, err := s.cfg.Sessions.PurgeExpired(ctx, now)
+	if err != nil {
+		return jobResult{}, err
+	}
+	attempts, err := s.cfg.LoginAttempts.PurgeBefore(ctx, now.Add(-s.cfg.LoginAttemptRetention))
+	if err != nil {
+		return jobResult{}, err
+	}
+	return jobResult{Attrs: []slog.Attr{
+		slog.Int64("sessions_purged", sessions),
+		slog.Int64("login_attempts_purged", attempts),
+	}}, nil
 }
 
 // runStalledImportReaper fails import batches whose worker stopped reporting.

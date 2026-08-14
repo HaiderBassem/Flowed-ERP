@@ -1,8 +1,6 @@
 package auth
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -68,6 +66,21 @@ type Claims struct {
 	// parameter of the same spelling, which is unrelated: this one lives in the
 	// payload and is signed along with everything else.
 	Type TokenType `json:"typ"`
+
+	// ScopeMode and the two lists carry the actor's organisational reach.
+	//
+	// Carried in the token rather than read per request for the same reason
+	// roles are: the alternative is a database round trip on every call, at
+	// every cashier desk, for a value that changes a few times a year. It lags
+	// a change by at most one access-token lifetime, and the refresh path
+	// re-reads the user, so narrowing somebody takes effect within a shift —
+	// and revoking their session makes it immediate.
+	ScopeMode string `json:"scope_mode,omitempty"`
+	// ScopeColleges and ScopeDepartments are omitted entirely for a
+	// university-wide actor, which is most of them, so the common token does
+	// not grow.
+	ScopeColleges    []string `json:"scope_colleges,omitempty"`
+	ScopeDepartments []string `json:"scope_departments,omitempty"`
 }
 
 // Pair is an access token together with the refresh token that renews it. Both
@@ -84,7 +97,7 @@ type Pair struct {
 // TokenService issues and verifies the tokens that carry an actor's identity
 // across the stateless HTTP boundary.
 type TokenService struct {
-	secret     []byte
+	keys       *Keyring
 	issuer     string
 	accessTTL  time.Duration
 	refreshTTL time.Duration
@@ -105,8 +118,20 @@ func NewTokenServiceWithClock(cfg config.Auth, clock shared.Clock) *TokenService
 	if clock == nil {
 		clock = shared.SystemClock{}
 	}
+	// A malformed keyring cannot be returned from here without changing every
+	// caller, and a service with no key would mint nothing anyway: fall back to
+	// a ring holding just the configured secret, which is what the service did
+	// before rotation existed. Configuration validation refuses an empty secret
+	// long before this point.
+	ring, err := NewKeyring(cfg.JWTSecret, cfg.RetiredJWTSecrets)
+	if err != nil {
+		ring = &Keyring{
+			active:    keyFromSecret(cfg.JWTSecret),
+			verifiers: map[string]Key{keyFromSecret(cfg.JWTSecret).ID: keyFromSecret(cfg.JWTSecret)},
+		}
+	}
 	return &TokenService{
-		secret:     []byte(cfg.JWTSecret),
+		keys:       ring,
 		issuer:     cfg.Issuer,
 		accessTTL:  cfg.AccessTokenTTL,
 		refreshTTL: cfg.RefreshTokenTTL,
@@ -220,6 +245,19 @@ func (s *TokenService) issue(
 		desk = &text
 	}
 
+	scope := u.Scope()
+	var scopeMode string
+	var scopeColleges, scopeDepartments []string
+	if !scope.IsUniversityWide() {
+		scopeMode = string(shared.ScopeLimited)
+		for _, id := range scope.Colleges {
+			scopeColleges = append(scopeColleges, id.String())
+		}
+		for _, id := range scope.Departments {
+			scopeDepartments = append(scopeDepartments, id.String())
+		}
+	}
+
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    s.issuer,
@@ -229,14 +267,22 @@ func (s *TokenService) issue(
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			ID:        sessionID,
 		},
-		Username:      u.Username,
-		Roles:         roles,
-		CashierDeskID: desk,
-		SessionID:     sessionID,
-		Type:          typ,
+		Username:         u.Username,
+		Roles:            roles,
+		CashierDeskID:    desk,
+		SessionID:        sessionID,
+		Type:             typ,
+		ScopeMode:        scopeMode,
+		ScopeColleges:    scopeColleges,
+		ScopeDepartments: scopeDepartments,
 	}
 
-	signed, err := jwt.NewWithClaims(signingMethod, claims).SignedString(s.secret)
+	token := jwt.NewWithClaims(signingMethod, claims)
+	// The kid names which key verifies this token, so rotation can retire a
+	// secret without invalidating tokens already in browsers.
+	token.Header["kid"] = s.keys.Active().ID
+
+	signed, err := token.SignedString(s.keys.Active().Secret)
 	if err != nil {
 		return "", time.Time{}, shared.Internal("auth.token_issue_failed", err, "the token could not be signed")
 	}
@@ -294,8 +340,22 @@ func (s *TokenService) keyFunc(token *jwt.Token) (any, error) {
 	if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 		return nil, fmt.Errorf("%w: unexpected signing method %q", jwt.ErrTokenSignatureInvalid, token.Method.Alg())
 	}
-	return s.secret, nil
+
+	// The kid selects the key. An unknown kid is refused rather than falling
+	// back to the active key: falling back would verify a token signed with a
+	// secret this deployment has deliberately retired, which is the one thing
+	// retiring a key is supposed to stop.
+	kid, _ := token.Header["kid"].(string)
+	key, ok := s.keys.Lookup(kid)
+	if !ok {
+		return nil, fmt.Errorf("%w: no signing key with id %q", jwt.ErrTokenSignatureInvalid, kid)
+	}
+	return key.Secret, nil
 }
+
+// KeyIDs lists the signing keys this service accepts, active first. Used by the
+// start-up log so an operator can confirm a rotation reached every replica.
+func (s *TokenService) KeyIDs() []string { return s.keys.KeyIDs() }
 
 // translateParseError turns a library error into a domain error with a stable
 // code. The distinctions matter to a client: an expired token means "refresh
@@ -355,13 +415,51 @@ func actorFromClaims(claims *Claims) (*shared.Actor, error) {
 		sessionID = claims.ID
 	}
 
+	scope, err := scopeFromClaims(claims)
+	if err != nil {
+		return nil, err
+	}
+
 	return &shared.Actor{
 		UserID:        userID,
 		Username:      claims.Username,
 		Roles:         roles,
 		CashierDeskID: deskID,
 		SessionID:     sessionID,
+		Scope:         scope,
 	}, nil
+}
+
+// scopeFromClaims rebuilds the organisational reach carried in a token.
+//
+// An unparseable identifier is an error rather than a value to drop. Dropping
+// it would silently widen the actor — a scoped finance manager whose one
+// college failed to parse would become a scoped actor with no restrictions
+// left to apply — and widening on malformed input is the wrong direction for
+// an authorisation decision to fail.
+func scopeFromClaims(claims *Claims) (shared.Scope, error) {
+	if shared.ScopeMode(claims.ScopeMode) != shared.ScopeLimited {
+		return shared.UniversityScope(), nil
+	}
+
+	scope := shared.Scope{Mode: shared.ScopeLimited}
+	for _, raw := range claims.ScopeColleges {
+		id, err := shared.ParseID(raw)
+		if err != nil {
+			return shared.Scope{}, shared.Unauthorized("auth.token_invalid_scope",
+				"the token carries an unreadable college scope").WithCause(err)
+		}
+		scope.Colleges = append(scope.Colleges, id)
+	}
+	for _, raw := range claims.ScopeDepartments {
+		id, err := shared.ParseID(raw)
+		if err != nil {
+			return shared.Scope{}, shared.Unauthorized("auth.token_invalid_scope",
+				"the token carries an unreadable department scope").WithCause(err)
+		}
+		scope.Departments = append(scope.Departments, id)
+	}
+	return scope, nil
 }
 
 // newSessionID mints the identifier that ties every action taken during one
@@ -370,11 +468,10 @@ func actorFromClaims(claims *Claims) (*shared.Actor, error) {
 // It is random rather than derived from the user or the clock: an id that can
 // be guessed or that repeats across replicas would let two logins collapse
 // into one thread when someone later reconstructs what a cashier did.
+//
+// A UUID rather than raw hex, because the session is now also a row — revoking
+// it is what makes logout and "sign out my other sessions" work — and the row's
+// primary key is a uuid.
 func newSessionID() (string, error) {
-	buf := make([]byte, 16)
-	if _, err := rand.Read(buf); err != nil {
-		return "", shared.Internal("auth.session_id_failed", err,
-			"the system entropy source is unavailable")
-	}
-	return hex.EncodeToString(buf), nil
+	return shared.NewID().String(), nil
 }

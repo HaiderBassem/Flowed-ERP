@@ -115,3 +115,13 @@ func payloadHash(c *gin.Context) string {
 	hash, _ := stored.(string)
 	return hash
 }
+
+// queryBool reads a boolean query parameter.
+//
+// An unparseable value is false rather than an error: these are filters, and a
+// stale bookmark carrying "?active_only=yes" should return the unfiltered list
+// rather than a rejection the reader cannot act on.
+func queryBool(c *gin.Context, name string) bool {
+	value, err := strconv.ParseBool(strings.TrimSpace(c.Query(name)))
+	return err == nil && value
+}

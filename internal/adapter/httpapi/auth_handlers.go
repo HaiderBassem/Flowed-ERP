@@ -2,66 +2,36 @@ package httpapi
 
 import (
 	"log/slog"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/swibit/flowed/internal/app"
 	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/auth"
 	"github.com/swibit/flowed/internal/platform/httpx"
 	"github.com/swibit/flowed/internal/port"
 )
 
-// AuthHandlers issues and renews credentials.
+// AuthHandlers issue, renew and withdraw credentials.
+//
+// The handlers hold no policy of their own. Throttling, the session record,
+// which failures are indistinguishable from which, and the audit entry all live
+// in the application service, so a second entry point — the CLI, the student
+// portal — gets the same behaviour rather than a second implementation of it.
 type AuthHandlers struct {
-	Users  port.UserRepository
-	Tokens *auth.TokenService
-	Hasher *auth.Hasher
-	Clock  shared.Clock
-	Log    *slog.Logger
+	Auth  *app.AuthService
+	Users *app.UserService
+	Log   *slog.Logger
 }
 
 // NewAuthHandlers wires the credential endpoints.
-func NewAuthHandlers(users port.UserRepository, tokens *auth.TokenService, hasher *auth.Hasher, clock shared.Clock, log *slog.Logger) *AuthHandlers {
-	return &AuthHandlers{Users: users, Tokens: tokens, Hasher: hasher, Clock: clock, Log: log}
+func NewAuthHandlers(authService *app.AuthService, users *app.UserService, log *slog.Logger) *AuthHandlers {
+	return &AuthHandlers{Auth: authService, Users: users, Log: log}
 }
 
 // Login exchanges a username and password for tokens.
-//
-// Every failure returns the same message and takes roughly the same time. An
-// unknown username runs a dummy hash comparison, so the response cannot be
-// used to enumerate who works here — and in a university finance office,
-// knowing which accounts exist is the first half of an attack.
 func (h *AuthHandlers) Login(c *gin.Context) {
 	var req LoginRequest
 	if !bindJSON(c, &req) {
-		return
-	}
-	ctx := requestContext(c)
-
-	invalid := shared.Unauthorized("auth.invalid_credentials", "the username or password is incorrect")
-
-	user, err := h.Users.GetByUsername(ctx, req.Username)
-	if err != nil {
-		if verifyErr := h.Hasher.VerifyDummy(); verifyErr != nil {
-			h.Log.DebugContext(ctx, "dummy verification failed", slog.String("error", verifyErr.Error()))
-		}
-		h.logFailure(c, req.Username, "unknown username")
-		httpx.Respond(c, invalid)
-		return
-	}
-
-	if err := h.Hasher.Verify(user.PasswordHash, req.Password); err != nil {
-		h.logFailure(c, req.Username, "password mismatch")
-		httpx.Respond(c, invalid)
-		return
-	}
-
-	// Checked after the password, so a disabled account cannot be told apart
-	// from a wrong password by an attacker who has neither.
-	if !user.IsActive {
-		h.logFailure(c, req.Username, "account disabled")
-		httpx.Respond(c, invalid)
 		return
 	}
 
@@ -75,131 +45,128 @@ func (h *AuthHandlers) Login(c *gin.Context) {
 		deskID = &parsed
 	}
 
-	// A cashier without a desk cannot take cash: receipt series run per year
-	// per desk, and a collection with no desk has no sequential paper book to
-	// reconcile against.
-	if user.HasRole(shared.RoleCashier) && deskID == nil {
-		httpx.Respond(c, shared.Validation("auth.cashier_desk_required",
-			"a cashier must sign in at a specific desk; receipt numbering is per desk").
-			WithDetail("field", "cashier_desk_id"))
-		return
-	}
-
-	pair, err := h.Tokens.IssuePair(user, deskID)
+	result, err := h.Auth.Login(requestContext(c), app.LoginInput{
+		Username:      req.Username,
+		Password:      req.Password,
+		CashierDeskID: deskID,
+		IPAddress:     c.ClientIP(),
+		UserAgent:     c.GetHeader("User-Agent"),
+	})
 	if err != nil {
 		httpx.Respond(c, err)
 		return
 	}
 
-	// A failure to stamp the login must not deny a cashier their shift.
-	if err := h.Users.RecordLogin(ctx, user.ID, h.now()); err != nil {
-		h.Log.WarnContext(ctx, "recording login timestamp",
-			slog.String("username", user.Username), slog.String("error", err.Error()))
-	}
-
 	httpx.OK(c, TokenResponse{
-		AccessToken:      pair.AccessToken,
-		AccessExpiresAt:  pair.AccessExpiresAt,
-		RefreshToken:     pair.RefreshToken,
-		RefreshExpiresAt: pair.RefreshExpiresAt,
+		AccessToken:      result.Pair.AccessToken,
+		AccessExpiresAt:  result.Pair.AccessExpiresAt,
+		RefreshToken:     result.Pair.RefreshToken,
+		RefreshExpiresAt: result.Pair.RefreshExpiresAt,
 		TokenType:        "Bearer",
-		User:             toUserView(user),
+		User:             toUserView(result.User),
 	})
 }
 
 // Refresh renews an access token from a refresh token.
-//
-// The user is re-read rather than trusted from the token. A refresh token
-// issued last month must not keep working after the account was disabled or
-// its roles were narrowed, and only a fresh read can notice either.
 func (h *AuthHandlers) Refresh(c *gin.Context) {
 	var req RefreshRequest
 	if !bindJSON(c, &req) {
 		return
 	}
-	ctx := requestContext(c)
 
-	claims, err := h.Tokens.ParseRefresh(req.RefreshToken)
-	if err != nil {
-		httpx.Respond(c, err)
-		return
-	}
-
-	userID, err := shared.ParseID(claims.Subject)
-	if err != nil {
-		httpx.Respond(c, shared.Unauthorized("auth.invalid_token", "the refresh token is malformed"))
-		return
-	}
-
-	user, err := h.Users.GetByID(ctx, userID)
-	if err != nil {
-		httpx.Respond(c, shared.Unauthorized("auth.invalid_token", "the refresh token is no longer valid"))
-		return
-	}
-	if !user.IsActive {
-		httpx.Respond(c, shared.Unauthorized("auth.account_disabled", "this account is disabled"))
-		return
-	}
-
-	var deskID *shared.ID
-	if claims.CashierDeskID != nil {
-		parsed, err := shared.ParseID(*claims.CashierDeskID)
-		if err == nil {
-			deskID = &parsed
-		}
-	}
-
-	// The session id carries across, so rotating an access token does not
-	// fragment the audit trail's view of one login.
-	access, expiresAt, err := h.Tokens.RenewFromRefresh(user, deskID, claims.SessionID)
+	result, err := h.Auth.Refresh(requestContext(c), app.RefreshInput{
+		RefreshToken: req.RefreshToken,
+		IPAddress:    c.ClientIP(),
+	})
 	if err != nil {
 		httpx.Respond(c, err)
 		return
 	}
 
 	httpx.OK(c, TokenResponse{
-		AccessToken:     access,
-		AccessExpiresAt: expiresAt,
+		AccessToken:     result.AccessToken,
+		AccessExpiresAt: result.ExpiresAt,
 		TokenType:       "Bearer",
-		User:            toUserView(user),
+		User:            toUserView(result.User),
 	})
 }
 
+// Logout ends the session the request arrived on.
+func (h *AuthHandlers) Logout(c *gin.Context) {
+	if err := h.Auth.Logout(requestContext(c), httpx.MustActor(c)); err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	httpx.OK(c, gin.H{"signed_out": true})
+}
+
 // Me returns the signed-in operator, so a client can render the interface its
-// actor is actually allowed to use rather than offering buttons the server
-// will refuse.
+// actor is actually allowed to use rather than offering buttons the server will
+// refuse.
+//
+// It reads the user row rather than answering from the token alone: the token
+// is up to one access lifetime stale, and this is the response a UI decides its
+// whole navigation from.
 func (h *AuthHandlers) Me(c *gin.Context) {
 	actor := httpx.MustActor(c)
 
-	roles := make([]string, 0, len(actor.Roles))
-	for _, r := range actor.Roles {
-		roles = append(roles, string(r))
+	user, err := h.Users.GetUser(requestContext(c), actor, actor.UserID)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
 	}
 
-	payload := gin.H{
-		"id":       actor.UserID.String(),
-		"username": actor.Username,
-		"roles":    roles,
-	}
+	view := toUserDetailView(user)
 	if actor.CashierDeskID != nil {
-		payload["cashier_desk_id"] = actor.CashierDeskID.String()
+		view.CashierDeskID = ptr(actor.CashierDeskID.String())
 	}
-	httpx.OK(c, payload)
+	view.SessionID = actor.SessionID
+	httpx.OK(c, view)
 }
 
-func (h *AuthHandlers) logFailure(c *gin.Context, username, reason string) {
-	// The username is recorded; the password never is, not even its length.
-	h.Log.WarnContext(c.Request.Context(), "authentication failed",
-		slog.String("username", username),
-		slog.String("reason", reason),
-		slog.String("client_ip", c.ClientIP()))
+// ChangePassword lets an operator replace their own password.
+//
+// Mounted outside the password-change gate: an account holding a credential
+// somebody else set has to be able to do this much and nothing else.
+func (h *AuthHandlers) ChangePassword(c *gin.Context) {
+	var req ChangePasswordRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+
+	err := h.Users.ChangeOwnPassword(requestContext(c), httpx.MustActor(c), app.ChangeOwnPasswordInput{
+		CurrentPassword:   req.CurrentPassword,
+		NewPassword:       req.NewPassword,
+		KeepOtherSessions: req.KeepOtherSessions,
+	})
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	httpx.OK(c, gin.H{"password_changed": true})
 }
 
-func (h *AuthHandlers) now() time.Time {
-	if h.Clock == nil {
-		return time.Now().UTC()
+// MySessions lists the caller's own sign-ins, so an operator can see a session
+// they do not recognise and end it.
+func (h *AuthHandlers) MySessions(c *gin.Context) {
+	actor := httpx.MustActor(c)
+
+	sessions, err := h.Users.ListSessions(requestContext(c), actor, actor.UserID, queryBool(c, "include_ended"))
+	if err != nil {
+		httpx.Respond(c, err)
+		return
 	}
-	return h.Clock.Now()
+	httpx.OK(c, toSessionViews(sessions, actor.SessionID))
+}
+
+// RevokeMyOtherSessions signs the caller out everywhere but here.
+func (h *AuthHandlers) RevokeMyOtherSessions(c *gin.Context) {
+	revoked, err := h.Users.RevokeOtherSessions(requestContext(c), httpx.MustActor(c))
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	httpx.OK(c, gin.H{"sessions_revoked": revoked})
 }
 
 func toUserView(u *port.User) UserView {
@@ -208,9 +175,11 @@ func toUserView(u *port.User) UserView {
 		roles = append(roles, string(r))
 	}
 	return UserView{
-		ID:       u.ID.String(),
-		Username: u.Username,
-		FullName: u.FullName,
-		Roles:    roles,
+		ID:                 u.ID.String(),
+		Username:           u.Username,
+		FullName:           u.FullName,
+		Roles:              roles,
+		MustChangePassword: u.MustChangePassword,
+		ScopeMode:          string(u.Scope().Mode),
 	}
 }

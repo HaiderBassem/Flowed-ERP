@@ -10,13 +10,52 @@ import (
 	"time"
 
 	"github.com/swibit/flowed/internal/adapter/postgres"
+	"github.com/swibit/flowed/internal/app"
 	"github.com/swibit/flowed/internal/domain/shared"
 	"github.com/swibit/flowed/internal/platform/auth"
 	"github.com/swibit/flowed/internal/platform/config"
 	"github.com/swibit/flowed/internal/platform/logger"
 	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/internal/port"
 )
+
+// bootstrapActor is the identity the two account-creating commands run under.
+//
+// They are the only paths that may create an operator without an operator
+// already existing, so there is no signed-in actor to attribute the change to.
+// Naming the act "bootstrap" in the audit trail is more honest than attributing
+// it to the account being created, which is what a self-referential actor would
+// do.
+func bootstrapActor() shared.Actor {
+	return shared.Actor{
+		Username: "bootstrap",
+		Roles:    []shared.Role{shared.RoleAdmin},
+		Scope:    shared.UniversityScope(),
+	}
+}
+
+// userServiceFor wires the operator commands over a pool.
+//
+// The CLI drives the same application service the HTTP API does, so a user
+// created from a terminal gets the same validation, the same password policy
+// and the same audit entry as one created from the administration screen. The
+// alternative — a second implementation in the command — is how the two drift
+// until one of them is quietly wrong.
+func userServiceFor(db *pg.DB, cfg *config.Config, log *slog.Logger) *app.UserService {
+	deps := app.Deps{
+		Tx:        postgres.NewTxManager(db),
+		Users:     postgres.NewUserRepository(db),
+		Reference: postgres.NewReferenceRepository(db),
+		Audit:     postgres.NewAuditRepository(db),
+		Clock:     shared.SystemClock{},
+		Log:       log,
+	}
+	return app.NewUserService(
+		deps,
+		auth.NewHasher(cfg.Auth),
+		postgres.NewSessionRepository(db),
+		postgres.NewLoginAttemptRepository(db),
+	)
+}
 
 // seed creates the first administrator so a fresh installation can be signed
 // into.
@@ -49,15 +88,8 @@ func seed() error {
 	defer db.Close()
 
 	users := postgres.NewUserRepository(db)
-	txManager := postgres.NewTxManager(db)
-	hasher := auth.NewHasher(cfg.Auth)
-
 	username := envOr("SEED_ADMIN_USERNAME", "admin")
 	password := envOr("SEED_ADMIN_PASSWORD", "change-me-immediately")
-
-	if err := auth.ValidatePassword(password); err != nil {
-		return fmt.Errorf("the seed password is not acceptable: %w", err)
-	}
 
 	if existing, err := users.GetByUsername(ctx, username); err == nil && existing != nil {
 		log.Info("administrator already exists, nothing to seed",
@@ -65,28 +97,11 @@ func seed() error {
 		return nil
 	}
 
-	hash, err := hasher.Hash(password)
-	if err != nil {
-		return err
-	}
-
-	admin := &port.User{
-		ID:           shared.NewID(),
-		Username:     username,
-		FullName:     "System Administrator",
-		PasswordHash: hash,
-		IsActive:     true,
-		Roles:        []shared.Role{shared.RoleAdmin},
-	}
-
-	// The user row and its roles land together: an administrator created
-	// without their role is an account nobody can use and nobody can grant
-	// anything to.
-	err = txManager.Write(ctx, func(ctx context.Context) error {
-		if err := users.Create(ctx, admin); err != nil {
-			return err
-		}
-		return users.SetRoles(ctx, admin.ID, admin.Roles, admin.ID)
+	result, err := userServiceFor(db, cfg, log).CreateUser(ctx, bootstrapActor(), app.CreateUserInput{
+		Username: username,
+		FullName: "System Administrator",
+		Roles:    []shared.Role{shared.RoleAdmin},
+		Password: password,
 	})
 	if err != nil {
 		return err
@@ -94,8 +109,9 @@ func seed() error {
 
 	log.Info("administrator created", slog.String("username", username))
 	fmt.Printf("\nAdministrator created.\n  username: %s\n  password: %s\n\n"+
-		"Change this password before anyone else uses the system.\n\n",
+		"This password must be changed at first sign-in; every other route refuses until it is.\n\n",
 		username, password)
+	_ = result
 	return nil
 }
 
@@ -112,23 +128,15 @@ func envOr(key, fallback string) string {
 //
 // The password is read from CREATE_USER_PASSWORD rather than an argument:
 // arguments land in shell history and in the process list, where any other
-// user on the machine can read them.
+// user on the machine can read them. Omitting it entirely is better still —
+// the command then generates one and prints it once.
 func createUser() error {
 	args := os.Args[2:]
 	if len(args) < 3 {
 		return errors.New(`usage: api create-user <username> "<full name>" <role>[,<role>...]` +
-			"\nthe password is read from CREATE_USER_PASSWORD")
+			"\nthe password is read from CREATE_USER_PASSWORD, or generated when that is unset")
 	}
 	username, fullName, roleList := args[0], args[1], args[2]
-
-	password := os.Getenv("CREATE_USER_PASSWORD")
-	if password == "" {
-		return errors.New("set CREATE_USER_PASSWORD; passing a password as an argument " +
-			"leaves it in shell history and in the process list")
-	}
-	if err := auth.ValidatePassword(password); err != nil {
-		return err
-	}
 
 	roles := make([]shared.Role, 0, 4)
 	for _, name := range strings.Split(roleList, ",") {
@@ -154,33 +162,20 @@ func createUser() error {
 	}
 	defer db.Close()
 
-	users := postgres.NewUserRepository(db)
-	txManager := postgres.NewTxManager(db)
-
-	hash, err := auth.NewHasher(cfg.Auth).Hash(password)
-	if err != nil {
-		return err
-	}
-
-	user := &port.User{
-		ID:           shared.NewID(),
-		Username:     username,
-		FullName:     fullName,
-		PasswordHash: hash,
-		IsActive:     true,
-		Roles:        roles,
-	}
-
-	err = txManager.Write(ctx, func(ctx context.Context) error {
-		if err := users.Create(ctx, user); err != nil {
-			return err
-		}
-		return users.SetRoles(ctx, user.ID, roles, user.ID)
+	result, err := userServiceFor(db, cfg, log).CreateUser(ctx, bootstrapActor(), app.CreateUserInput{
+		Username: username,
+		FullName: fullName,
+		Roles:    roles,
+		Password: os.Getenv("CREATE_USER_PASSWORD"),
 	})
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("created %s (%s) with roles %v\n", username, user.ID, roles)
+	fmt.Printf("created %s (%s) with roles %v\n", username, result.User.ID, roles)
+	if result.TemporaryPassword != "" {
+		fmt.Printf("temporary password: %s\n", result.TemporaryPassword)
+	}
+	fmt.Println("the holder must change this password before any other route will answer them")
 	return nil
 }

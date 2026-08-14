@@ -264,6 +264,8 @@ func buildEngine(
 	audit := postgres.NewAuditRepository(db)
 	idempotency := postgres.NewIdempotencyRepository(db)
 	users := postgres.NewUserRepository(db)
+	authSessions := postgres.NewSessionRepository(db)
+	loginAttempts := postgres.NewLoginAttemptRepository(db)
 	reports := postgres.NewReportRepository(db)
 	imports := postgres.NewImportRepository(db)
 
@@ -300,6 +302,13 @@ func buildEngine(
 
 	tokens := auth.NewTokenService(cfg.Auth)
 	hasher := auth.NewHasher(cfg.Auth)
+
+	userService := app.NewUserService(deps, hasher, authSessions, loginAttempts)
+	authService := app.NewAuthService(deps, tokens, hasher, authSessions, loginAttempts, app.LockoutPolicy{
+		MaxFailures: cfg.Auth.MaxLoginFailures,
+		Window:      cfg.Auth.LoginFailureWindow,
+		LockFor:     cfg.Auth.LockoutDuration,
+	})
 
 	accountService := app.NewAccountService(deps)
 	enrollmentService := app.NewEnrollmentService(deps)
@@ -353,6 +362,8 @@ func buildEngine(
 	// to differ overrides them.
 	scheduler := app.NewScheduler(deps, db, idempotency, rateLimiter, app.SchedulerConfig{
 		RateLimitIdleTTL: cfg.HTTP.RateLimitIdleTTL,
+		Sessions:         authSessions,
+		LoginAttempts:    loginAttempts,
 	})
 
 	engine := httpapi.NewRouter(httpapi.RouterDeps{
@@ -360,7 +371,10 @@ func buildEngine(
 		Log:           log,
 		DB:            db,
 		Handlers:      handlers,
-		Auth:          httpapi.NewAuthHandlers(users, tokens, hasher, clock, log),
+		Auth:          httpapi.NewAuthHandlers(authService, userService, log),
+		UserAdmin:     httpapi.NewUserHandlers(userService),
+		AuthService:   authService,
+		Users:         users,
 		Reports:       httpapi.NewReportHandlers(reports),
 		ConfigAdmin:   httpapi.NewConfigHandlers(app.NewConfigService(deps)),
 		Bulk:          httpapi.NewBulkHandlers(bulkService, importService, imports),

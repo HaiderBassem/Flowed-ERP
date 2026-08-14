@@ -35,6 +35,15 @@ const (
 	// commit — installments not summing to the net, allocations exceeding a
 	// payment. These must abort the transaction and page someone.
 	KindInvariantViolation
+	// KindRateLimited is a refusal to act because the same actor has tried too
+	// often — an account locked after repeated failed sign-ins, a provider
+	// callback replayed in a loop.
+	//
+	// Distinct from the transport's own rate limiter, which refuses before any
+	// handler runs and writes its 429 directly. This one is a business rule: it
+	// is about a specific account or document rather than about a client
+	// address, and it needs a code a client can branch on.
+	KindRateLimited
 )
 
 // String renders the kind for logs.
@@ -54,6 +63,8 @@ func (k Kind) String() string {
 		return "unauthorized"
 	case KindInvariantViolation:
 		return "invariant_violation"
+	case KindRateLimited:
+		return "rate_limited"
 	default:
 		return "internal"
 	}
@@ -139,6 +150,11 @@ func Unauthorized(code, format string, args ...any) *Error {
 // means the system caught itself about to persist an inconsistent state.
 func InvariantViolation(code, format string, args ...any) *Error {
 	return newError(KindInvariantViolation, code, format, args...)
+}
+
+// TooManyRequests builds a KindRateLimited error.
+func TooManyRequests(code, format string, args ...any) *Error {
+	return newError(KindRateLimited, code, format, args...)
 }
 
 // Internal builds a KindInternal error wrapping a cause.

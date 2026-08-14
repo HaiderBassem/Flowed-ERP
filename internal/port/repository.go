@@ -448,7 +448,7 @@ type IdempotencyRecord struct {
 	CompletedAt  *time.Time
 }
 
-// UserRepository stores application users and their roles.
+// UserRepository stores application users, their roles and their scope.
 type UserRepository interface {
 	Create(ctx context.Context, u *User) error
 	Update(ctx context.Context, u *User) error
@@ -457,6 +457,25 @@ type UserRepository interface {
 	List(ctx context.Context, activeOnly bool) ([]*User, error)
 	SetRoles(ctx context.Context, userID shared.ID, roles []shared.Role, grantedBy shared.ID) error
 	RecordLogin(ctx context.Context, userID shared.ID, at time.Time) error
+
+	// SetScope replaces a user's organisational grants wholesale, for the same
+	// reason SetRoles replaces rather than merges: an administrator removing a
+	// college expects it gone.
+	SetScope(ctx context.Context, userID shared.ID, mode shared.ScopeMode, colleges, departments []shared.ID, grantedBy shared.ID) error
+
+	// RecordFailedLogin increments the failure counter and returns the value
+	// after the increment, so the caller can decide on a lockout without a
+	// second read that another attempt could interleave with.
+	RecordFailedLogin(ctx context.Context, userID shared.ID, at time.Time) (int, error)
+	// ClearLoginFailures resets the counter and any lockout after a success.
+	ClearLoginFailures(ctx context.Context, userID shared.ID) error
+	// LockAccount refuses sign-in until the given moment.
+	LockAccount(ctx context.Context, userID shared.ID, until time.Time) error
+	// SetPassword stores a new hash. mustChange marks a credential that
+	// authenticates and nothing else until its holder replaces it.
+	SetPassword(ctx context.Context, userID shared.ID, hash string, mustChange bool, at time.Time) error
+	// SetActive enables or disables an account, recording who and why.
+	SetActive(ctx context.Context, userID shared.ID, active bool, by shared.ID, reason *string, at time.Time) error
 }
 
 // User is an operator of the system.
@@ -471,6 +490,108 @@ type User struct {
 	LastLoginAt  *time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+
+	// MustChangePassword marks a reset credential. Every route except the
+	// password change refuses while it is set.
+	MustChangePassword bool
+	PasswordChangedAt  *time.Time
+
+	// FailedLoginCount and LockedUntil implement per-account throttling. The
+	// IP limiter cannot do this: it sees a campus NAT shared by a hall of
+	// terminals, so a budget large enough for the hall is large enough to
+	// guess one cashier's password all afternoon.
+	FailedLoginCount int
+	LastFailedLogin  *time.Time
+	LockedUntil      *time.Time
+
+	DisabledAt     *time.Time
+	DisabledBy     *shared.ID
+	DisabledReason *string
+
+	// ScopeMode and the two lists give the actor its organisational reach.
+	ScopeMode   shared.ScopeMode
+	Colleges    []shared.ID
+	Departments []shared.ID
+}
+
+// Scope renders the user's organisational reach for an actor.
+func (u *User) Scope() shared.Scope {
+	mode := u.ScopeMode
+	if mode == "" {
+		mode = shared.ScopeUniversity
+	}
+	return shared.Scope{Mode: mode, Colleges: u.Colleges, Departments: u.Departments}
+}
+
+// IsLocked reports whether per-account throttling currently refuses sign-in.
+func (u *User) IsLocked(now time.Time) bool {
+	return u.LockedUntil != nil && u.LockedUntil.After(now)
+}
+
+// Session is one sign-in. Revoking the row is what makes logout, "sign out my
+// other sessions" and disabling an account take effect before the access token
+// would have expired on its own.
+type Session struct {
+	ID            shared.ID
+	UserID        shared.ID
+	IssuedAt      time.Time
+	ExpiresAt     time.Time
+	LastSeenAt    time.Time
+	RevokedAt     *time.Time
+	RevokedBy     *shared.ID
+	RevokedReason *string
+	IPAddress     *string
+	UserAgent     *string
+	CashierDeskID *shared.ID
+}
+
+// Active reports whether the session may still be used.
+func (s *Session) Active(now time.Time) bool {
+	return s.RevokedAt == nil && s.ExpiresAt.After(now)
+}
+
+// SessionRepository stores sign-ins so that a credential can be withdrawn.
+type SessionRepository interface {
+	Create(ctx context.Context, s *Session) error
+	GetByID(ctx context.Context, id shared.ID) (*Session, error)
+	ListForUser(ctx context.Context, userID shared.ID, includeEnded bool) ([]*Session, error)
+	// Revoke ends one session. Idempotent: revoking an already-revoked session
+	// is a success, because a client retrying a logout must not see an error.
+	Revoke(ctx context.Context, id shared.ID, by shared.ID, reason string, at time.Time) error
+	// RevokeAllForUser ends every live session, optionally sparing the one the
+	// request arrived on so "sign out my other sessions" does not sign the
+	// operator out mid-task.
+	RevokeAllForUser(ctx context.Context, userID shared.ID, except *shared.ID, by shared.ID, reason string, at time.Time) (int, error)
+	// Touch records that a session was seen, so an operator listing their
+	// sessions can tell a live desk from one left open in a browser weeks ago.
+	Touch(ctx context.Context, id shared.ID, at time.Time) error
+	// PurgeExpired deletes sessions past their expiry. They are not an audit
+	// trail; the audit log is.
+	PurgeExpired(ctx context.Context, before time.Time) (int64, error)
+}
+
+// LoginAttempt is one sign-in attempt, successful or not.
+type LoginAttempt struct {
+	ID          shared.ID
+	Username    string
+	UserID      *shared.ID
+	Succeeded   bool
+	FailureCode *string
+	IPAddress   *string
+	UserAgent   *string
+	OccurredAt  time.Time
+}
+
+// LoginAttemptRepository records sign-in attempts for throttling and for the
+// security trail.
+type LoginAttemptRepository interface {
+	Record(ctx context.Context, a LoginAttempt) error
+	// CountRecentFailures counts failures against a username inside a window,
+	// which throttles an attacker cycling through usernames that do not exist
+	// — those have no user row to hold a counter.
+	CountRecentFailures(ctx context.Context, username string, since time.Time) (int, error)
+	ListForUser(ctx context.Context, userID shared.ID, limit int) ([]LoginAttempt, error)
+	PurgeBefore(ctx context.Context, before time.Time) (int64, error)
 }
 
 // HasRole reports whether the user holds a role.

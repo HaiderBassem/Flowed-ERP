@@ -142,6 +142,12 @@ func (d Database) RedactedDSN() string {
 type Auth struct {
 	// JWTSecret signs access tokens. Must be at least 32 bytes in production.
 	JWTSecret string
+	// RetiredJWTSecrets still verify tokens but sign nothing. A rotation moves
+	// the old value here for one refresh-token lifetime, so tokens already in
+	// browsers keep working while new ones are signed with the new key. Without
+	// it, rotating the secret signs every cashier out mid-shift, which is why
+	// in practice it never got rotated at all.
+	RetiredJWTSecrets []string
 	// AccessTokenTTL bounds how long an access token stays valid. Cashier
 	// shifts are long, but a stolen token should expire within the shift.
 	AccessTokenTTL time.Duration
@@ -151,6 +157,29 @@ type Auth struct {
 	Issuer string
 	// BcryptCost sets password hashing cost.
 	BcryptCost int
+
+	// MaxLoginFailures locks an account after this many failures inside
+	// LoginFailureWindow. Zero disables per-account lockout, which leaves only
+	// the per-IP limiter — and at a university that is a campus NAT shared by
+	// a hall of terminals, so it is sized far too high to stop somebody
+	// guessing one cashier's password.
+	MaxLoginFailures int
+	// LoginFailureWindow is how far back failures are counted.
+	LoginFailureWindow time.Duration
+	// LockoutDuration is how long a locked account stays locked. It expires on
+	// its own: an account that needs an administrator to unlock it turns every
+	// mistyped password into a support call, and the support call is answered
+	// by unlocking it.
+	LockoutDuration time.Duration
+	// StrictSessionCheck verifies on every request that the session behind the
+	// token has not been revoked. On, revocation is immediate at the cost of
+	// one indexed lookup per request; off, it lags by up to one access-token
+	// lifetime. The trade-off is named here rather than hidden in code.
+	StrictSessionCheck bool
+	// RequireHSTS adds Strict-Transport-Security to responses that arrived over
+	// TLS. Off by default so a development server on plain HTTP cannot pin a
+	// browser to a scheme it does not serve.
+	RequireHSTS bool
 }
 
 // Receipt holds what a printed receipt says about the institution issuing it.
@@ -254,11 +283,12 @@ func Load() (*Config, error) {
 			LogQueries:               envBool("DB_LOG_QUERIES", false),
 		},
 		Auth: Auth{
-			JWTSecret:       env("AUTH_JWT_SECRET", "development-secret-change-me-in-production"),
-			AccessTokenTTL:  envDuration("AUTH_ACCESS_TOKEN_TTL", 12*time.Hour),
-			RefreshTokenTTL: envDuration("AUTH_REFRESH_TOKEN_TTL", 30*24*time.Hour),
-			Issuer:          env("AUTH_ISSUER", "flowed-tuition"),
-			BcryptCost:      envInt("AUTH_BCRYPT_COST", 12),
+			JWTSecret:         env("AUTH_JWT_SECRET", "development-secret-change-me-in-production"),
+			RetiredJWTSecrets: envList("AUTH_JWT_RETIRED_SECRETS", nil),
+			AccessTokenTTL:    envDuration("AUTH_ACCESS_TOKEN_TTL", 12*time.Hour),
+			RefreshTokenTTL:   envDuration("AUTH_REFRESH_TOKEN_TTL", 30*24*time.Hour),
+			Issuer:            env("AUTH_ISSUER", "flowed-tuition"),
+			BcryptCost:        envInt("AUTH_BCRYPT_COST", 12),
 		},
 		Receipt: Receipt{
 			UniversityNameAr: env("RECEIPT_UNIVERSITY_NAME", "الجامعة"),

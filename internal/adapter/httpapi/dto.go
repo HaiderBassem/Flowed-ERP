@@ -220,6 +220,12 @@ type UserView struct {
 	Username string   `json:"username"`
 	FullName string   `json:"full_name"`
 	Roles    []string `json:"roles"`
+	// MustChangePassword tells a client to send the operator straight to the
+	// password form: every other route will refuse them until they do.
+	MustChangePassword bool `json:"must_change_password"`
+	// ScopeMode lets a client label a scoped operator's screens with the
+	// colleges they can actually act on.
+	ScopeMode string `json:"scope_mode,omitempty"`
 }
 
 // StudentView is a student identity.
@@ -613,3 +619,116 @@ func toYearView(y *academic.Year) YearView {
 }
 
 func ptrString(s string) *string { return &s }
+
+// ---------------------------------------------------------------------------
+// Operator administration
+// ---------------------------------------------------------------------------
+
+// CreateUserRequest registers an operator.
+type CreateUserRequest struct {
+	Username string   `json:"username" binding:"required"`
+	FullName string   `json:"full_name" binding:"required"`
+	Email    *string  `json:"email" binding:"omitempty,email"`
+	Roles    []string `json:"roles"`
+	// Password may be omitted, in which case the server generates one and
+	// returns it exactly once. Preferable: an administrator inventing
+	// passwords for a hall of cashiers invents the same one.
+	Password string `json:"password"`
+	// ScopeMode is "university" (the default) or "scoped".
+	ScopeMode   string   `json:"scope_mode" binding:"omitempty,oneof=university scoped"`
+	Colleges    []string `json:"colleges"`
+	Departments []string `json:"departments"`
+}
+
+// SetRolesRequest replaces an operator's roles.
+type SetRolesRequest struct {
+	Roles  []string `json:"roles"`
+	Reason string   `json:"reason"`
+}
+
+// SetScopeRequest replaces an operator's organisational grants.
+type SetScopeRequest struct {
+	ScopeMode   string   `json:"scope_mode" binding:"required,oneof=university scoped"`
+	Colleges    []string `json:"colleges"`
+	Departments []string `json:"departments"`
+	Reason      string   `json:"reason"`
+}
+
+// ResetPasswordRequest issues a new credential on somebody's behalf.
+type ResetPasswordRequest struct {
+	// Password may be omitted for a generated one.
+	Password string `json:"password"`
+	Reason   string `json:"reason"`
+}
+
+// ChangePasswordRequest replaces the caller's own password.
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required"`
+	// KeepOtherSessions leaves other sessions alive. The default ends them,
+	// because the usual reason for changing a password is suspecting somebody
+	// else has it.
+	KeepOtherSessions bool `json:"keep_other_sessions"`
+}
+
+// ReasonRequest is the body of a command whose only input is why.
+type ReasonRequest struct {
+	Reason string `json:"reason"`
+}
+
+// CreateUserResponse carries the account and, when the server generated it,
+// the temporary password.
+type CreateUserResponse struct {
+	User UserDetailView `json:"user"`
+	// TemporaryPassword appears only when the server generated it, and only in
+	// this one response. It is never readable again.
+	TemporaryPassword string `json:"temporary_password,omitempty"`
+}
+
+// UserDetailView is an operator as an administrator sees them. No password
+// field of any kind, hashed or otherwise.
+type UserDetailView struct {
+	ID                 string     `json:"id"`
+	Username           string     `json:"username"`
+	FullName           string     `json:"full_name"`
+	Email              *string    `json:"email,omitempty"`
+	Roles              []string   `json:"roles"`
+	IsActive           bool       `json:"is_active"`
+	MustChangePassword bool       `json:"must_change_password"`
+	ScopeMode          string     `json:"scope_mode"`
+	Colleges           []string   `json:"colleges,omitempty"`
+	Departments        []string   `json:"departments,omitempty"`
+	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
+	LockedUntil        *time.Time `json:"locked_until,omitempty"`
+	DisabledReason     *string    `json:"disabled_reason,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	// CashierDeskID and SessionID are set only on /auth/me, where the client
+	// needs to know which desk it signed in at and which session it holds.
+	CashierDeskID *string `json:"cashier_desk_id,omitempty"`
+	SessionID     string  `json:"session_id,omitempty"`
+}
+
+// SessionView is one sign-in.
+type SessionView struct {
+	ID            string     `json:"id"`
+	IssuedAt      time.Time  `json:"issued_at"`
+	ExpiresAt     time.Time  `json:"expires_at"`
+	LastSeenAt    time.Time  `json:"last_seen_at"`
+	RevokedAt     *time.Time `json:"revoked_at,omitempty"`
+	RevokedReason *string    `json:"revoked_reason,omitempty"`
+	IPAddress     *string    `json:"ip_address,omitempty"`
+	UserAgent     *string    `json:"user_agent,omitempty"`
+	// Current marks the session the request arrived on, so a client can label
+	// it rather than inviting somebody to revoke the session they are using.
+	Current bool `json:"current"`
+}
+
+// LoginAttemptView is one sign-in attempt. It never carries the password, its
+// length, or which half of the credential was wrong.
+type LoginAttemptView struct {
+	Username    string    `json:"username"`
+	Succeeded   bool      `json:"succeeded"`
+	FailureCode *string   `json:"failure_code,omitempty"`
+	IPAddress   *string   `json:"ip_address,omitempty"`
+	OccurredAt  time.Time `json:"occurred_at"`
+}

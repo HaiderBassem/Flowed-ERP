@@ -59,6 +59,8 @@ func StatusForKind(kind shared.Kind) int {
 		return http.StatusConflict
 	case shared.KindPreconditionFailed:
 		return http.StatusUnprocessableEntity
+	case shared.KindRateLimited:
+		return http.StatusTooManyRequests
 	case shared.KindInvariantViolation, shared.KindInternal:
 		return http.StatusInternalServerError
 	default:

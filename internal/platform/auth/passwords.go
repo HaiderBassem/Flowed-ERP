@@ -10,6 +10,7 @@ package auth
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"unicode/utf8"
 
@@ -144,7 +145,92 @@ func ValidatePassword(plain string) error {
 			"a password must be at least %d characters long", MinPasswordRunes).
 			WithDetail("min_characters", MinPasswordRunes)
 	}
+	if isSingleRepeatedRune(plain) {
+		return shared.Validation("auth.password_too_simple",
+			"a password of one repeated character is guessed in a handful of attempts").
+			WithDetail("remedy", "use a phrase of several unrelated words")
+	}
+	if commonPasswords[strings.ToLower(plain)] {
+		return shared.Validation("auth.password_too_common",
+			"this password appears in the lists attackers try first").
+			WithDetail("remedy", "use a phrase of several unrelated words")
+	}
 	return nil
+}
+
+// ValidatePasswordFor applies the policy plus the checks that need to know who
+// the password belongs to.
+//
+// The composition rules other systems impose — a digit, a capital, a symbol —
+// are deliberately absent. They push people towards Passw0rd! and towards
+// writing the result on the monitor, and current guidance (NIST SP 800-63B)
+// recommends length and a blocklist instead. What is checked here is what
+// actually gets guessed at a university desk: the account's own name, the
+// institution's name, and the handful of passwords in every wordlist.
+func ValidatePasswordFor(plain, username, fullName string) error {
+	if err := ValidatePassword(plain); err != nil {
+		return err
+	}
+
+	lower := strings.ToLower(plain)
+	if username != "" && strings.Contains(lower, strings.ToLower(username)) {
+		return shared.Validation("auth.password_contains_username",
+			"a password must not contain the account name").
+			WithDetail("remedy", "use a phrase unrelated to the account")
+	}
+	for _, part := range strings.Fields(strings.ToLower(fullName)) {
+		// Two-letter fragments match too much to be meaningful; the check is
+		// aimed at somebody using their own name as their password.
+		if utf8.RuneCountInString(part) >= 4 && strings.Contains(lower, part) {
+			return shared.Validation("auth.password_contains_name",
+				"a password must not contain the account holder's name").
+				WithDetail("remedy", "use a phrase unrelated to the account holder")
+		}
+	}
+	return nil
+}
+
+// isSingleRepeatedRune reports whether the whole password is one character
+// repeated, which passes a length check while carrying almost no entropy.
+func isSingleRepeatedRune(plain string) bool {
+	var first rune
+	for i, r := range plain {
+		if i == 0 {
+			first = r
+			continue
+		}
+		if r != first {
+			return false
+		}
+	}
+	return true
+}
+
+// commonPasswords is a short blocklist of the values that turn up first in
+// every credential-stuffing list, plus the ones this project's own defaults and
+// documentation might tempt somebody into.
+//
+// It is deliberately small. A full breach corpus belongs behind a service call,
+// and a list large enough to matter is large enough that keeping it current
+// becomes the job; this catches the careless case without pretending to be more
+// than it is.
+var commonPasswords = map[string]bool{
+	"password":      true,
+	"password1":     true,
+	"password123":   true,
+	"passw0rd123":   true,
+	"12345678":      true,
+	"123456789":     true,
+	"1234567890":    true,
+	"qwertyuiop":    true,
+	"letmein123":    true,
+	"welcome123":    true,
+	"admin12345":    true,
+	"administrator": true,
+	"changeme123":   true,
+	"flowed12345":   true,
+	"university1":   true,
+	"iraq123456":    true,
 }
 
 // normaliseCost keeps an out-of-range cost from weakening every password the

@@ -3,6 +3,7 @@ package auth_test
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/swibit/flowed/internal/domain/shared"
 	"github.com/swibit/flowed/internal/platform/auth"
@@ -84,7 +85,9 @@ func TestVerifyDoesNotShortCircuit(t *testing.T) {
 func TestHashRejectsPasswordsBeyondBcryptsLimit(t *testing.T) {
 	hasher := testHasher()
 
-	prefix := strings.Repeat("a", auth.MaxPasswordBytes)
+	// Two alternating letters rather than one repeated: exactly 72 bytes, and
+	// not the single-repeated-character shape the policy refuses on its own.
+	prefix := strings.Repeat("ab", auth.MaxPasswordBytes/2)
 	first := prefix + "-first-suffix"
 	second := prefix + "-second-suffix"
 
@@ -140,7 +143,15 @@ func TestHashRejectsShortPasswords(t *testing.T) {
 
 	// Ten Arabic letters are twenty bytes and must be accepted: counting the
 	// minimum in bytes would have let a five-letter Arabic password through.
-	if _, err := hasher.Hash(strings.Repeat("ك", auth.MinPasswordRunes)); err != nil {
+	// Ten *different* letters, because a password of one repeated character is
+	// now refused on its own account — the point being tested here is the rune
+	// count, and repeating one letter would test both rules at once and pass
+	// for the wrong reason.
+	arabicTen := "كتبمنزلشجر"
+	if got := utf8.RuneCountInString(arabicTen); got != auth.MinPasswordRunes {
+		t.Fatalf("the fixture must be exactly %d runes, got %d", auth.MinPasswordRunes, got)
+	}
+	if _, err := hasher.Hash(arabicTen); err != nil {
 		t.Fatalf("a ten character Arabic password should be accepted: %v", err)
 	}
 }

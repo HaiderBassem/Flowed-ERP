@@ -53,6 +53,11 @@ type Actor struct {
 	SessionID string
 	// IPAddress is the request origin, recorded for the audit trail.
 	IPAddress string
+	// Scope is the actor's organisational reach. The zero value is
+	// university-wide, so an Actor built without thinking about scope behaves
+	// exactly as actors did before scoping existed — a missing field is then a
+	// visible mistake rather than a silent denial of service.
+	Scope Scope
 }
 
 // HasRole reports whether the actor holds the given role.
