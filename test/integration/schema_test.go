@@ -290,6 +290,18 @@ func TestSupersedeRequiresAReplacementByCommit(t *testing.T) {
 
 // newCommittedFixture creates fixture rows that survive commit, for the tests
 // that need a real transaction boundary. It returns a cleanup that removes them.
+// yearCode builds a distinct academic year code for a fixture.
+//
+// It reads the microseconds rather than the nanoseconds: on darwin the clock is
+// microsecond-granular, so UnixNano always ends in three zeros and a code taken
+// from suffix%1000 was the same string on every run — the second run collided
+// on uq_academic_year_code. The trailing half stays below 1000 so the code keeps
+// the four-digit shape the domain requires.
+func yearCode(prefix int, suffix int64) string {
+	base := int((suffix/1000)%899) + 100
+	return fmt.Sprintf("%d%03d-%d%03d", prefix, base, prefix, base+1)
+}
+
 func newCommittedFixture(t *testing.T) (*fixture, func()) {
 	t.Helper()
 	ctx := context.Background()
@@ -315,7 +327,7 @@ func newCommittedFixture(t *testing.T) (*fixture, func()) {
 		f.collegeID, fmt.Sprintf("Q%d", suffix%100000))
 	scan(&f.yearID, `INSERT INTO academic_year (id, code, start_date, end_date, status)
 		VALUES (gen_random_uuid(), $1, '2025-09-01', '2026-07-01', 'open') RETURNING id`,
-		fmt.Sprintf("4%03d-4%03d", suffix%1000, (suffix%1000)+1))
+		yearCode(4, suffix))
 	scan(&f.studentID, `INSERT INTO student (id, student_no, full_name, mother_name)
 		VALUES (gen_random_uuid(), $1, 'طالب', 'أم') RETURNING id`, fmt.Sprintf("Y%d", suffix))
 
@@ -804,7 +816,7 @@ func TestConcurrentPaymentsSerialiseOnTheAccountLock(t *testing.T) {
 		VALUES (gen_random_uuid(), $1, $2, 'ق', 4) RETURNING id`, collegeID, fmt.Sprintf("P%d", suffix%100000))
 	exec(&yearID, `INSERT INTO academic_year (id, code, start_date, end_date, status)
 		VALUES (gen_random_uuid(), $1, '2025-09-01', '2026-07-01', 'open') RETURNING id`,
-		fmt.Sprintf("3%03d-3%03d", suffix%1000, (suffix%1000)+1))
+		yearCode(3, suffix))
 	exec(&studentID, `INSERT INTO student (id, student_no, full_name, mother_name)
 		VALUES (gen_random_uuid(), $1, 'طالب', 'أم') RETURNING id`, fmt.Sprintf("X%d", suffix))
 	exec(&enrollmentID, `INSERT INTO enrollment (
@@ -823,7 +835,16 @@ func TestConcurrentPaymentsSerialiseOnTheAccountLock(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		cleanup := context.Background()
+		// This test moves paid_total directly, with no payment rows behind it,
+		// so the account it leaves behind is drift as far as
+		// v_account_reconciliation is concerned — and that view is one of the
+		// four queries CI requires to return zero after the suite. The row has
+		// to go, and trg_account_immutable refuses to delete a financial
+		// account, which is the guarantee it exists for. Suspending it around
+		// this one delete is the honest way out: the test owns the table.
+		_, _ = pool.Exec(cleanup, `ALTER TABLE financial_account DISABLE TRIGGER trg_account_immutable`)
 		_, _ = pool.Exec(cleanup, `DELETE FROM financial_account WHERE id = $1`, accountID)
+		_, _ = pool.Exec(cleanup, `ALTER TABLE financial_account ENABLE TRIGGER trg_account_immutable`)
 		_, _ = pool.Exec(cleanup, `DELETE FROM enrollment WHERE id = $1`, enrollmentID)
 		_, _ = pool.Exec(cleanup, `DELETE FROM student WHERE id = $1`, studentID)
 		_, _ = pool.Exec(cleanup, `DELETE FROM academic_year WHERE id = $1`, yearID)
@@ -883,5 +904,172 @@ func TestConcurrentPaymentsSerialiseOnTheAccountLock(t *testing.T) {
 	if want := int64(workers * each); total != want {
 		t.Errorf("paid_total = %d, want %d — %d dinars were lost to interleaved updates",
 			total, want, want-total)
+	}
+}
+
+// TestPricingIsFrozenOnceMoneyHasMoved proves the account guard lives in the
+// database rather than only in Go.
+//
+// The invariant every document in this repository states — the frozen net
+// never moves, later changes are adjustment rows — had no trigger behind it on
+// financial_account until migration 000020. A guard that exists only in the
+// application is one a psql session walks straight past, and the row it would
+// rewrite is the one a printed receipt was computed from.
+func TestPricingIsFrozenOnceMoneyHasMoved(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	accountID, _ := f.seedPayment(t, 1_000_000)
+
+	// Before any money is against it, an account generated against the wrong
+	// policy can still be restated — that is what makes regeneration possible.
+	if _, err := f.tx.Exec(ctx, `
+		UPDATE financial_account
+		SET gross_total = 900000, discountable_base = 900000, net_total = 900000
+		WHERE id = $1`, accountID); err != nil {
+		t.Fatalf("restating an untouched account should be permitted: %v", err)
+	}
+	if _, err := f.tx.Exec(ctx, `SET CONSTRAINTS ALL IMMEDIATE`); err != nil {
+		t.Fatalf("restating an untouched account should survive the check: %v", err)
+	}
+
+	// Now a cashier takes money against it.
+	if _, err := f.tx.Exec(ctx,
+		`UPDATE financial_account SET paid_total = 400000 WHERE id = $1`, accountID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.tx.Exec(ctx, `SET CONSTRAINTS ALL IMMEDIATE`); err != nil {
+		t.Fatalf("maintaining the paid cache must stay permitted: %v", err)
+	}
+
+	sp, err := f.tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The earlier SET CONSTRAINTS ALL IMMEDIATE holds for the rest of this
+	// transaction, so the refusal lands on the statement itself.
+	_, err = sp.Exec(ctx,
+		`UPDATE financial_account SET gross_total = 100000, discountable_base = 100000,
+		 net_total = 100000 WHERE id = $1`, accountID)
+	if err == nil {
+		t.Error("rewriting the net of an account that has been paid against must be refused; " +
+			"the correction is an account_adjustment row")
+	} else if !strings.Contains(err.Error(), "pricing is frozen") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	_ = sp.Rollback(ctx)
+}
+
+// TestAnAccountCannotChangeOwnerWithoutAMerge: the account carries its own
+// student_id, so an UPDATE of that column moves a debt between two people.
+// Only a recorded merge may do it.
+func TestAnAccountCannotChangeOwnerWithoutAMerge(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	accountID, _ := f.seedPayment(t, 1_000_000)
+
+	var otherID string
+	if err := f.tx.QueryRow(ctx, `
+		INSERT INTO student (id, student_no, full_name, mother_name)
+		VALUES (gen_random_uuid(), $1, 'طالب آخر', 'أم') RETURNING id`,
+		fmt.Sprintf("Z%d", time.Now().UnixNano()),
+	).Scan(&otherID); err != nil {
+		t.Fatal(err)
+	}
+
+	sp, err := f.tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sp.Exec(ctx,
+		`UPDATE financial_account SET student_id = $2 WHERE id = $1`, accountID, otherID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = sp.Exec(ctx, `SET CONSTRAINTS ALL IMMEDIATE`)
+	if err == nil {
+		t.Error("moving an account to another student with no merge behind it must be refused")
+	} else if !strings.Contains(err.Error(), "without a recorded merge") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	_ = sp.Rollback(ctx)
+
+	// With the merge recorded, the same write is exactly how the money follows
+	// the person.
+	if _, err := f.tx.Exec(ctx, `
+		INSERT INTO student_merge (id, source_id, target_id, reason)
+		VALUES (gen_random_uuid(), $1, $2, 'same person registered twice')`,
+		f.studentID, otherID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.tx.Exec(ctx,
+		`UPDATE financial_account SET student_id = $2 WHERE id = $1`, accountID, otherID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.tx.Exec(ctx, `SET CONSTRAINTS ALL IMMEDIATE`); err != nil {
+		t.Errorf("a merge is what makes the move legal: %v", err)
+	}
+}
+
+// TestResplitWritesTheSupersedePairInTheOnlyLegalOrder is the schema-level
+// proof behind migration 000019.
+//
+// uq_installment_number excludes superseded rows, so the old row must stop
+// being live before its replacement can take its number; the foreign key means
+// the pointer can only be written after the replacement exists. The row is
+// therefore superseded-with-no-pointer for part of the transaction, and the
+// old row-level CHECK refused that first write outright — a re-split against
+// the real schema failed every time while the unit tests passed.
+func TestResplitWritesTheSupersedePairInTheOnlyLegalOrder(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	accountID, _ := f.seedPayment(t, 1_000_000)
+
+	var oldID string
+	if err := f.tx.QueryRow(ctx, `
+		INSERT INTO installment (id, account_id, installment_no, due_date, amount)
+		VALUES (gen_random_uuid(), $1, 1, '2026-01-15', 1000000) RETURNING id`,
+		accountID).Scan(&oldID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Step one: free the number. This is the write the CHECK refused.
+	if _, err := f.tx.Exec(ctx,
+		`UPDATE installment SET status = 'superseded' WHERE id = $1`, oldID); err != nil {
+		t.Fatalf("the old row has to leave the live index first: %v", err)
+	}
+
+	// Step two: the replacements take the numbers.
+	var freshID string
+	if err := f.tx.QueryRow(ctx, `
+		INSERT INTO installment (id, account_id, installment_no, due_date, amount, plan_version)
+		VALUES (gen_random_uuid(), $1, 1, '2026-03-15', 500000, 2) RETURNING id`,
+		accountID).Scan(&freshID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Halfway through, the pair is inconsistent — and must not be allowed to
+	// commit that way.
+	sp, err := f.tx.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sp.Exec(ctx, `SET CONSTRAINTS ALL IMMEDIATE`)
+	if err == nil {
+		t.Error("a superseded installment with no replacement and no plan revision must be refused")
+	} else if !strings.Contains(err.Error(), "no replacement") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	_ = sp.Rollback(ctx)
+
+	// Step three: the old row names its replacement, and the transaction is
+	// consistent again.
+	if _, err := f.tx.Exec(ctx,
+		`UPDATE installment SET superseded_by_id = $2 WHERE id = $1`, oldID, freshID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.tx.Exec(ctx, `SET CONSTRAINTS ALL IMMEDIATE`); err != nil {
+		t.Errorf("the completed pair must be accepted: %v", err)
 	}
 }

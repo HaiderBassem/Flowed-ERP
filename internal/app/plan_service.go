@@ -146,8 +146,16 @@ func (s *AccountService) AdjustInstallmentPlan(
 			if err := s.deps.Installments.Update(ctx, old); err != nil {
 				return err
 			}
-			if i < len(fresh) {
-				replacedBy[old.ID] = fresh[i].ID
+			// Every replaced row is pointed at a replacement, and when the new
+			// plan has fewer rows than the old one the extras point at the
+			// last of them. Leaving them unmapped would break the chain a
+			// reader follows forward from an old installment to the money it
+			// became. The one case with no replacement at all — a credit that
+			// retires the open rows outright — is carried by the plan
+			// revision instead; trg_installment_supersede_pair checks that at
+			// commit.
+			if len(fresh) > 0 {
+				replacedBy[old.ID] = fresh[min(i, len(fresh)-1)].ID
 			}
 		}
 		if len(fresh) > 0 {

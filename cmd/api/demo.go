@@ -685,15 +685,28 @@ func (d *demoBuilder) recordOutcome(ctx context.Context, enrollmentID shared.ID,
 			Target:       academic.StatusDroppedOut,
 			Result:       academic.ResultNoResult,
 			Reason:       ptrTo("انقطاع عن الدوام"),
+			// Ending an enrollment has to say what happens to the money; the
+			// command refuses to guess. A student who simply stopped attending
+			// still owes what the year charged, so the debt stands and the
+			// dataset carries a real debtor rather than a tidy zero.
+			FinancialTreatment: academic.TreatmentKeep,
 		})
 		d.counts["dropped out"]++
 		return err
 
 	case "defer":
-		_, err := d.enrollments.ChangeEnrollmentStatus(ctx, d.registrar, app.ChangeStatusInput{
+		// A deferral that writes off the unpaid balance needs both authorities
+		// at once: the registrar's, to end the registration, and finance's, to
+		// waive money. Only the administrator holds both, which is the honest
+		// depiction — in the office this is a form the registrar raises and
+		// the finance manager signs.
+		_, err := d.enrollments.ChangeEnrollmentStatus(ctx, d.admin, app.ChangeStatusInput{
 			EnrollmentID: enrollmentID,
 			Target:       academic.StatusDeferred,
 			OrderRef:     ptrTo("أمر تأجيل 2024/318"),
+			// A deferral by order: what is unpaid is written off for this
+			// year, and the student is charged again when they return.
+			FinancialTreatment: academic.TreatmentWaiveUnpaid,
 		})
 		d.counts["deferred"]++
 		return err
@@ -824,7 +837,12 @@ func (d *demoBuilder) collect(ctx context.Context, accountID shared.ID, amount m
 		}
 	}
 
-	reference := "REF-" + shared.NewID().String()[:8]
+	// The tail of the identifier, not the head: these are UUIDv7 values whose
+	// leading hex digits are a millisecond timestamp, so two payments recorded
+	// in the same millisecond produced the same reference — and the university
+	// treats a repeated bank reference as the same transfer entered twice.
+	id := shared.NewID().String()
+	reference := "REF-" + id[len(id)-12:]
 	_, err := d.payments.RecordPayment(ctx, d.cashier, app.RecordPaymentInput{
 		AccountID:       accountID,
 		Amount:          amount,

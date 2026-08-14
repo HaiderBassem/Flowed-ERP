@@ -1247,6 +1247,12 @@ func (f *bulkAccounts) GetForUpdate(ctx context.Context, id shared.ID) (*billing
 func (f *bulkAccounts) ListForStudent(context.Context, shared.ID) ([]*billing.Account, error) {
 	return nil, nil
 }
+func (f *bulkAccounts) Reassign(_ context.Context, accountID, toStudentID shared.ID) error {
+	if account, ok := f.store.accounts[accountID]; ok {
+		account.StudentID = toStudentID
+	}
+	return nil
+}
 func (f *bulkAccounts) Snapshot(context.Context, shared.ID) ([]*billing.SnapshotLine, error) {
 	return nil, nil
 }

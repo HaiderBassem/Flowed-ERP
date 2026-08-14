@@ -133,6 +133,18 @@ func (s *StudentService) MergeStudents(ctx context.Context, actor shared.Actor, 
 			}
 		}
 
+		// The account carries its own student_id — every statement, debt scan
+		// and college report reads that column rather than joining through the
+		// enrollment. Moving the enrollment alone left the money on the record
+		// the university had just decided to stop using: the merged student's
+		// statement came back empty and the duplicate still showed the debt.
+		// Nothing else about the account moves.
+		for _, account := range accounts {
+			if err := s.deps.Accounts.Reassign(ctx, account.ID, target.ID); err != nil {
+				return err
+			}
+		}
+
 		discountsMoved, err := s.reassignDiscounts(ctx, source.ID, target.ID)
 		if err != nil {
 			return err

@@ -123,6 +123,23 @@ func (r *AccountRepository) Create(ctx context.Context, a *billing.Account, snap
 	return pg.WrapQuery("account.Create.snapshot", execBatch(ctx, q, batch))
 }
 
+// Reassign points an account at another student record, for a merge.
+//
+// Only the owner column moves: no total, no payment, no receipt is touched, so
+// a receipt printed under the old student number still reads the same. The
+// database checks that a student_merge row justifies it.
+func (r *AccountRepository) Reassign(ctx context.Context, accountID, toStudentID shared.ID) error {
+	if err := r.db.RequireTx(ctx, "account.Reassign"); err != nil {
+		return err
+	}
+	const query = `UPDATE financial_account SET student_id = $2 WHERE id = $1 RETURNING id`
+
+	q := r.db.Conn(ctx)
+	var id shared.ID
+	err := q.QueryRow(ctx, query, accountID, toStudentID).Scan(&id)
+	return pg.WrapQuery("account.Reassign", err)
+}
+
 // Update writes back the account's cached totals and lifecycle stamps. The
 // frozen gross, discount and net are included because a regeneration may
 // legitimately restate them before any money has moved.

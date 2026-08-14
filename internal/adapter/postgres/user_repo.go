@@ -334,10 +334,15 @@ func (r *UserRepository) SetActive(
 	}
 	const query = `
 		UPDATE app_user
+		-- The casts are load-bearing. In a CASE whose other branch is a bare
+		-- NULL, PostgreSQL resolves the type from the branches alone, infers
+		-- text for a parameter pgx sent untyped, and refuses the assignment
+		-- with 42804 — so disabling an account failed with an opaque
+		-- database_error until each parameter said what it was.
 		SET is_active       = $2,
-		    disabled_at     = CASE WHEN $2 THEN NULL ELSE COALESCE($5, now()) END,
-		    disabled_by     = CASE WHEN $2 THEN NULL ELSE $3 END,
-		    disabled_reason = CASE WHEN $2 THEN NULL ELSE $4 END
+		    disabled_at     = CASE WHEN $2 THEN NULL ELSE COALESCE($5::timestamptz, now()) END,
+		    disabled_by     = CASE WHEN $2 THEN NULL ELSE $3::uuid END,
+		    disabled_reason = CASE WHEN $2 THEN NULL ELSE $4::text END
 		WHERE id = $1
 		RETURNING id`
 

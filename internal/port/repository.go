@@ -319,6 +319,12 @@ type AccountRepository interface {
 	// series — so concurrent commands cannot deadlock against each other.
 	GetForUpdate(ctx context.Context, id shared.ID) (*billing.Account, error)
 	ListForStudent(ctx context.Context, studentID shared.ID) ([]*billing.Account, error)
+	// Reassign moves an account to another student record. The only caller is
+	// the merge command, and the database refuses the write unless a
+	// student_merge row says the two records are one person: financial_account
+	// carries its own student_id, so an account left behind by a merge would
+	// keep the money on the record everybody stopped using.
+	Reassign(ctx context.Context, accountID, toStudentID shared.ID) error
 	Snapshot(ctx context.Context, accountID shared.ID) ([]*billing.SnapshotLine, error)
 
 	CreateAdjustment(ctx context.Context, adj *billing.Adjustment) error
