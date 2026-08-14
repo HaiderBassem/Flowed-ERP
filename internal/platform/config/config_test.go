@@ -175,3 +175,46 @@ func TestProductionRefusesTheDevelopmentSecret(t *testing.T) {
 		t.Fatal("production must refuse the development signing secret")
 	}
 }
+
+// TestASecretCanComeFromAFile covers the deployment path that matters for the
+// two settings worth protecting: a mounted secret rather than an environment
+// variable that shows up in `docker inspect` and in /proc/<pid>/environ.
+func TestASecretCanComeFromAFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jwt-secret")
+
+	// The trailing newline is deliberate: every editor and every `echo` adds
+	// one, and a secret that differs by a newline fails in a way that looks
+	// exactly like the wrong secret.
+	secret := "a-long-enough-secret-for-the-validator-to-accept-it"
+	if err := os.WriteFile(path, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("AUTH_JWT_SECRET_FILE", path)
+	t.Setenv("AUTH_JWT_SECRET", "the-environment-copy-that-should-lose")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("loading: %v", err)
+	}
+	if cfg.Auth.JWTSecret != secret {
+		t.Errorf("the secret came from %q, want the file's contents", cfg.Auth.JWTSecret)
+	}
+}
+
+// A file that cannot be read must not silently become the default. The
+// environment is the fallback, and if that is absent too the validation that
+// knows what the setting is for gets to refuse.
+func TestAnUnreadableSecretFileFallsBackToTheEnvironment(t *testing.T) {
+	t.Setenv("AUTH_JWT_SECRET_FILE", filepath.Join(t.TempDir(), "does-not-exist"))
+	t.Setenv("AUTH_JWT_SECRET", "the-environment-copy-that-should-be-used-here")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("loading: %v", err)
+	}
+	if cfg.Auth.JWTSecret != "the-environment-copy-that-should-be-used-here" {
+		t.Errorf("secret = %q, want the environment value", cfg.Auth.JWTSecret)
+	}
+}

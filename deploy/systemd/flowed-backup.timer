@@ -1,0 +1,13 @@
+# Nightly at 01:30, with the drill on its own timer. Persistent so a machine
+# that was off at 01:30 takes its backup when it comes back rather than
+# skipping a night silently.
+[Unit]
+Description=Nightly Flowed backup
+
+[Timer]
+OnCalendar=*-*-* 01:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

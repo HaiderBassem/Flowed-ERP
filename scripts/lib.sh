@@ -15,6 +15,14 @@ DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
 
 export PGHOST="$DB_HOST" PGPORT="$DB_PORT" PGUSER="$DB_USER"
+
+# The password may arrive as a file, which is how Docker and Kubernetes hand a
+# process a secret and materially safer than an environment variable: a
+# variable is visible in `docker inspect` and in /proc/<pid>/environ. The
+# application reads DB_PASSWORD_FILE the same way.
+if [ -n "${DB_PASSWORD_FILE:-}" ] && [ -r "${DB_PASSWORD_FILE}" ]; then
+	DB_PASSWORD="$(tr -d '\r\n' < "$DB_PASSWORD_FILE")"
+fi
 [ -n "${DB_PASSWORD:-}" ] && export PGPASSWORD="$DB_PASSWORD"
 
 BACKUP_DIR="${BACKUP_DIR:-./backups}"

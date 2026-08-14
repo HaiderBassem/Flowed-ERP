@@ -1,0 +1,44 @@
+# What must not go into the build context.
+#
+# Two reasons, and the second matters more. Size: node_modules is hundreds of
+# megabytes that the image build re-installs from the lockfile anyway. And
+# correctness: a build that copies in whatever the developer's tree happened to
+# contain produces an image nobody can reproduce, which for a financial system
+# means an artefact nobody can trace back to a commit.
+
+# Version control. The image is stamped from build arguments the Makefile
+# passes, so the history is not needed and its size is not wanted.
+.git
+.gitignore
+
+# Build output — rebuilt inside the image, and a host binary is the wrong
+# architecture as often as not.
+bin/
+dist/
+webui/node_modules/
+webui/dist/
+web/dist/
+node_modules/
+
+# Local state that is not the application.
+.env
+*.env
+!.env.example
+backups/
+perf/
+coverage.out
+coverage.html
+*.prof
+*.test
+
+# Editor and platform noise.
+.DS_Store
+.idea/
+.vscode/
+.claude/
+
+# Documentation does not change what the binary does. It is on the host and in
+# the repository; the image carries the operational scripts it actually runs.
+docs/
+*.md
+!README.md

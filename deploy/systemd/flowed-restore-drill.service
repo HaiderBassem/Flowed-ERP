@@ -1,0 +1,20 @@
+# Restores the newest backup into a scratch database and asks the restored copy
+# the four questions the system asks of itself. A backup nobody has restored is
+# a hypothesis.
+[Unit]
+Description=Flowed restore drill
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=flowed
+Group=flowed
+EnvironmentFile=/etc/flowed/flowed.env
+Environment=BACKUP_DIR=/srv/flowed/backups
+ExecStart=/opt/flowed/scripts/restore-drill.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/flowed/backups

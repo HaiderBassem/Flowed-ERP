@@ -1,0 +1,105 @@
+# Flowed, run as a system service.
+#
+# The container path is in deploy/docker-compose.prod.yml. This is the other
+# one, and for a university server room it is often the better one: one binary,
+# one unit file, and a systemctl status that says what is wrong without anybody
+# having to know Docker. The binary carries its own migrations and its own
+# interface, so a deployment is a file copy and a restart.
+#
+# Install:
+#   useradd --system --home /opt/flowed --shell /usr/sbin/nologin flowed
+#   install -o root -g flowed -m 0750 -d /opt/flowed /etc/flowed
+#   install -o root -g root  -m 0755 api /opt/flowed/api
+#   install -o root -g flowed -m 0640 flowed.env /etc/flowed/flowed.env
+#   install -o root -g flowed -m 0640 jwt-secret /etc/flowed/jwt-secret
+#   systemctl daemon-reload && systemctl enable --now flowed-api
+
+[Unit]
+Description=Flowed — university tuition and collection API
+Documentation=file:/opt/flowed/docs/operations/deployment.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+# Type=exec rather than notify: the binary does not speak sd_notify, and
+# declaring that it does makes systemd wait for a READY=1 that never comes.
+# exec means "started once the process is running", and readiness is answered
+# where it belongs — GET /ready, which the reverse proxy polls.
+Type=exec
+User=flowed
+Group=flowed
+WorkingDirectory=/opt/flowed
+
+# Settings live in a file readable only by this service's group. The secrets
+# inside it are read through their _FILE variables, so the values themselves
+# never appear in the environment of a process — an environment variable is
+# visible in /proc/<pid>/environ to anything running as the same user.
+EnvironmentFile=/etc/flowed/flowed.env
+
+# The schema is checked at start-up and the process refuses to serve on a
+# mismatch, so migrations run first as their own step. A failure here stops the
+# deployment instead of serving queries against a schema this build does not
+# understand.
+ExecStartPre=/opt/flowed/migrate up
+ExecStart=/opt/flowed/api serve
+
+# SIGTERM begins the drain: stop accepting, finish what is in flight, wait for
+# any scheduled job holding an advisory lock. A process killed mid-job leaves
+# that lock until PostgreSQL notices the connection is gone, and the next start
+# skips that job until then — so the timeout is generous on purpose.
+KillSignal=SIGTERM
+TimeoutStopSec=45
+
+Restart=on-failure
+RestartSec=5s
+# Five failures in five minutes is a broken deployment, not a transient. Stop,
+# and let somebody read the log rather than filling the disk with restarts.
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# --- Hardening -------------------------------------------------------------
+#
+# The process needs: a network socket, its own binary, its configuration, and
+# the audit archive mount. Everything below is what follows from that.
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+
+# Only what it writes to. The audit archive is the exception and it is the
+# whole point: a directory on another host, mounted here, that this service may
+# create files in and may not rewrite.
+ReadWritePaths=/srv/flowed/audit-archive
+ReadOnlyPaths=/etc/flowed
+
+# IPv4 and IPv6 sockets only; no unix-domain surprises, no raw sockets.
+RestrictAddressFamilies=AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
+
+# A finance API with a modest connection pool does not need thousands of
+# descriptors, and a limit is a cheap way to notice a leak.
+LimitNOFILE=8192
+TasksMax=512
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+# Compares the off-host audit archive against the database. The only check in
+# the system that can detect an audit entry having been deleted: the hash chain
+# verifies whatever is present, so a removed tail leaves an intact chain.
+#
+# Exits non-zero on disagreement, which systemd reports as a failed unit — that
+# is the intended alerting path for installations with no Prometheus.
+[Unit]
+Description=Flowed audit archive verification
+After=flowed-api.service
+
+[Service]
+Type=oneshot
+User=flowed
+Group=flowed
+EnvironmentFile=/etc/flowed/flowed.env
+ExecStart=/opt/flowed/api audit-ship verify
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

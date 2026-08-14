@@ -168,6 +168,19 @@ docker-down:
 docker-clean:
 	docker compose down -v
 
+## docker-build: build the deployable image, stamped like a local build
+##
+## The stamp is not decoration: production refuses to serve a build that cannot
+## say what it is, and the image asks itself `api version` at build time so a
+## mis-stamped image fails here rather than at start-up in a server room.
+docker-build:
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
+		--build-arg BUILD_TIME=$(BUILD_TIME) \
+		--build-arg TREE_STATE=$(TREE_STATE) \
+		-t flowed:$(VERSION) -t flowed:latest .
+
 ## version: print the build identity this tree would produce
 version:
 	@echo "version=$(VERSION) commit=$(GIT_COMMIT) built=$(BUILD_TIME) tree=$(TREE_STATE)"
@@ -216,9 +229,30 @@ openapi-validate:
 	go test -run 'TestOpenAPI|TestEveryRoute|TestPublicRoutes|TestMoneyIsDocumented|TestIdempotentOperations' \
 		-count=1 ./internal/adapter/httpapi/...
 
-## ui-build: build the operator UI bundle
+## ui-build: typecheck, test and build the operator interface into webui/dist
+##
+## Must run before `make build` for the binary to carry a current interface:
+## webui/embed.go embeds the build output, so a binary is only as new as the
+## last run of this. A binary built without it serves a page saying so.
 ui-build:
 	@bash scripts/build-ui.sh
+
+## ui-dev: run the interface with hot reload against a local API on :8080
+ui-dev:
+	@cd webui && npm run dev
+
+## ui-test: the interface's unit tests, including the tafqit golden vectors
+ui-test:
+	@cd webui && npx vitest run
+
+## ui-tafqit: regenerate the Arabic spelling vectors from internal/domain/money
+##
+## The written amount exists in two implementations — Go for the printed
+## receipt, TypeScript for the confirmation sheet. This regenerates the golden
+## file that keeps them from drifting apart, and must be run after any change
+## to internal/domain/money/arabic.go.
+ui-tafqit:
+	@bash scripts/gen-tafqit.sh
 
 ## perf-seed: load the performance dataset (SCALE=small|medium|full)
 perf-seed: build

@@ -540,16 +540,44 @@ func providerConfig(code string) PaymentProvider {
 // ErrMissing reports a required variable with no value and no default.
 var ErrMissing = errors.New("required environment variable is not set")
 
+// env reads a setting, preferring a file over the environment.
+//
+// The file form — KEY_FILE=/run/secrets/whatever — is how Docker and Kubernetes
+// hand a process a secret, and it is materially safer than the environment for
+// the two settings that matter here: an environment variable is visible in
+// `docker inspect`, in /proc/<pid>/environ to anything running as the same
+// user, and in a crash dump. A file is readable by whoever the file says.
+//
+// The file wins when both are set, because a deployment that mounts a secret
+// and also leaves an old variable behind means the mounted one.
 func env(key, fallback string) string {
+	if path, ok := os.LookupEnv(key + "_FILE"); ok && strings.TrimSpace(path) != "" {
+		if contents, err := os.ReadFile(path); err == nil {
+			// Trailing newline trimmed: every editor and every `echo` adds one,
+			// and a secret that differs from the one the operator typed by a
+			// newline fails in a way that looks like the wrong secret.
+			if value := strings.TrimSpace(string(contents)); value != "" {
+				return value
+			}
+		}
+		// A named file that cannot be read or is empty falls through to the
+		// environment rather than to the default: the default for a secret is
+		// usually "refuse to start", and that refusal should come from the
+		// validation that knows what the setting is for.
+	}
 	if v, ok := os.LookupEnv(key); ok && v != "" {
 		return v
 	}
 	return fallback
 }
 
+// The typed readers go through env, so every setting takes the _FILE form.
+// Only two of them are secrets today, but a reader that supports the convention
+// for some keys and not others is one that fails on the day somebody uses it
+// for the third.
 func envInt(key string, fallback int) int {
-	v, ok := os.LookupEnv(key)
-	if !ok || v == "" {
+	v := env(key, "")
+	if v == "" {
 		return fallback
 	}
 	parsed, err := strconv.Atoi(v)
@@ -560,8 +588,8 @@ func envInt(key string, fallback int) int {
 }
 
 func envBool(key string, fallback bool) bool {
-	v, ok := os.LookupEnv(key)
-	if !ok || v == "" {
+	v := env(key, "")
+	if v == "" {
 		return fallback
 	}
 	parsed, err := strconv.ParseBool(v)
@@ -584,8 +612,8 @@ func envFloat(key string, fallback float64) float64 {
 }
 
 func envDuration(key string, fallback time.Duration) time.Duration {
-	v, ok := os.LookupEnv(key)
-	if !ok || v == "" {
+	v := env(key, "")
+	if v == "" {
 		return fallback
 	}
 	parsed, err := time.ParseDuration(v)
