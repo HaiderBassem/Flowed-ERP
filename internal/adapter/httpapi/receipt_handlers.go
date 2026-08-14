@@ -51,6 +51,10 @@ func (h *ReceiptHandlers) PaymentReceipt(c *gin.Context) {
 	rendered, err := h.receipts.PaymentReceipt(
 		requestContext(c), httpx.MustActor(c), id, receiptFormat(c))
 	if err != nil {
+		// A receipt that will not render is a student standing at a desk with
+		// nothing to take away, which is a different kind of outage from a
+		// slow report and deserves its own count.
+		httpx.InstrumentsFrom(c).ExportFailure(c.Request.Context(), "payment_receipt")
 		httpx.Respond(c, err)
 		return
 	}
@@ -66,6 +70,7 @@ func (h *ReceiptHandlers) RefundReceipt(c *gin.Context) {
 	rendered, err := h.receipts.RefundReceipt(
 		requestContext(c), httpx.MustActor(c), id, receiptFormat(c))
 	if err != nil {
+		httpx.InstrumentsFrom(c).ExportFailure(c.Request.Context(), "refund_receipt")
 		httpx.Respond(c, err)
 		return
 	}

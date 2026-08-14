@@ -412,6 +412,7 @@ func (s *RefundService) PostRefund(ctx context.Context, actor shared.Actor, refu
 		})
 	})
 	if err != nil {
+		s.deps.Metrics.PaymentFailure(ctx, shared.CodeOf(err))
 		return nil, err
 	}
 

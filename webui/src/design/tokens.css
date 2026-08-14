@@ -1,0 +1,128 @@
+/* ===========================================================================
+   Design tokens — §05 of the UX specification, transcribed rather than
+   reinterpreted. Light is the base; dark redefines tokens only.
+
+   Colour here is a lexicon, not decoration. Each semantic colour means one
+   thing in this system and is never borrowed for another: green is live money,
+   not "operation succeeded". A "saved" toast that takes green costs green its
+   meaning, and a cashier then scans a screen for a signal that no longer says
+   anything.
+   =========================================================================== */
+:root {
+  --paper: #f2f5f3;
+  --surface: #ffffff;
+  --surface-2: #eaeeeb;
+  --surface-3: #dfe5e1;
+  --ink: #0f1614;
+  --ink-2: #3a4742;
+  --muted: #66756e;
+  --rule: #d9e0dc;
+  --rule-strong: #bcc7c1;
+
+  --accent: #1d6b57; /* treasury green: settled, posted, live */
+  --accent-soft: #e2efea;
+  --accent-ink: #134a3c;
+  --on-accent: #ffffff;
+
+  --void: #9c2f2f; /* oxblood: void, refused, destructive */
+  --void-soft: #f6e5e4;
+  --pending: #8a6000; /* amber ink: awaiting a second signature */
+  --pending-soft: #f7eeda;
+  --frozen: #3b5a83; /* ledger blue: frozen, immutable, snapshot */
+  --frozen-soft: #e4eaf2;
+
+  --shadow: 0 1px 2px rgba(15, 22, 20, 0.06), 0 8px 24px -12px rgba(15, 22, 20, 0.18);
+  --shadow-lg: 0 2px 6px rgba(15, 22, 20, 0.08), 0 24px 60px -24px rgba(15, 22, 20, 0.3);
+
+  /* Never loaded from a network. A window with no outside internet must look
+     exactly as it does here. */
+  --sans: "SF Arabic", "Segoe UI", "Noto Sans Arabic", Tahoma, "Geeza Pro", system-ui, sans-serif;
+  --naskh: "Noto Naskh Arabic", "Traditional Arabic", "Times New Roman", serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --step--2: 0.72rem;
+  --step--1: 0.82rem;
+  --step-0: 1rem;
+  --step-1: 1.2rem;
+  --step-2: 1.5rem;
+  --step-3: 1.95rem;
+  --step-4: 2.6rem;
+
+  --radius: 8px;
+  --radius-lg: 12px;
+
+  /* Density (§05). Set on <html> by the density switch and remembered. */
+  --row-h: 36px;
+  --pad-y: 10px;
+  --pad-x: 14px;
+}
+
+:root[data-density="compact"] {
+  --row-h: 28px;
+  --pad-y: 6px;
+  --pad-x: 10px;
+}
+:root[data-density="comfortable"] {
+  --row-h: 44px;
+  --pad-y: 14px;
+  --pad-x: 18px;
+}
+
+/* Dark is an option, never a default (§15): windows are worked in bright
+   daylight. Defined for both the explicit toggle and the system preference so
+   neither can leave a colour undefined. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0c110f;
+    --surface: #131a17;
+    --surface-2: #1a2320;
+    --surface-3: #212c28;
+    --ink: #e7eeea;
+    --ink-2: #b9c6c0;
+    --muted: #8b9a93;
+    --rule: #243029;
+    --rule-strong: #334239;
+
+    --accent: #54b294;
+    --accent-soft: #13291f;
+    --accent-ink: #8fd5bc;
+    --on-accent: #08120e;
+
+    --void: #e08585;
+    --void-soft: #2c1717;
+    --pending: #d8a93e;
+    --pending-soft: #2a2110;
+    --frozen: #8fb0da;
+    --frozen-soft: #161f2c;
+
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 30px -14px rgba(0, 0, 0, 0.8);
+    --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.55), 0 28px 70px -28px rgba(0, 0, 0, 0.9);
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #0c110f;
+  --surface: #131a17;
+  --surface-2: #1a2320;
+  --surface-3: #212c28;
+  --ink: #e7eeea;
+  --ink-2: #b9c6c0;
+  --muted: #8b9a93;
+  --rule: #243029;
+  --rule-strong: #334239;
+
+  --accent: #54b294;
+  --accent-soft: #13291f;
+  --accent-ink: #8fd5bc;
+  --on-accent: #08120e;
+
+  --void: #e08585;
+  --void-soft: #2c1717;
+  --pending: #d8a93e;
+  --pending-soft: #2a2110;
+  --frozen: #8fb0da;
+  --frozen-soft: #161f2c;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 30px -14px rgba(0, 0, 0, 0.8);
+  --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.55), 0 28px 70px -28px rgba(0, 0, 0, 0.9);
+}

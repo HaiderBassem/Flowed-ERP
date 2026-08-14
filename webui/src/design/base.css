@@ -1,0 +1,131 @@
+/* ===========================================================================
+   Base — the rules from §06 that must hold everywhere, expressed once.
+
+   RTL is not `direction: rtl` and done. Layout, navigation and directional
+   icons mirror; amounts, receipt numbers, technical codes and the time axis of
+   a chart do not. A receipt number that inherits the paragraph's direction
+   scatters its parts inside an Arabic sentence — hence `.ltr` and the
+   isolation it carries.
+   =========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  direction: rtl;
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--step-0);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 0;
+  font-weight: 700;
+  text-wrap: balance;
+}
+
+p {
+  margin: 0 0 0.75em;
+  text-wrap: pretty;
+}
+
+a {
+  color: var(--accent-ink);
+  text-underline-offset: 3px;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* A focus ring that survives a bad monitor. §12 asks for full keyboard
+   operation, and keyboard operation you cannot see is keyboard operation
+   nobody uses. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --------------------------------------------------------- direction ---- */
+
+/* Isolated and left-to-right: amounts, receipt numbers, UUIDs, policy codes.
+   Without the isolation these fragments reorder around Arabic text and a
+   receipt number stops being quotable over the phone. */
+.ltr {
+  direction: ltr;
+  unicode-bidi: isolate;
+  display: inline-block;
+}
+
+/* Every amount, count, date and identifier on screen. Tabular figures are not
+   a preference: a column of amounts that does not align is a column nobody
+   audits by eye. */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  unicode-bidi: isolate;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- screen ---- */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Scrollbars that do not eat a row of a dense grid. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-strong) transparent;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}

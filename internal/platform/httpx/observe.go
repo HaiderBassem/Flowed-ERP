@@ -23,6 +23,24 @@ import (
 // every miss says the same thing and costs one series.
 const unmatchedRoute = "/{unmatched}"
 
+// instrumentsKey carries the process instruments on the request, so a handler
+// that has to record something itself — an export that failed halfway through
+// its own body, for instance — does not need the provider threaded through
+// every constructor between here and there.
+const instrumentsKey = "flowed.instruments"
+
+// InstrumentsFrom returns the recorder for this request. A nil result is a
+// working no-op, like every other *Metrics in this system, so a caller records
+// unconditionally.
+func InstrumentsFrom(c *gin.Context) *observability.Metrics {
+	if value, ok := c.Get(instrumentsKey); ok {
+		if metrics, ok := value.(*observability.Metrics); ok {
+			return metrics
+		}
+	}
+	return nil
+}
+
 // Observe opens a span and records one latency sample per request.
 //
 // It sits immediately after RequestID and before Logger, which is deliberate
@@ -43,6 +61,7 @@ func Observe(p *observability.Provider) gin.HandlerFunc {
 
 		method := requestMethod(c)
 		start := time.Now()
+		c.Set(instrumentsKey, metrics)
 
 		// A trace that started at the gateway continues here rather than
 		// beginning again, which is the only way the hop that was slow can be

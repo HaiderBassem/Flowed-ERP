@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -130,6 +131,15 @@ func (s *AuditShipService) Ship(ctx context.Context, actor shared.Actor) (*ShipR
 		artifact := fmt.Sprintf("audit-%012d-%012d.ndjson", from, to)
 
 		ref, err := s.sink.Put(ctx, artifact, content)
+		if errors.Is(err, auditship.ErrAlreadyExists) {
+			// The archive already holds this block. That happens for an
+			// ordinary reason — a database restored from a backup has
+			// forgotten shipments the archive still has — and the answer is to
+			// check the bytes rather than to overwrite them or to stop
+			// shipping forever. If they match, this block is already witnessed
+			// and the shipment row is simply re-recorded.
+			ref, err = s.reconcileExisting(ctx, artifact, content)
+		}
 		if err != nil {
 			s.metrics.AuditShipFailure(ctx, "write")
 			return nil, shared.Internal("audit.ship_failed", err,
@@ -184,6 +194,36 @@ func (s *AuditShipService) Ship(ctx context.Context, actor shared.Actor) (*ShipR
 	s.metrics.AuditShipLag(ctx, result.Remaining)
 
 	return result, nil
+}
+
+// reconcileExisting decides what to do about a block the archive already holds.
+//
+// Identical bytes mean the block is already witnessed: the shipment row is
+// written and shipping moves on. Different bytes mean two runs disagree about
+// what happened in that range, which is not something to resolve automatically
+// — one of them is wrong and an operator has to find out which.
+func (s *AuditShipService) reconcileExisting(
+	ctx context.Context, artifact string, content []byte,
+) (string, error) {
+	existing, err := s.sink.Get(ctx, artifact)
+	if err != nil {
+		if errors.Is(err, auditship.ErrNotReadable) {
+			// A write-only destination that says it already has the block is
+			// taken at its word; there is nothing else to go on.
+			return artifact, nil
+		}
+		return "", fmt.Errorf("%s is already in the archive and could not be read back: %w",
+			artifact, err)
+	}
+	if bytes.Equal(existing, content) {
+		s.logger.Info("the archive already held this block; bytes match",
+			slog.String("artifact", artifact))
+		return artifact, nil
+	}
+	return "", fmt.Errorf(
+		"%s is already in the archive with different contents; "+
+			"one of the two runs that produced it is wrong and this must not be resolved "+
+			"by overwriting the copy that is already there", artifact)
 }
 
 // VerifyReport is the answer to "is the off-host copy still a witness".

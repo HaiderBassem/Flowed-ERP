@@ -59,6 +59,11 @@ func writeExport(c *gin.Context, table export.Table) {
 		// The status is already written; the best that can be done is to stop
 		// and let the truncated download fail visibly rather than silently
 		// producing half a report somebody files.
+		//
+		// It is also counted, because this is the one failure the caller sees
+		// as a 200: a report that ends halfway through is filed as though it
+		// were complete, and nothing else would ever say otherwise.
+		httpx.InstrumentsFrom(c).ExportFailure(c.Request.Context(), string(format))
 		_ = c.Error(err)
 	}
 }

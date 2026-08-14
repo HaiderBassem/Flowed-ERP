@@ -280,6 +280,11 @@ func (s *PaymentService) RecordPayment(ctx context.Context, actor shared.Actor, 
 		return nil
 	})
 	if err != nil {
+		// Counted by the refusal's machine code, never by student or account:
+		// a desk stuck on one code all morning is a desk not collecting, and
+		// the code says which rule is stopping it. A code the metric does not
+		// recognise is a rule nobody expected to be hit.
+		s.deps.Metrics.PaymentFailure(ctx, shared.CodeOf(err))
 		return nil, err
 	}
 
@@ -627,6 +632,7 @@ func (s *PaymentService) ExecuteVoid(ctx context.Context, actor shared.Actor, re
 		})
 	})
 	if err != nil {
+		s.deps.Metrics.PaymentFailure(ctx, shared.CodeOf(err))
 		return nil, err
 	}
 

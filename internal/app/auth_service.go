@@ -213,6 +213,11 @@ func (s *AuthService) Login(ctx context.Context, in LoginInput) (*LoginResult, e
 // the increment back with the failed login, and the counter would never reach
 // its threshold no matter how many attempts arrived.
 func (s *AuthService) registerFailure(ctx context.Context, in LoginInput, user *port.User, now time.Time) {
+	// Counted here as well as written to the attempt table: the table answers
+	// "who", days later and under access control, and the counter answers
+	// "is something happening right now" without naming anybody.
+	s.deps.Metrics.AuthFailure(ctx, "bad_password")
+
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		count, err := s.deps.Users.RecordFailedLogin(ctx, user.ID, now)
 		if err != nil {
@@ -242,6 +247,14 @@ func (s *AuthService) registerFailure(ctx context.Context, in LoginInput, user *
 func (s *AuthService) recordAttempt(
 	ctx context.Context, in LoginInput, userID *shared.ID, succeeded bool, code string, now time.Time,
 ) {
+	if !succeeded {
+		// The reason is a fixed vocabulary and the username is deliberately
+		// absent: a metric label outlives the request in a store with none of
+		// the database's access control, and the login history endpoint is
+		// where the identifiable detail belongs.
+		s.deps.Metrics.AuthFailure(ctx, code)
+	}
+
 	err := s.logins.Record(ctx, port.LoginAttempt{
 		Username:    in.Username,
 		UserID:      userID,
@@ -305,6 +318,7 @@ func (s *AuthService) Refresh(ctx context.Context, in RefreshInput) (*RefreshRes
 		if session.RevokedAt != nil {
 			reason = "revoked"
 		}
+		s.deps.Metrics.AuthFailure(ctx, "session_revoked")
 		return nil, shared.Unauthorized("auth.session_revoked",
 			"this session was ended; sign in again").
 			WithDetail("reason", reason)
@@ -315,6 +329,7 @@ func (s *AuthService) Refresh(ctx context.Context, in RefreshInput) (*RefreshRes
 		return nil, shared.Unauthorized("auth.invalid_token", "the refresh token is no longer valid")
 	}
 	if !user.IsActive {
+		s.deps.Metrics.AuthFailure(ctx, "account_disabled")
 		return nil, shared.Unauthorized("auth.account_disabled", "this account is disabled")
 	}
 	if user.IsLocked(now) {

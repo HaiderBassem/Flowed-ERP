@@ -169,6 +169,91 @@ func TestAlteringTheArchiveIsDetected(t *testing.T) {
 	}
 }
 
+// TestShippingSurvivesADatabaseThatForgotItsShipments is the case a restore
+// produces: the archive still holds last week's blocks, and the restored
+// database has no record of them.
+//
+// Refusing to overwrite the archive is right — it is the only copy of what was
+// actually sent — but stopping there left shipping stuck on the same block
+// forever, and the lag climbed while nothing else looked wrong. Identical bytes
+// mean the block is already witnessed, so it is re-recorded and shipping moves
+// on. Different bytes are not resolved automatically: one of the two runs is
+// wrong and somebody has to find out which.
+func TestShippingSurvivesADatabaseThatForgotItsShipments(t *testing.T) {
+	ctx := context.Background()
+	db := shipTestDB(t)
+	dir := t.TempDir()
+
+	service := shipService(t, db, dir)
+	actor := shared.SystemActor()
+
+	appendAuditEntries(t, db, "ship-test-"+shared.NewID().String(), 2)
+	catchUp(t, service)
+
+	files, err := os.ReadDir(dir)
+	if err != nil || len(files) == 0 {
+		t.Fatalf("nothing was shipped: %v", err)
+	}
+
+	// The restore: the shipment rows for this destination are gone, the files
+	// are not. The table is append-only, which is why this has to suspend the
+	// trigger — a restored database really would come back without them.
+	forgetShipments(t, db, dir)
+
+	result, err := service.Ship(ctx, actor)
+	if err != nil {
+		t.Fatalf("shipping after a restore must not fail on blocks the archive already holds: %v", err)
+	}
+	if result.Remaining != 0 {
+		t.Errorf("%d entries left unshipped; shipping did not get past the existing blocks",
+			result.Remaining)
+	}
+
+	report, err := service.Verify(ctx, actor)
+	if err != nil {
+		t.Fatalf("verifying: %v", err)
+	}
+	if !report.OK() {
+		t.Errorf("the archive should verify after the re-record, got %+v", report.Problems)
+	}
+
+	// A block whose bytes disagree is a different matter and must not pass.
+	target := filepath.Join(dir, files[0].Name())
+	if err := os.Chmod(target, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("{\"sequence_no\":1}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	forgetShipments(t, db, dir)
+	if _, err := service.Ship(ctx, actor); err == nil {
+		t.Error("a block already in the archive with different contents must stop the run")
+	}
+}
+
+// forgetShipments removes this destination's shipment rows, the way a restore
+// from an older backup would.
+func forgetShipments(t *testing.T, db *pg.DB, dir string) {
+	t.Helper()
+	ctx := context.Background()
+
+	if _, err := db.Pool().Exec(ctx,
+		`ALTER TABLE audit_shipment DISABLE TRIGGER trg_audit_shipment_immutable`); err != nil {
+		t.Fatalf("suspending the immutability trigger: %v", err)
+	}
+	defer func() {
+		if _, err := db.Pool().Exec(ctx,
+			`ALTER TABLE audit_shipment ENABLE TRIGGER trg_audit_shipment_immutable`); err != nil {
+			t.Fatalf("restoring the immutability trigger: %v", err)
+		}
+	}()
+
+	if _, err := db.Pool().Exec(ctx,
+		`DELETE FROM audit_shipment WHERE destination = $1`, "dir:"+dir); err != nil {
+		t.Fatalf("simulating the restore: %v", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------

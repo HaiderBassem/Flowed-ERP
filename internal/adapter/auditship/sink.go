@@ -15,6 +15,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,7 +39,16 @@ type Sink interface {
 }
 
 // ErrNotReadable is returned by Get on a sink that only accepts writes.
-var ErrNotReadable = fmt.Errorf("this destination cannot be read back from here")
+var ErrNotReadable = errors.New("this destination cannot be read back from here")
+
+// ErrAlreadyExists is returned by Put when the destination already holds a
+// block under that name.
+//
+// It is not necessarily a fault. A database restored from last night's backup
+// has forgotten shipments the archive still holds, and the correct answer then
+// is to compare the bytes and carry on — not to overwrite the only copy of what
+// was actually sent, and not to stop shipping forever.
+var ErrAlreadyExists = errors.New("the archive already holds this block")
 
 // ---------------------------------------------------------------------------
 // Directory
@@ -72,7 +82,7 @@ func (s *DirSink) Name() string { return "dir:" + s.Dir }
 func (s *DirSink) Put(_ context.Context, artifact string, content []byte) (string, error) {
 	path := filepath.Join(s.Dir, artifact)
 	if _, err := os.Stat(path); err == nil {
-		return "", fmt.Errorf("%s already exists in the archive; refusing to overwrite it", artifact)
+		return "", fmt.Errorf("%w: %s", ErrAlreadyExists, artifact)
 	}
 
 	// Written to a temporary name and renamed, so a reader never sees a half

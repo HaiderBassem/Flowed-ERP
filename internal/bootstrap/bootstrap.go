@@ -188,17 +188,24 @@ func BuildEngine(
 	reconciliation := app.NewReconciliationService(deps,
 		postgres.NewReconciliationRepository(db), app.ReconciliationConfig{})
 
-	// Defaults come from the scheduler itself; only a deployment with a reason
-	// to differ overrides them.
-	scheduler := app.NewScheduler(deps, db, idempotency, rateLimiter, app.SchedulerConfig{
-		RateLimitIdleTTL:  cfg.HTTP.RateLimitIdleTTL,
-		Sessions:          authSessions,
-		LoginAttempts:     loginAttempts,
-		Notify:            notifyService,
-		Intents:           intentService,
-		AuditShip:         auditShipper,
-		AuditShipInterval: cfg.AuditArchive.Interval,
-	})
+	// Built from the defaults rather than from a bare literal, and the
+	// difference is not cosmetic. withDefaults can fill an interval that
+	// arrives zero, but it cannot fill a bool: the literal that used to be here
+	// left RunOnStart false, so every job waited a full interval before its
+	// first pass — and the daily ones, reconciliation among them, never ran at
+	// all on a service redeployed more often than once a day. The system had no
+	// opinion about its own correctness and nothing said so.
+	schedulerCfg := app.DefaultSchedulerConfig()
+	schedulerCfg.RateLimitIdleTTL = cfg.HTTP.RateLimitIdleTTL
+	schedulerCfg.Sessions = authSessions
+	schedulerCfg.LoginAttempts = loginAttempts
+	schedulerCfg.Notify = notifyService
+	schedulerCfg.Intents = intentService
+	schedulerCfg.Reconcile = reconciliation
+	schedulerCfg.AuditShip = auditShipper
+	schedulerCfg.AuditShipInterval = cfg.AuditArchive.Interval
+
+	scheduler := app.NewScheduler(deps, db, idempotency, rateLimiter, schedulerCfg)
 
 	engine := httpapi.NewRouter(httpapi.RouterDeps{
 		Config:         cfg,
