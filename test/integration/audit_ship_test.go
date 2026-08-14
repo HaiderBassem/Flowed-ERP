@@ -200,13 +200,31 @@ func TestShippingSurvivesADatabaseThatForgotItsShipments(t *testing.T) {
 	// trigger — a restored database really would come back without them.
 	forgetShipments(t, db, dir)
 
-	result, err := service.Ship(ctx, actor)
-	if err != nil {
-		t.Fatalf("shipping after a restore must not fail on blocks the archive already holds: %v", err)
+	// What the head is *now*, before the pass. Asserting on Remaining being
+	// zero afterwards assumed a quiet database, and the end-to-end suite runs
+	// in parallel against this one — its payments write audit entries while
+	// this pass is running, which is not this test's subject.
+	var headBefore int64
+	if err := db.Pool().QueryRow(ctx,
+		`SELECT coalesce(max(sequence_no), 0) FROM v_audit_trail`).Scan(&headBefore); err != nil {
+		t.Fatal(err)
 	}
-	if result.Remaining != 0 {
-		t.Errorf("%d entries left unshipped; shipping did not get past the existing blocks",
-			result.Remaining)
+
+	// Catching up, not one pass: a pass is bounded by the block ceiling, so on a
+	// database with thousands of entries a single call legitimately stops short.
+	// That ceiling is why the scheduler ships every quarter of an hour rather
+	// than once.
+	catchUp(t, service)
+
+	var shipped int64
+	if err := db.Pool().QueryRow(ctx,
+		`SELECT coalesce(max(to_sequence), 0) FROM audit_shipment WHERE destination = $1`,
+		"dir:"+dir).Scan(&shipped); err != nil {
+		t.Fatal(err)
+	}
+	if shipped < headBefore {
+		t.Errorf("shipping reached sequence %d of the %d that existed when it started; "+
+			"it did not get past the blocks the archive already held", shipped, headBefore)
 	}
 
 	report, err := service.Verify(ctx, actor)
