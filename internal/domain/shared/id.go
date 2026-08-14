@@ -110,6 +110,16 @@ func (d Date) Before(other Date) bool { return d.Time().Before(other.Time()) }
 // After reports whether d falls strictly after other.
 func (d Date) After(other Date) bool { return d.Time().After(other.Time()) }
 
+// DaysSince returns how many whole days d falls after other: positive when d
+// is later, negative when earlier.
+//
+// Computed from the dates rather than from a duration, so a daylight-saving
+// boundary cannot make two calendar days 23 hours apart and round to zero. Both
+// sides are midnight UTC by construction.
+func (d Date) DaysSince(other Date) int {
+	return int(d.Time().Sub(other.Time()).Hours() / 24)
+}
+
 // AddDays returns the date shifted by n days.
 func (d Date) AddDays(n int) Date { return DateFromTime(d.Time().AddDate(0, 0, n)) }
 

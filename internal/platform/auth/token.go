@@ -67,6 +67,11 @@ type Claims struct {
 	// payload and is signed along with everything else.
 	Type TokenType `json:"typ"`
 
+	// StudentID is set on a student's credential. It is what every route a
+	// student can reach compares the row in question against, so it travels
+	// with the token like the roles do.
+	StudentID string `json:"student_id,omitempty"`
+
 	// ScopeMode and the two lists carry the actor's organisational reach.
 	//
 	// Carried in the token rather than read per request for the same reason
@@ -269,6 +274,7 @@ func (s *TokenService) issue(
 		},
 		Username:         u.Username,
 		Roles:            roles,
+		StudentID:        studentIDClaim(u),
 		CashierDeskID:    desk,
 		SessionID:        sessionID,
 		Type:             typ,
@@ -420,14 +426,31 @@ func actorFromClaims(claims *Claims) (*shared.Actor, error) {
 		return nil, err
 	}
 
-	return &shared.Actor{
+	actor := &shared.Actor{
 		UserID:        userID,
 		Username:      claims.Username,
 		Roles:         roles,
 		CashierDeskID: deskID,
 		SessionID:     sessionID,
 		Scope:         scope,
-	}, nil
+	}
+	if claims.StudentID != "" {
+		studentID, err := shared.ParseID(claims.StudentID)
+		if err != nil {
+			return nil, shared.Unauthorized("auth.token_invalid_student",
+				"the token carries an unreadable student identifier").WithCause(err)
+		}
+		actor.StudentID = &studentID
+	}
+	return actor, nil
+}
+
+// studentIDClaim renders the student link for a token.
+func studentIDClaim(u *port.User) string {
+	if u.StudentID == nil {
+		return ""
+	}
+	return u.StudentID.String()
 }
 
 // scopeFromClaims rebuilds the organisational reach carried in a token.

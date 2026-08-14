@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/swibit/flowed/internal/adapter/httpapi"
+	"github.com/swibit/flowed/internal/adapter/messaging"
 	"github.com/swibit/flowed/internal/adapter/payments"
 	"github.com/swibit/flowed/internal/adapter/postgres"
 	"github.com/swibit/flowed/internal/adapter/receipt"
@@ -266,6 +267,7 @@ func buildEngine(
 	lifecycle := postgres.NewLifecycleRepository(db)
 	settlements := postgres.NewSettlementRepository(db)
 	sponsors := postgres.NewSponsorRepository(db)
+	verifications := postgres.NewVerificationRepository(db)
 	intents := postgres.NewIntentRepository(db)
 	idempotency := postgres.NewIdempotencyRepository(db)
 	users := postgres.NewUserRepository(db)
@@ -350,6 +352,23 @@ func buildEngine(
 	settlementService := app.NewSettlementService(deps, settlements)
 	sponsorService := app.NewSponsorService(deps, sponsors)
 	accountService.WithSponsors(sponsorService)
+	portalService := app.NewPortalService(deps, hasher, verifications, sponsorService)
+
+	// A deployment with no SMS gateway gets nil here, and the notification
+	// service then produces a worklist instead of queueing deliveries nothing
+	// will perform.
+	var deliverer port.Deliverer
+	if gateway := messaging.NewSMSGateway(messaging.Config{
+		Enabled: cfg.Notifications.SMSEnabled,
+		BaseURL: cfg.Notifications.SMSBaseURL,
+		APIKey:  cfg.Notifications.SMSAPIKey,
+		Sender:  cfg.Notifications.SMSSender,
+		Timeout: cfg.Notifications.SMSTimeout,
+	}); gateway != nil {
+		deliverer = gateway
+	}
+	notifyService := app.NewNotifyService(
+		deps, postgres.NewNotificationRepository(db), deliverer, cfg.Receipt.UniversityNameAr)
 
 	// Only the providers this deployment configured are registered. A channel
 	// that is off is absent rather than half-present, so the API can say "not
@@ -380,6 +399,8 @@ func buildEngine(
 		RateLimitIdleTTL: cfg.HTTP.RateLimitIdleTTL,
 		Sessions:         authSessions,
 		LoginAttempts:    loginAttempts,
+		Notify:           notifyService,
+		Intents:          intentService,
 	})
 
 	engine := httpapi.NewRouter(httpapi.RouterDeps{
@@ -393,6 +414,7 @@ func buildEngine(
 		MasterData:    httpapi.NewMasterDataHandlers(masterDataService),
 		Settlement:    httpapi.NewSettlementHandlers(settlementService),
 		Sponsors:      httpapi.NewSponsorHandlers(sponsorService),
+		Portal:        httpapi.NewPortalHandlers(portalService),
 		Intents:       httpapi.NewIntentHandlers(intentService, cfg.Payments.PublicBaseURL, log),
 		AuthService:   authService,
 		Users:         users,

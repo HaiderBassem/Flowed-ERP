@@ -23,6 +23,7 @@ type Config struct {
 	Auth          Auth
 	Receipt       Receipt
 	Payments      Payments
+	Notifications Notifications
 	Log           Log
 	Observability Observability
 }
@@ -213,6 +214,22 @@ type PaymentProvider struct {
 	Timeout        time.Duration
 }
 
+// Notifications holds the delivery channel for reminders.
+//
+// Off by default. A university with no gateway still gets the worklist, which
+// is what the office was working from anyway; queueing messages nothing will
+// deliver would be worse than not queueing them.
+type Notifications struct {
+	SMSEnabled bool
+	SMSBaseURL string
+	SMSAPIKey  string
+	// SMSSender is the alphanumeric identity registered with the operator.
+	// Messages from an unregistered sender are dropped silently by the Iraqi
+	// networks, which is the most confusing possible failure.
+	SMSSender  string
+	SMSTimeout time.Duration
+}
+
 // Receipt holds what a printed receipt says about the institution issuing it.
 //
 // Configuration rather than constants: one binary should serve any university,
@@ -332,6 +349,13 @@ func Load() (*Config, error) {
 			QiCard:        providerConfig("QI"),
 			FastPay:       providerConfig("FASTPAY"),
 			Branch:        providerConfig("BRANCH"),
+		},
+		Notifications: Notifications{
+			SMSEnabled: envBool("NOTIFY_SMS_ENABLED", false),
+			SMSBaseURL: env("NOTIFY_SMS_BASE_URL", ""),
+			SMSAPIKey:  env("NOTIFY_SMS_API_KEY", ""),
+			SMSSender:  env("NOTIFY_SMS_SENDER", ""),
+			SMSTimeout: envDuration("NOTIFY_SMS_TIMEOUT", 15*time.Second),
 		},
 		Receipt: Receipt{
 			UniversityNameAr: env("RECEIPT_UNIVERSITY_NAME", "الجامعة"),

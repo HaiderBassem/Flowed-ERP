@@ -339,3 +339,35 @@ func (r *PaymentRepository) CountPostedRefunds(ctx context.Context, paymentID sh
 	}
 	return int(count), nil
 }
+
+// SummariesForAccount lists an account's collections as a statement shows them.
+//
+// Deliberately narrow: a receipt number, an amount, a method and a date, plus
+// what has been refunded against it. Who took the money is an operator's
+// business and does not belong on a page a student hands to a third party.
+func (r *PaymentRepository) SummariesForAccount(ctx context.Context, accountID shared.ID) ([]port.PaymentSummary, error) {
+	const query = `
+		SELECT p.id, p.receipt_no, p.amount, pm.code, p.paid_at, p.status,
+		       coalesce((SELECT sum(rf.amount) FROM refund rf
+		                 WHERE rf.payment_id = p.id AND rf.status = 'posted'), 0)::bigint
+		FROM payment p
+		JOIN payment_method pm ON pm.id = p.payment_method_id
+		WHERE p.account_id = $1 AND p.status IN ('posted', 'voided')
+		ORDER BY p.paid_at DESC`
+
+	q := r.db.Conn(ctx)
+	rows, err := q.Query(ctx, query, accountID)
+	if err != nil {
+		return nil, pg.WrapQuery("payment.SummariesForAccount", err)
+	}
+	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (port.PaymentSummary, error) {
+		var s port.PaymentSummary
+		err := row.Scan(&s.PaymentID, &s.ReceiptNo, &s.Amount, &s.MethodCode,
+			&s.PaidAt, &s.Status, &s.RefundedTotal)
+		return s, err
+	})
+	if err != nil {
+		return nil, pg.WrapQuery("payment.SummariesForAccount", err)
+	}
+	return out, nil
+}

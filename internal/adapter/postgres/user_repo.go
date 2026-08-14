@@ -29,7 +29,7 @@ const userColumns = `
 	u.is_active, u.last_login_at, u.created_at, u.updated_at,
 	u.must_change_password, u.password_changed_at,
 	u.failed_login_count, u.last_failed_login_at, u.locked_until,
-	u.disabled_at, u.disabled_by, u.disabled_reason, u.scope_mode,
+	u.disabled_at, u.disabled_by, u.disabled_reason, u.scope_mode, u.student_id,
 	COALESCE(array_agg(r.role ORDER BY r.role) FILTER (WHERE r.role IS NOT NULL), '{}') AS roles,
 	COALESCE((SELECT array_agg(sc.college_id)
 	          FROM app_user_scope sc
@@ -55,7 +55,7 @@ func scanUser(row pgx.Row) (*port.User, error) {
 		&u.IsActive, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 		&u.MustChangePassword, &u.PasswordChangedAt,
 		&u.FailedLoginCount, &u.LastFailedLogin, &u.LockedUntil,
-		&u.DisabledAt, &u.DisabledBy, &u.DisabledReason, &scopeMode,
+		&u.DisabledAt, &u.DisabledBy, &u.DisabledReason, &scopeMode, &u.StudentID,
 		&roles, &colleges, &departments,
 	); err != nil {
 		return nil, err
@@ -76,14 +76,14 @@ func (r *UserRepository) Create(ctx context.Context, u *port.User) error {
 	const query = `
 		INSERT INTO app_user (
 			id, username, full_name, password_hash, email, is_active, last_login_at,
-			must_change_password, password_changed_at, scope_mode)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, now()), COALESCE($10, 'university'))
+			must_change_password, password_changed_at, scope_mode, student_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, now()), COALESCE($10, 'university'), $11)
 		RETURNING created_at, updated_at`
 
 	q := r.db.Conn(ctx)
 	err := q.QueryRow(ctx, query,
 		u.ID, u.Username, u.FullName, u.PasswordHash, u.Email, u.IsActive, u.LastLoginAt,
-		u.MustChangePassword, u.PasswordChangedAt, nullableScope(u.ScopeMode),
+		u.MustChangePassword, u.PasswordChangedAt, nullableScope(u.ScopeMode), u.StudentID,
 	).Scan(&u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return pg.WrapQuery("user.Create", err)
@@ -140,11 +140,27 @@ func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*p
 	return u, nil
 }
 
+// GetByStudent returns a student's portal credential, if they have one.
+func (r *UserRepository) GetByStudent(ctx context.Context, studentID shared.ID) (*port.User, error) {
+	const query = `SELECT` + userColumns + userFrom + ` WHERE u.student_id = $1 GROUP BY u.id`
+
+	q := r.db.Conn(ctx)
+	u, err := scanUser(q.QueryRow(ctx, query, studentID))
+	if err != nil {
+		return nil, pg.WrapQuery("user.GetByStudent", err)
+	}
+	return u, nil
+}
+
 // List returns the operators, optionally only those still able to sign in.
+//
+// Student credentials are excluded: they are not operators, and a list of
+// everyone who can sign in would otherwise be a list of every student.
 func (r *UserRepository) List(ctx context.Context, activeOnly bool) ([]*port.User, error) {
 	const query = `
 		SELECT` + userColumns + userFrom + `
-		WHERE NOT $1::boolean OR u.is_active
+		WHERE (NOT $1::boolean OR u.is_active)
+		  AND u.student_id IS NULL
 		GROUP BY u.id
 		ORDER BY u.username`
 

@@ -392,6 +392,9 @@ type PaymentRepository interface {
 	// its idempotency key across a restart.
 	FindNearDuplicate(ctx context.Context, accountID shared.ID, amount money.Amount, methodID shared.ID, within time.Duration) (*payment.Payment, error)
 	// PostedRefundTotal is what has already been returned against a payment.
+	// SummariesForAccount lists an account's collections as a statement shows
+	// them: enough to recognise a receipt, nothing about who took it.
+	SummariesForAccount(ctx context.Context, accountID shared.ID) ([]PaymentSummary, error)
 	PostedRefundTotal(ctx context.Context, paymentID shared.ID) (money.Amount, error)
 	CountPostedRefunds(ctx context.Context, paymentID shared.ID) (int, error)
 }
@@ -599,6 +602,8 @@ type UserRepository interface {
 	SetPassword(ctx context.Context, userID shared.ID, hash string, mustChange bool, at time.Time) error
 	// SetActive enables or disables an account, recording who and why.
 	SetActive(ctx context.Context, userID shared.ID, active bool, by shared.ID, reason *string, at time.Time) error
+	// GetByStudent returns a student's portal credential, if they have one.
+	GetByStudent(ctx context.Context, studentID shared.ID) (*User, error)
 }
 
 // User is an operator of the system.
@@ -630,6 +635,11 @@ type User struct {
 	DisabledAt     *time.Time
 	DisabledBy     *shared.ID
 	DisabledReason *string
+
+	// StudentID is set on a student credential and NULL on every operator
+	// account. It is what makes a student's authority meaningful: every route
+	// they reach compares the row in question against it.
+	StudentID *shared.ID
 
 	// ScopeMode and the two lists give the actor its organisational reach.
 	ScopeMode   shared.ScopeMode

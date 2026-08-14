@@ -1232,3 +1232,88 @@ type FundingView struct {
 	StudentPaid        money.Amount `json:"student_paid"`
 	StudentOutstanding money.Amount `json:"student_outstanding"`
 }
+
+// ---------------------------------------------------------------------------
+// Student portal
+// ---------------------------------------------------------------------------
+
+// StudentStatementView is a student's whole financial position.
+type StudentStatementView struct {
+	StudentID    string                 `json:"student_id"`
+	StudentNo    string                 `json:"student_no"`
+	FullName     string                 `json:"full_name"`
+	Accounts     []StatementAccountView `json:"accounts"`
+	TotalCharged money.Amount           `json:"total_charged"`
+	TotalPaid    money.Amount           `json:"total_paid"`
+	Outstanding  money.Amount           `json:"outstanding"`
+	// NextDue is the soonest unpaid installment across every year, which is
+	// the one figure a student actually came to ask about.
+	NextDue     *NextDueView `json:"next_due,omitempty"`
+	GeneratedAt time.Time    `json:"generated_at"`
+}
+
+// NextDueView is the soonest obligation.
+type NextDueView struct {
+	DueDate   string       `json:"due_date"`
+	Amount    money.Amount `json:"amount"`
+	Remaining money.Amount `json:"remaining"`
+}
+
+// StatementAccountView is one year of a student's fees.
+type StatementAccountView struct {
+	AccountID    string                 `json:"account_id"`
+	YearCode     string                 `json:"academic_year"`
+	Gross        money.Amount           `json:"gross"`
+	Discount     money.Amount           `json:"discount"`
+	EffectiveNet money.Amount           `json:"effective_net"`
+	Paid         money.Amount           `json:"paid"`
+	Outstanding  money.Amount           `json:"outstanding"`
+	Credit       money.Amount           `json:"credit"`
+	Status       string                 `json:"status"`
+	Installments []InstallmentView      `json:"installments"`
+	Payments     []StatementPaymentView `json:"payments"`
+	Funding      *FundingView           `json:"funding,omitempty"`
+}
+
+// StatementPaymentView is a collection as a student's statement shows it.
+type StatementPaymentView struct {
+	PaymentID string       `json:"payment_id"`
+	ReceiptNo *string      `json:"receipt_no,omitempty"`
+	Amount    money.Amount `json:"amount"`
+	Method    string       `json:"method"`
+	PaidAt    time.Time    `json:"paid_at"`
+	Status    string       `json:"status"`
+	Refunded  money.Amount `json:"refunded"`
+}
+
+// IssueVerificationRequest mints a code for a printed statement.
+type IssueVerificationRequest struct {
+	// ValidForDays defaults to thirty. A verification that never expired would
+	// let a student present a two-year-old clearance as current.
+	ValidForDays int `json:"valid_for_days"`
+}
+
+// StatementVerificationView is a freshly minted verification code.
+type StatementVerificationView struct {
+	Code        string       `json:"code"`
+	ExpiresAt   time.Time    `json:"expires_at"`
+	Outstanding money.Amount `json:"outstanding"`
+}
+
+// StatementVerificationAnswer is what a third party learns from a code.
+//
+// Deliberately thin: it confirms that this university issued a statement for a
+// person with this name and number showing these figures. Nothing else — the
+// holder of a printed page has no business learning a national identifier from
+// an unauthenticated endpoint.
+type StatementVerificationAnswer struct {
+	Valid        bool         `json:"valid"`
+	StudentNo    string       `json:"student_no,omitempty"`
+	FullName     string       `json:"full_name,omitempty"`
+	TotalCharged money.Amount `json:"total_charged"`
+	TotalPaid    money.Amount `json:"total_paid"`
+	Outstanding  money.Amount `json:"outstanding"`
+	IssuedAt     time.Time    `json:"issued_at,omitempty"`
+	ExpiresAt    time.Time    `json:"expires_at,omitempty"`
+	Reason       string       `json:"reason,omitempty"`
+}

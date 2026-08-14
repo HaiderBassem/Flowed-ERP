@@ -28,6 +28,9 @@ const (
 	lockKeyOverdueSnapshot  int64 = 8_531_224_907_150_005
 	lockKeyRateLimitPurge   int64 = 8_531_224_907_150_006
 	lockKeySessionPurge     int64 = 8_531_224_907_150_007
+	lockKeyReminderQueue    int64 = 8_531_224_907_150_008
+	lockKeyReminderDeliver  int64 = 8_531_224_907_150_009
+	lockKeyIntentExpiry     int64 = 8_531_224_907_150_010
 )
 
 // SchedulerConfig tunes the background jobs. The zero value is not usable;
@@ -83,6 +86,24 @@ type SchedulerConfig struct {
 	// not become a permanent record of who signed in from where.
 	LoginAttemptRetention time.Duration
 
+	// ReminderQueueInterval is how often the schedule is consulted. Daily: the
+	// policy names days, so consulting it more often produces the same answer
+	// and the duplicate guard turns the extra runs into no-ops.
+	ReminderQueueInterval time.Duration
+	// ReminderDeliverInterval is how often queued messages are handed to the
+	// gateway. Frequent, because a message queued at nine that arrives at five
+	// is a message about a due date that has passed.
+	ReminderDeliverInterval time.Duration
+	// IntentExpiryInterval is how often abandoned electronic payments are
+	// closed.
+	IntentExpiryInterval time.Duration
+
+	// Notify and Intents are the services the jobs above drive. Left nil, the
+	// job is not registered at all rather than registered and failing on every
+	// tick.
+	Notify  *NotifyService
+	Intents *IntentService
+
 	// Sessions and LoginAttempts are the stores the purge job sweeps. Left nil
 	// — by a test, or a deployment that has not migrated yet — the job is not
 	// registered at all rather than registered and failing every tick.
@@ -108,6 +129,9 @@ func DefaultSchedulerConfig() SchedulerConfig {
 		RunOnStart:               true,
 		SessionPurgeInterval:     6 * time.Hour,
 		LoginAttemptRetention:    90 * 24 * time.Hour,
+		ReminderQueueInterval:    24 * time.Hour,
+		ReminderDeliverInterval:  10 * time.Minute,
+		IntentExpiryInterval:     30 * time.Minute,
 	}
 }
 
@@ -123,6 +147,15 @@ func (c SchedulerConfig) withDefaults() SchedulerConfig {
 	}
 	if c.AdjustmentReaperInterval <= 0 {
 		c.AdjustmentReaperInterval = d.AdjustmentReaperInterval
+	}
+	if c.ReminderQueueInterval <= 0 {
+		c.ReminderQueueInterval = d.ReminderQueueInterval
+	}
+	if c.ReminderDeliverInterval <= 0 {
+		c.ReminderDeliverInterval = d.ReminderDeliverInterval
+	}
+	if c.IntentExpiryInterval <= 0 {
+		c.IntentExpiryInterval = d.IntentExpiryInterval
 	}
 	if c.SessionPurgeInterval <= 0 {
 		c.SessionPurgeInterval = d.SessionPurgeInterval
@@ -286,6 +319,31 @@ func NewScheduler(
 			interval: cfg.SessionPurgeInterval,
 			lockKey:  lockKeySessionPurge,
 			run:      s.runSessionPurge,
+		})
+	}
+
+	if cfg.Notify != nil {
+		s.jobs = append(s.jobs,
+			job{
+				name:     "reminder_queue",
+				interval: cfg.ReminderQueueInterval,
+				lockKey:  lockKeyReminderQueue,
+				run:      s.runReminderQueue,
+			},
+			job{
+				name:     "reminder_deliver",
+				interval: cfg.ReminderDeliverInterval,
+				lockKey:  lockKeyReminderDeliver,
+				run:      s.runReminderDelivery,
+			})
+	}
+
+	if cfg.Intents != nil {
+		s.jobs = append(s.jobs, job{
+			name:     "payment_intent_expiry",
+			interval: cfg.IntentExpiryInterval,
+			lockKey:  lockKeyIntentExpiry,
+			run:      s.runIntentExpiry,
 		})
 	}
 
@@ -553,6 +611,56 @@ func (s *Scheduler) runSessionPurge(ctx context.Context) (jobResult, error) {
 		slog.Int64("sessions_purged", sessions),
 		slog.Int64("login_attempts_purged", attempts),
 	}}, nil
+}
+
+// runReminderQueue writes the messages today's schedule calls for.
+//
+// A defect is never reported from here: a student with no telephone number is a
+// data-quality problem for the office, not a failure of the job. It is counted
+// and logged so somebody can see it.
+func (s *Scheduler) runReminderQueue(ctx context.Context) (jobResult, error) {
+	result, err := s.cfg.Notify.QueueDueReminders(ctx, 5000)
+	if err != nil {
+		return jobResult{}, err
+	}
+	return jobResult{Attrs: []slog.Attr{
+		slog.Int("considered", result.Considered),
+		slog.Int("queued", result.Queued),
+		slog.Int("skipped", result.Skipped),
+		slog.Int("undeliverable", result.Undeliverable),
+	}}, nil
+}
+
+// runReminderDelivery hands queued messages to the gateway.
+func (s *Scheduler) runReminderDelivery(ctx context.Context) (jobResult, error) {
+	result, err := s.cfg.Notify.DeliverPending(ctx, 200)
+	if err != nil {
+		return jobResult{}, err
+	}
+	// Failures are a defect worth seeing: a gateway that has been refusing all
+	// day is a gateway nobody has noticed.
+	return jobResult{
+		Defect: result.Failed > 0,
+		Attrs: []slog.Attr{
+			slog.Int("attempted", result.Attempted),
+			slog.Int("sent", result.Sent),
+			slog.Int("failed", result.Failed),
+		},
+	}, nil
+}
+
+// runIntentExpiry closes electronic payments whose window passed with no
+// answer.
+//
+// Expiry is not failure: nobody refused the payment and the money may still
+// move, which is why an expired intent stays visible to the settlement import
+// rather than being deleted.
+func (s *Scheduler) runIntentExpiry(ctx context.Context) (jobResult, error) {
+	expired, err := s.cfg.Intents.ExpireStale(ctx, 200)
+	if err != nil {
+		return jobResult{}, err
+	}
+	return jobResult{Attrs: []slog.Attr{slog.Int("intents_expired", expired)}}, nil
 }
 
 // runStalledImportReaper fails import batches whose worker stopped reporting.
