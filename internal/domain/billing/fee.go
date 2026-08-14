@@ -310,6 +310,11 @@ func (a *Adjustment) RequiresApproval() bool {
 	switch a.Type {
 	case AdjustmentClosedYear, AdjustmentWaiver, AdjustmentWriteOff:
 		return true
+	case AdjustmentSponsorship:
+		// A sponsorship that covers a student's debt moves the university's
+		// exposure from the student to a third party. Somebody has to sign for
+		// having accepted that exposure, exactly as for a waiver.
+		return true
 	default:
 		return false
 	}

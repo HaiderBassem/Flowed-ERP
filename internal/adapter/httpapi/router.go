@@ -40,6 +40,7 @@ type RouterDeps struct {
 	MasterData  *MasterDataHandlers
 	Settlement  *SettlementHandlers
 	Intents     *IntentHandlers
+	Sponsors    *SponsorHandlers
 	// AuthService backs the session-revocation middleware as well as the
 	// credential endpoints: a token whose session was revoked must stop
 	// working on the next request, not at the end of its lifetime.
@@ -184,6 +185,9 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	}
 	if deps.Settlement != nil {
 		deps.Settlement.Register(secured)
+	}
+	if deps.Sponsors != nil {
+		deps.Sponsors.Register(secured)
 	}
 	if deps.Intents != nil {
 		deps.Intents.Register(secured)

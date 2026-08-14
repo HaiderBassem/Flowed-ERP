@@ -15,7 +15,22 @@ import (
 // AccountService generates and maintains financial accounts.
 type AccountService struct {
 	deps Deps
+	// sponsors materialises third-party commitments at generation. Nil-safe:
+	// a deployment with no sponsors, and every test that does not care about
+	// them, wires it as nil and nothing here changes.
+	sponsors *SponsorService
 	auditor
+}
+
+// WithSponsors attaches the sponsorship service.
+//
+// Set after construction rather than taken as a parameter because the two
+// services are mutually useful — sponsorship needs accounts to attach
+// commitments to — and threading both through one constructor would make the
+// wiring order load-bearing.
+func (s *AccountService) WithSponsors(sponsors *SponsorService) *AccountService {
+	s.sponsors = sponsors
+	return s
 }
 
 // NewAccountService wires the account commands.
@@ -46,7 +61,10 @@ type GenerateAccountResult struct {
 	// PendingDiscounts counts grants that materialised but await the annual
 	// eligibility re-confirmation, so the caller can show a worklist.
 	PendingDiscounts int
-	DryRun           bool
+	// SponsorCommitments are what third parties owe for this account, frozen
+	// here exactly as the discount applications are.
+	SponsorCommitments []*billing.Commitment
+	DryRun             bool
 }
 
 // GenerateFinancialAccount prices an enrollment and freezes the result.
@@ -275,6 +293,37 @@ func (s *AccountService) generate(ctx context.Context, actor shared.Actor, in Ge
 		}
 		if err := account.Activate(now); err != nil {
 			return nil, err
+		}
+	}
+
+	// Sponsorships are materialised here, beside the discount applications and
+	// for the same reason: a commitment computed later would answer with
+	// today's agreement rather than the one the student was admitted under.
+	// Under the covers_debt mode this posts an adjustment, so it must run
+	// before the plan is reconciled against what is owed.
+	if s.sponsors != nil {
+		commitments, err := s.sponsors.MaterialiseCommitments(
+			ctx, actor, account, year.Code, account.DiscountableBase)
+		if err != nil {
+			return nil, err
+		}
+		result.SponsorCommitments = commitments
+		if len(commitments) > 0 && len(installments) > 0 {
+			// The plan was built against the pre-sponsorship net. Any share a
+			// sponsor took off the student's obligation has to come out of it,
+			// or the student is asked for money a ministry has already agreed
+			// to pay.
+			var covered money.Amount
+			for _, commitment := range commitments {
+				if commitment.SettlementMode.ReducesStudentDebt() {
+					covered = covered.MustAdd(commitment.CommittedAmount)
+				}
+			}
+			if covered.IsPositive() {
+				if err := reduceOpenPlan(ctx, s.deps.Installments, installments, covered); err != nil {
+					return nil, err
+				}
+			}
 		}
 	}
 

@@ -265,6 +265,7 @@ func buildEngine(
 	audit := postgres.NewAuditRepository(db)
 	lifecycle := postgres.NewLifecycleRepository(db)
 	settlements := postgres.NewSettlementRepository(db)
+	sponsors := postgres.NewSponsorRepository(db)
 	intents := postgres.NewIntentRepository(db)
 	idempotency := postgres.NewIdempotencyRepository(db)
 	users := postgres.NewUserRepository(db)
@@ -347,6 +348,8 @@ func buildEngine(
 	cashierService := app.NewCashierService(deps)
 	masterDataService := app.NewMasterDataService(deps)
 	settlementService := app.NewSettlementService(deps, settlements)
+	sponsorService := app.NewSponsorService(deps, sponsors)
+	accountService.WithSponsors(sponsorService)
 
 	// Only the providers this deployment configured are registered. A channel
 	// that is off is absent rather than half-present, so the API can say "not
@@ -389,6 +392,7 @@ func buildEngine(
 		Lifecycle:     httpapi.NewLifecycleHandlers(enrollmentService, studentService, accountService),
 		MasterData:    httpapi.NewMasterDataHandlers(masterDataService),
 		Settlement:    httpapi.NewSettlementHandlers(settlementService),
+		Sponsors:      httpapi.NewSponsorHandlers(sponsorService),
 		Intents:       httpapi.NewIntentHandlers(intentService, cfg.Payments.PublicBaseURL, log),
 		AuthService:   authService,
 		Users:         users,

@@ -39,6 +39,11 @@ const (
 	AdjustmentWaiver              AdjustmentType = "waiver"
 	AdjustmentWriteOff            AdjustmentType = "write_off"
 	AdjustmentCorrection          AdjustmentType = "correction"
+	// AdjustmentSponsorship is a third party covering part of the fees under
+	// an agreement whose settlement mode reduces the student's obligation.
+	// Distinct from a discount: the university is still owed the money, by
+	// somebody else.
+	AdjustmentSponsorship AdjustmentType = "sponsorship"
 )
 
 // Account is a student's financial position for one enrollment.

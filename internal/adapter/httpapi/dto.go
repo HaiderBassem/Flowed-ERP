@@ -1137,3 +1137,98 @@ type PaymentProviderView struct {
 	Code        string `json:"code"`
 	DisplayName string `json:"display_name"`
 }
+
+// ---------------------------------------------------------------------------
+// Sponsors and scholarships
+// ---------------------------------------------------------------------------
+
+// CreateSponsorRequest registers a body that pays students' fees.
+type CreateSponsorRequest struct {
+	Code        string  `json:"code" binding:"required"`
+	NameAr      string  `json:"name_ar" binding:"required"`
+	NameEn      *string `json:"name_en"`
+	SponsorType string  `json:"sponsor_type" binding:"omitempty,oneof=ministry government company charity individual other"`
+
+	ContactName  *string `json:"contact_name"`
+	ContactPhone *string `json:"contact_phone"`
+	ContactEmail *string `json:"contact_email" binding:"omitempty,email"`
+	Address      *string `json:"address"`
+	Notes        *string `json:"notes"`
+}
+
+// SponsorView is a sponsoring body.
+type SponsorView struct {
+	ID           string  `json:"id"`
+	Code         string  `json:"code"`
+	NameAr       string  `json:"name_ar"`
+	NameEn       *string `json:"name_en,omitempty"`
+	SponsorType  string  `json:"sponsor_type"`
+	ContactName  *string `json:"contact_name,omitempty"`
+	ContactPhone *string `json:"contact_phone,omitempty"`
+	IsActive     bool    `json:"is_active"`
+}
+
+// CreateSponsorshipRequest records an agreement.
+type CreateSponsorshipRequest struct {
+	SponsorID string `json:"sponsor_id" binding:"required,uuid"`
+	StudentID string `json:"student_id" binding:"required,uuid"`
+
+	CoverageType string `json:"coverage_type" binding:"required,oneof=percentage fixed_per_year full"`
+	// CoverageBP is basis points of the discountable base — the same base a
+	// percentage discount uses, so "eighty per cent of the fees" does not
+	// include the identity card.
+	CoverageBP     *int32 `json:"coverage_bp"`
+	CoverageAmount *int64 `json:"coverage_amount"`
+	AnnualCap      *int64 `json:"annual_cap"`
+
+	// SettlementMode has no default. "receivable" leaves the student liable
+	// and treats the sponsor's share as an expected inflow; "covers_debt"
+	// reduces what the student owes and leaves the university carrying the
+	// loss if the sponsor defaults. The choice decides who gets a debt letter.
+	SettlementMode string `json:"settlement_mode" binding:"required,oneof=receivable covers_debt"`
+
+	FromYearCode string  `json:"from_year_code" binding:"required"`
+	ToYearCode   *string `json:"to_year_code"`
+	AgreementRef *string `json:"agreement_ref"`
+	Notes        *string `json:"notes"`
+}
+
+// SponsorshipView is an agreement.
+type SponsorshipView struct {
+	ID             string  `json:"id"`
+	SponsorID      string  `json:"sponsor_id"`
+	StudentID      string  `json:"student_id"`
+	CoverageType   string  `json:"coverage_type"`
+	CoverageBP     *int32  `json:"coverage_bp,omitempty"`
+	CoverageAmount *int64  `json:"coverage_amount,omitempty"`
+	AnnualCap      *int64  `json:"annual_cap,omitempty"`
+	SettlementMode string  `json:"settlement_mode"`
+	FromYearCode   string  `json:"from_year_code"`
+	ToYearCode     *string `json:"to_year_code,omitempty"`
+	Status         string  `json:"status"`
+	AgreementRef   *string `json:"agreement_ref,omitempty"`
+}
+
+// SponsorReceivableView is what one sponsor owes for one year.
+type SponsorReceivableView struct {
+	SponsorID       string       `json:"sponsor_id"`
+	SponsorCode     string       `json:"sponsor_code"`
+	SponsorName     string       `json:"sponsor_name"`
+	AcademicYearID  string       `json:"academic_year_id"`
+	CommitmentCount int          `json:"commitment_count"`
+	StudentCount    int          `json:"student_count"`
+	Committed       money.Amount `json:"committed"`
+	Paid            money.Amount `json:"paid"`
+	Outstanding     money.Amount `json:"outstanding"`
+}
+
+// FundingView is who is paying for one account.
+type FundingView struct {
+	Gross              money.Amount `json:"gross"`
+	Discount           money.Amount `json:"discount"`
+	SponsorCovered     money.Amount `json:"sponsor_covered"`
+	SponsorReceivable  money.Amount `json:"sponsor_receivable"`
+	SponsorPaid        money.Amount `json:"sponsor_paid"`
+	StudentPaid        money.Amount `json:"student_paid"`
+	StudentOutstanding money.Amount `json:"student_outstanding"`
+}
