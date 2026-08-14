@@ -105,6 +105,11 @@ type SchedulerConfig struct {
 	Notify  *NotifyService
 	Intents *IntentService
 
+	// Reconcile runs the invariant checks and keeps what they find. Nil in a
+	// deployment that has not migrated yet, in which case the job falls back
+	// to the older behaviour: check, log, and keep nothing.
+	Reconcile *ReconciliationService
+
 	// AuditShip copies the audit trail off-host. Nil when the deployment named
 	// no destination, in which case the job is not registered — a job that
 	// runs and ships nowhere would report success for a control that is not
@@ -558,6 +563,50 @@ func (s *Scheduler) runJob(ctx context.Context, j job) {
 // night with nobody the wiser. The repair is a human reading this log and
 // finding the write that escaped.
 func (s *Scheduler) runReconciliation(ctx context.Context) (jobResult, error) {
+	if s.cfg.Reconcile != nil {
+		return s.runTrackedReconciliation(ctx)
+	}
+	return s.runLoggedReconciliation(ctx)
+}
+
+// runTrackedReconciliation records what it finds, so a finding has a life
+// rather than a log line: since when, how many passes have seen it, who took
+// it, and what they concluded.
+func (s *Scheduler) runTrackedReconciliation(ctx context.Context) (jobResult, error) {
+	summary, err := s.cfg.Reconcile.Run(ctx, s.actor, nil)
+	if err != nil {
+		return jobResult{}, err
+	}
+
+	attrs := []slog.Attr{
+		slog.Int("findings", summary.Findings),
+		slog.Int("new_findings", summary.NewFindings),
+		slog.Int("open_critical", summary.Critical),
+		slog.Int("open_warnings", summary.Warnings),
+	}
+	for _, run := range summary.Runs {
+		if run.Status == "failed" {
+			// A check that could not run is not a check that found nothing,
+			// and the difference must reach the outcome an alert reads.
+			return jobResult{Defect: true, Attrs: append(attrs,
+				slog.String("failed_check", string(run.Kind)))}, nil
+		}
+	}
+	if summary.Clean() {
+		return jobResult{Attrs: attrs}, nil
+	}
+	return jobResult{
+		Defect: true,
+		Attrs: append(attrs,
+			slog.Bool("invariant_violation", true),
+			slog.String("remedy",
+				"work the queue at /api/v1/reconciliation/findings; never edit a cached total")),
+	}, nil
+}
+
+// runLoggedReconciliation is the older behaviour, kept for a process wired
+// without the tracking store.
+func (s *Scheduler) runLoggedReconciliation(ctx context.Context) (jobResult, error) {
 	drift, err := s.deps.Accounts.ReconciliationDrift(ctx, s.cfg.ReconciliationLimit)
 	if err != nil {
 		return jobResult{}, err

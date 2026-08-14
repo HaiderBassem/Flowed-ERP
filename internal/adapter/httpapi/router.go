@@ -49,6 +49,9 @@ type RouterDeps struct {
 	// the routes then answer with what to set rather than 404, so "is the
 	// trail archived here" is an answerable question.
 	AuditArchive *AuditArchiveHandlers
+	// Reconciliation is the invariant queue: what the nightly checks found and
+	// what was done about it.
+	Reconciliation *ReconciliationHandlers
 	// AuthService backs the session-revocation middleware as well as the
 	// credential endpoints: a token whose session was revoked must stop
 	// working on the next request, not at the end of its lifetime.
@@ -206,6 +209,9 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	}
 	if deps.AuditArchive != nil {
 		deps.AuditArchive.Register(secured)
+	}
+	if deps.Reconciliation != nil {
+		deps.Reconciliation.Register(secured)
 	}
 	if deps.Intents != nil {
 		deps.Intents.Register(secured)

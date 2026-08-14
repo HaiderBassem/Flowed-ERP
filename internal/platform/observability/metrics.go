@@ -26,9 +26,10 @@ const (
 	// them ever carries a username, a student number or anything else that
 	// identifies a person: a label outlives the request in a store with none
 	// of the database's access control.
-	attrReason = attribute.Key("reason")
-	attrCode   = attribute.Key("code")
-	attrKind   = attribute.Key("kind")
+	attrReason   = attribute.Key("reason")
+	attrCode     = attribute.Key("code")
+	attrKind     = attribute.Key("kind")
+	attrSeverity = attribute.Key("severity")
 )
 
 // Metrics holds every instrument this process records against.
@@ -69,6 +70,8 @@ type Metrics struct {
 	auditShipped     metric.Int64Counter
 	auditShipFailure metric.Int64Counter
 	auditShipLag     metric.Int64Gauge
+
+	reconciliationOpen metric.Int64Gauge
 
 	authFailures    metric.Int64Counter
 	paymentFailures metric.Int64Counter
@@ -159,6 +162,12 @@ func newMetrics(meter metric.Meter) (*Metrics, error) {
 		m.auditShipLag, err = meter.Int64Gauge("flowed.audit.ship.lag",
 			metric.WithUnit("{entry}"),
 			metric.WithDescription("Audit entries written but not yet copied off-host."))
+	}
+
+	if err == nil {
+		m.reconciliationOpen, err = meter.Int64Gauge("flowed.reconciliation.open",
+			metric.WithUnit("{finding}"),
+			metric.WithDescription("Open reconciliation findings by severity. Any critical value is an invariant nobody has explained."))
 	}
 
 	m.authFailures = int64Counter("flowed.auth.failures", "{failure}",
@@ -380,6 +389,22 @@ func (m *Metrics) AuditShipLag(ctx context.Context, entries int64) {
 		return
 	}
 	m.auditShipLag.Record(ctx, entries)
+}
+
+// ReconciliationOpen reports how many findings are open at a severity.
+//
+// A gauge, and always recorded for both severities including zero: a series
+// that simply stops being emitted keeps its last value on most dashboards, so
+// the moment the last finding is closed would otherwise look identical to the
+// moment reconciliation stopped running.
+func (m *Metrics) ReconciliationOpen(ctx context.Context, severity, kind string, count int) {
+	if m == nil || m.reconciliationOpen == nil {
+		return
+	}
+	m.reconciliationOpen.Record(ctx, int64(count), metric.WithAttributeSet(attrs(
+		attrSeverity.String(severity),
+		attrKind.String(kind),
+	)))
 }
 
 // ---------------------------------------------------------------------------

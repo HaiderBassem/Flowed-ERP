@@ -314,6 +314,43 @@ var operationMetadata = map[string]operationMeta{
 			"old password ends.",
 		Request: ResetPasswordRequest{}, Response: CreateUserResponse{}, Roles: []string{"admin"},
 	},
+	"GET /api/v1/reconciliation/findings": {
+		Summary: "The invariant queue",
+		Description: "Open findings, worst and oldest first. `seen_count` is how many nightly " +
+			"passes have found the same thing: a number climbing on a finding nobody has taken " +
+			"is where to look first.",
+		Response: []ReconciliationFindingView{},
+		Roles:    []string{"finance_manager", "admin", "auditor"},
+	},
+	"GET /api/v1/reconciliation/runs": {
+		Summary: "Reconciliation passes",
+		Description: "Recorded whether or not they found anything: a check that stopped running " +
+			"looks exactly like a system with nothing wrong.",
+		Response: []ReconciliationRunView{},
+		Roles:    []string{"finance_manager", "admin", "auditor"},
+	},
+	"POST /api/v1/reconciliation/run": {
+		Summary:     "Run the checks now",
+		Description: "For the moment before closing a year or answering a question about an account.",
+		Request:     RunReconciliationRequest{}, Response: RunReconciliationResponse{},
+		Roles: []string{"finance_manager", "admin", "auditor"},
+	},
+	"POST /api/v1/reconciliation/findings/:id/acknowledge": {
+		Summary: "Take a finding",
+		Description: "Marks it as being worked on without closing it. Two people investigating " +
+			"the same drift is waste; a queue where 'somebody is on it' and 'it is fixed' look " +
+			"alike closes things nobody fixed.",
+		Request: ReasonRequest{}, Response: ReconciliationFindingView{},
+		Roles: []string{"finance_manager", "admin"},
+	},
+	"POST /api/v1/reconciliation/findings/:id/resolve": {
+		Summary: "Close a finding",
+		Description: "The resolution text is required and is read by whoever sees the same " +
+			"account drift again. Name the command that failed to maintain the cache, or the " +
+			"correction posted — never edit a cached total.",
+		Request: ResolveFindingRequest{}, Response: ReconciliationFindingView{},
+		Roles: []string{"finance_manager", "admin"},
+	},
 	"POST /api/v1/audit/archive/ship": {
 		Summary: "Copy the audit trail off-host now",
 		Description: "Ships every entry written since the last block. Scheduled as well; this is " +

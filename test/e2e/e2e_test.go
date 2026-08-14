@@ -1022,6 +1022,59 @@ func TestMasterDataAdministrationIsReachable(t *testing.T) {
 	}
 }
 
+// A clean system's reconciliation queue is empty, and the run that says so is
+// itself recorded — which is the property that distinguishes "nothing is wrong"
+// from "the check stopped running".
+func TestReconciliationRecordsItsRunsAndTracksWhatItFinds(t *testing.T) {
+	admin := adminClient(t)
+
+	ran := admin.expect(admin.post("/api/v1/reconciliation/run", map[string]any{}),
+		http.StatusOK, "running the checks")
+	if clean, _ := ran.data()["clean"].(bool); !clean {
+		t.Errorf("the invariants do not hold on this database: %s", truncate(string(ran.raw), 500))
+	}
+
+	runs, _ := ran.data()["runs"].([]any)
+	if len(runs) != 4 {
+		t.Fatalf("a full pass should record one run per check, got %d", len(runs))
+	}
+	for _, raw := range runs {
+		run, _ := raw.(map[string]any)
+		if status, _ := run["status"].(string); status != "clean" {
+			t.Errorf("check %v ended %q, want clean", run["kind"], status)
+		}
+		if number(run["rows_checked"]) == 0 {
+			t.Errorf("check %v reported checking nothing; "+
+				"a check that matched no rows must not read as a clean one", run["kind"])
+		}
+	}
+
+	// The pass is on the record afterwards, which is what an operator asks for
+	// when the question is "has this been running".
+	listed := admin.expect(admin.get("/api/v1/reconciliation/runs?limit=4"),
+		http.StatusOK, "listing runs")
+	if len(listed.list()) == 0 {
+		t.Error("a run was just performed and none is recorded")
+	}
+
+	// Nothing is open on a healthy database.
+	queue := admin.expect(admin.get("/api/v1/reconciliation/findings"),
+		http.StatusOK, "the queue")
+	if len(queue.list()) != 0 {
+		t.Errorf("the queue should be empty, holds %d", len(queue.list()))
+	}
+}
+
+// A cashier has no business in the oversight queue, and the refusal comes from
+// the server rather than from a hidden menu.
+func TestTheReconciliationQueueIsNotOpenToEveryone(t *testing.T) {
+	cashier := signIn(t, "cashier")
+
+	if got := cashier.get("/api/v1/reconciliation/findings"); got.status != http.StatusForbidden {
+		t.Errorf("a cashier reading the invariant queue got %d, want 403", got.status)
+	}
+}
+
 func number(value any) int64 {
 	switch v := value.(type) {
 	case float64:

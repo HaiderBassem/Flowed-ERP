@@ -1,0 +1,197 @@
+# Prometheus alerting rules for Flowed.
+#
+# Every rule here is one somebody would act on tonight. The instruments expose
+# far more than this, and most of it belongs on a dashboard rather than in a
+# pager: an alert that fires on something nobody will get up for teaches the
+# person on call to ignore the next one.
+#
+# Load with:
+#   rule_files:
+#     - /etc/prometheus/flowed-alerts.yml
+#
+# The metric names are the Prometheus renderings of the OTel instruments — dots
+# become underscores and counters gain _total.
+
+groups:
+  - name: flowed-money
+    interval: 1m
+    rules:
+      # The reconciliation queue is the system's own opinion of itself. A
+      # critical finding is drift that has survived three nightly passes with
+      # nobody explaining it, and every one of them means a cached total
+      # disagrees with the transactions behind it.
+      - alert: FlowedInvariantViolation
+        expr: flowed_reconciliation_open{severity="critical"} > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value }} unexplained invariant violation(s)"
+          description: >
+            A reconciliation finding has survived three passes. Work it at
+            /api/v1/reconciliation/findings. The remedy is never to edit the
+            cached total: find the command that failed to maintain it.
+
+      # Voids are legitimate — a cashier mistypes an amount and reverses it.
+      # A rate that climbs against collection is the shape of somebody
+      # reversing receipts, and it is the one financial fraud this system is
+      # most exposed to.
+      - alert: FlowedVoidRateHigh
+        expr: |
+          sum(rate(flowed_payment_voided_total[30m]))
+            /
+          clamp_min(sum(rate(flowed_payment_posted_total[30m])), 0.001) > 0.1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than one receipt in ten is being voided"
+          description: >
+            Read the void register at /api/v1/reports/voids, by cashier. A
+            cashier whose voids cluster at the end of a shift is the pattern
+            worth looking at first.
+
+      # Money that left the university without entering it. Structurally
+      # impossible while the posting path holds its locks, which is exactly why
+      # one occurrence is an incident rather than a trend — and why this fires
+      # at any severity, without waiting for the three nights that escalate a
+      # finding.
+      - alert: FlowedOverRefund
+        expr: sum(flowed_reconciliation_open{kind="refunds"}) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A payment has been refunded beyond what it collected"
+          description: >
+            Money left the university that never entered it. The finding at
+            /api/v1/reconciliation/findings names the receipt.
+
+      # The audit chain, broken. Either an entry was altered in place, or one
+      # was removed and the chain no longer joins across the hole.
+      - alert: FlowedAuditChainBroken
+        expr: sum(flowed_reconciliation_open{kind="audit_chain"}) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The audit hash chain does not verify"
+          description: >
+            Compare against the off-host archive — `api audit-ship verify` —
+            which is the only thing that can tell an alteration from a deletion.
+
+  - name: flowed-audit
+    interval: 1m
+    rules:
+      # The archive is the only witness against a deleted audit entry. Lag that
+      # stops falling is shipping that has quietly stopped, and everything else
+      # looks healthy while it climbs.
+      - alert: FlowedAuditArchiveStalled
+        expr: flowed_audit_ship_lag > 1000
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} audit entries have not left this host"
+          description: >
+            Run `api audit-ship` and read the log. Until it clears, entries
+            written in that window exist only where somebody with the database
+            role can delete them.
+
+      - alert: FlowedAuditVerificationFailed
+        expr: increase(flowed_audit_ship_failures_total{stage="verify"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The audit archive and the database disagree"
+          description: >
+            Treat as an incident, not a defect report. `api audit-ship verify`
+            names the entries. An entry the archive holds and the database does
+            not was deleted after it was written.
+
+  - name: flowed-service
+    interval: 1m
+    rules:
+      # Every desk queueing behind one long report. The pool is sized against
+      # PostgreSQL's max_connections rather than concurrency, so an empty
+      # acquire means something is holding connections, not that the university
+      # got busy.
+      - alert: FlowedPoolExhausted
+        expr: increase(flowed_db_pool_acquires_empty_total[10m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Requests are waiting for a database connection"
+          description: >
+            Look for a long-running query first — a report against a year with
+            no filter is the usual cause — before raising DB_MAX_CONNS.
+
+      # The cross-replica limiter has fallen back to a per-process bucket. The
+      # API keeps answering, which is the point of the fallback, and the limit
+      # is now roughly N times looser than configured.
+      - alert: FlowedRateLimitDegraded
+        expr: increase(flowed_ratelimit_decisions_total{tier="degraded"}[15m]) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rate limiting has reverted to per-process"
+          description: >
+            The database-backed limiter is failing. The desks are unaffected;
+            the limit is not being enforced across replicas.
+
+      # A scheduled job that stops running is invisible in a log and obvious
+      # here. Reconciliation is the one that matters most: with the job dead,
+      # the system stops having an opinion about its own correctness.
+      - alert: FlowedSchedulerJobStopped
+        expr: |
+          increase(flowed_scheduler_job_runs_total{job="reconciliation"}[26h]) == 0
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Reconciliation has not run in over a day"
+          description: >
+            A check that stopped running looks exactly like a system with
+            nothing wrong. Confirm at /api/v1/reconciliation/runs.
+
+      - alert: FlowedSchedulerJobDefect
+        expr: increase(flowed_scheduler_job_runs_total{outcome="defect"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Job {{ $labels.job }} reported a defect"
+          description: >
+            The job ran and found something it considers wrong. Read its log
+            line: it names the remedy.
+
+      # Sign-in failures climbing is either a password everyone has forgotten
+      # after a change, or somebody working through a list. The metric carries
+      # no username by design; the login history endpoint has the detail.
+      - alert: FlowedAuthFailureSpike
+        expr: sum(rate(flowed_auth_failures_total[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sign-ins are failing at {{ $value | printf \"%.1f\" }}/s"
+          description: >
+            Check /api/v1/users/:id/login-history for the accounts involved.
+            Lockout is per account, so a spread-out attempt across many
+            accounts will not trip it.
+
+      # The one that matters to a student standing at the desk.
+      - alert: FlowedAPIErrors
+        expr: |
+          sum(rate(http_server_request_duration_seconds_count{status=~"5.."}[5m]))
+            /
+          clamp_min(sum(rate(http_server_request_duration_seconds_count[5m])), 0.001) > 0.02
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "More than 2% of requests are failing"
+          description: "Read the log by request_id; every 5xx carries one."

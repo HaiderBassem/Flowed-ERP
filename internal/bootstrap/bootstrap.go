@@ -185,6 +185,9 @@ func BuildEngine(
 	// find out during an investigation.
 	auditShipper := BuildAuditShipper(cfg, deps, db, log)
 
+	reconciliation := app.NewReconciliationService(deps,
+		postgres.NewReconciliationRepository(db), app.ReconciliationConfig{})
+
 	// Defaults come from the scheduler itself; only a deployment with a reason
 	// to differ overrides them.
 	scheduler := app.NewScheduler(deps, db, idempotency, rateLimiter, app.SchedulerConfig{
@@ -198,31 +201,32 @@ func BuildEngine(
 	})
 
 	engine := httpapi.NewRouter(httpapi.RouterDeps{
-		Config:        cfg,
-		Log:           log,
-		DB:            db,
-		Handlers:      handlers,
-		Auth:          httpapi.NewAuthHandlers(authService, userService, log),
-		UserAdmin:     httpapi.NewUserHandlers(userService),
-		Lifecycle:     httpapi.NewLifecycleHandlers(enrollmentService, studentService, accountService),
-		MasterData:    httpapi.NewMasterDataHandlers(masterDataService),
-		Settlement:    httpapi.NewSettlementHandlers(settlementService),
-		Sponsors:      httpapi.NewSponsorHandlers(sponsorService),
-		Portal:        httpapi.NewPortalHandlers(portalService),
-		Intents:       httpapi.NewIntentHandlers(intentService, cfg.Payments.PublicBaseURL, log),
-		AuthService:   authService,
-		Users:         users,
-		Reports:       httpapi.NewReportHandlers(reports),
-		ConfigAdmin:   httpapi.NewConfigHandlers(app.NewConfigService(deps)),
-		Bulk:          httpapi.NewBulkHandlers(bulkService, importService, imports),
-		Cashier:       httpapi.NewCashierHandlers(cashierService, masterDataService, db),
-		AuditArchive:  httpapi.NewAuditArchiveHandlers(auditShipper),
-		Receipts:      httpapi.NewReceiptHandlers(receiptService),
-		Tokens:        tokens,
-		Idempotency:   idempotency,
-		RateLimiter:   rateLimiter,
-		Observability: obs,
-		Version:       buildVersion,
+		Config:         cfg,
+		Log:            log,
+		DB:             db,
+		Handlers:       handlers,
+		Auth:           httpapi.NewAuthHandlers(authService, userService, log),
+		UserAdmin:      httpapi.NewUserHandlers(userService),
+		Lifecycle:      httpapi.NewLifecycleHandlers(enrollmentService, studentService, accountService),
+		MasterData:     httpapi.NewMasterDataHandlers(masterDataService),
+		Settlement:     httpapi.NewSettlementHandlers(settlementService),
+		Sponsors:       httpapi.NewSponsorHandlers(sponsorService),
+		Portal:         httpapi.NewPortalHandlers(portalService),
+		Intents:        httpapi.NewIntentHandlers(intentService, cfg.Payments.PublicBaseURL, log),
+		AuthService:    authService,
+		Users:          users,
+		Reports:        httpapi.NewReportHandlers(reports),
+		ConfigAdmin:    httpapi.NewConfigHandlers(app.NewConfigService(deps)),
+		Bulk:           httpapi.NewBulkHandlers(bulkService, importService, imports),
+		Cashier:        httpapi.NewCashierHandlers(cashierService, masterDataService, db),
+		AuditArchive:   httpapi.NewAuditArchiveHandlers(auditShipper),
+		Reconciliation: httpapi.NewReconciliationHandlers(reconciliation),
+		Receipts:       httpapi.NewReceiptHandlers(receiptService),
+		Tokens:         tokens,
+		Idempotency:    idempotency,
+		RateLimiter:    rateLimiter,
+		Observability:  obs,
+		Version:        buildVersion,
 	})
 
 	return engine, scheduler
