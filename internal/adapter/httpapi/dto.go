@@ -1013,3 +1013,127 @@ type UpdateCashierDeskRequest struct {
 	IsActive  *bool   `json:"is_active"`
 	Reason    string  `json:"reason"`
 }
+
+// ---------------------------------------------------------------------------
+// Settlement reconciliation
+// ---------------------------------------------------------------------------
+
+// SettlementImportView is the outcome of importing a statement.
+type SettlementImportView struct {
+	Batch SettlementBatchView  `json:"batch"`
+	Lines []SettlementLineView `json:"lines"`
+	// Exceptions counts the lines a person still has to work. Zero is what a
+	// clean reconciliation looks like.
+	Exceptions int `json:"exceptions"`
+}
+
+// SettlementBatchView is one imported statement.
+type SettlementBatchView struct {
+	ID            string       `json:"id"`
+	SourceCode    string       `json:"source_code"`
+	SourceName    *string      `json:"source_name,omitempty"`
+	Filename      string       `json:"filename"`
+	StatementFrom *string      `json:"statement_from,omitempty"`
+	StatementTo   *string      `json:"statement_to,omitempty"`
+	Status        string       `json:"status"`
+	LineCount     int          `json:"line_count"`
+	MatchedCount  int          `json:"matched_count"`
+	TotalAmount   money.Amount `json:"total_amount"`
+	MatchedAmount money.Amount `json:"matched_amount"`
+}
+
+// SettlementBatchDetailView is a statement with its lines.
+type SettlementBatchDetailView struct {
+	Batch SettlementBatchView  `json:"batch"`
+	Lines []SettlementLineView `json:"lines"`
+}
+
+// SettlementLineView is one row of a statement and what it matched.
+type SettlementLineView struct {
+	ID               string       `json:"id"`
+	LineNo           int          `json:"line_no"`
+	ExternalRef      string       `json:"external_ref"`
+	Amount           money.Amount `json:"amount"`
+	ValueDate        *string      `json:"value_date,omitempty"`
+	Description      string       `json:"description,omitempty"`
+	Status           string       `json:"match_status"`
+	MatchedPaymentID *string      `json:"matched_payment_id,omitempty"`
+	// Variance is positive when the bank received more than the receipt says.
+	Variance   money.Amount `json:"variance"`
+	ReviewNote *string      `json:"review_note,omitempty"`
+}
+
+// SettlementExceptionView is a line that did not settle cleanly.
+type SettlementExceptionView struct {
+	LineID      string       `json:"line_id"`
+	BatchID     string       `json:"batch_id"`
+	SourceCode  string       `json:"source_code"`
+	Filename    string       `json:"filename"`
+	LineNo      int          `json:"line_no"`
+	ExternalRef *string      `json:"external_ref,omitempty"`
+	Amount      money.Amount `json:"amount"`
+	ValueDate   *string      `json:"value_date,omitempty"`
+	Status      string       `json:"match_status"`
+	Variance    money.Amount `json:"variance"`
+	PaymentID   *string      `json:"payment_id,omitempty"`
+}
+
+// UnconfirmedPaymentView is a posted non-cash collection no statement confirms.
+type UnconfirmedPaymentView struct {
+	PaymentID  string       `json:"payment_id"`
+	ReceiptNo  *string      `json:"receipt_no,omitempty"`
+	StudentID  string       `json:"student_id"`
+	Amount     money.Amount `json:"amount"`
+	Reference  *string      `json:"method_reference,omitempty"`
+	MethodCode string       `json:"method_code"`
+	PaidAt     time.Time    `json:"paid_at"`
+}
+
+// ResolveSettlementLineRequest is a person's decision about a line.
+type ResolveSettlementLineRequest struct {
+	// Status is "matched" or "ignored". A finding — unmatched, duplicate — is
+	// not a resolution and is refused.
+	Status string `json:"status" binding:"required,oneof=matched ignored"`
+	// PaymentID is required when matching by hand. Without it, "matched" is
+	// indistinguishable from clearing the queue.
+	PaymentID *string `json:"payment_id" binding:"omitempty,uuid"`
+	Note      string  `json:"note"`
+}
+
+// ---------------------------------------------------------------------------
+// Electronic collection
+// ---------------------------------------------------------------------------
+
+// InitiatePaymentRequest begins a collection at a provider.
+type InitiatePaymentRequest struct {
+	AccountID string `json:"account_id" binding:"required,uuid"`
+	Provider  string `json:"provider" binding:"required"`
+	// Amount may be omitted, which pays the outstanding balance. Making the
+	// client compute it invites a stale figure.
+	Amount *int64 `json:"amount"`
+	// ReturnURL is where the provider sends the payer's browser afterwards.
+	ReturnURL string `json:"return_url"`
+}
+
+// PaymentIntentView is a collection begun at a provider.
+type PaymentIntentView struct {
+	ID          string       `json:"id"`
+	Provider    string       `json:"provider"`
+	AccountID   string       `json:"account_id"`
+	Amount      money.Amount `json:"amount"`
+	Status      string       `json:"status"`
+	ProviderRef *string      `json:"provider_ref,omitempty"`
+	RedirectURL *string      `json:"redirect_url,omitempty"`
+	// Instruction is what to tell the payer when there is no redirect: the
+	// reference to quote at a bank counter.
+	Instruction string     `json:"instruction,omitempty"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	PaymentID   *string    `json:"payment_id,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
+// PaymentProviderView is a channel this deployment offers.
+type PaymentProviderView struct {
+	Code        string `json:"code"`
+	DisplayName string `json:"display_name"`
+}

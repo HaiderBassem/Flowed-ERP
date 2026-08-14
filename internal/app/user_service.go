@@ -698,7 +698,16 @@ func validateRoles(roles []shared.Role) error {
 		if !role.Valid() {
 			return shared.Validation("user.unknown_role",
 				"%q is not a role this system recognises", role).
-				WithDetail("known_roles", shared.AllRoles)
+				WithDetail("known_roles", shared.StaffRoles)
+		}
+		// A student credential authenticates a person to see their own fees.
+		// Granting it to an operator would create an actor that is both, and
+		// every ownership check in the system would then have to decide which
+		// half it was talking to.
+		if !role.IsStaff() {
+			return shared.Validation("user.not_a_staff_role",
+				"%q is not a role an operator account may hold", role).
+				WithDetail("known_roles", shared.StaffRoles)
 		}
 	}
 	return nil

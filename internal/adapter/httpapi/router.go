@@ -38,6 +38,8 @@ type RouterDeps struct {
 	UserAdmin   *UserHandlers
 	Lifecycle   *LifecycleHandlers
 	MasterData  *MasterDataHandlers
+	Settlement  *SettlementHandlers
+	Intents     *IntentHandlers
 	// AuthService backs the session-revocation middleware as well as the
 	// credential endpoints: a token whose session was revoked must stop
 	// working on the next request, not at the end of its lifetime.
@@ -179,6 +181,16 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	}
 	if deps.MasterData != nil {
 		deps.MasterData.Register(secured)
+	}
+	if deps.Settlement != nil {
+		deps.Settlement.Register(secured)
+	}
+	if deps.Intents != nil {
+		deps.Intents.Register(secured)
+		// Provider callbacks are mounted outside authentication: a provider
+		// holds no credential of ours and never should. Their authority is the
+		// signature on the body, verified before any field is read.
+		deps.Intents.RegisterWebhooks(engine)
 	}
 
 	return engine

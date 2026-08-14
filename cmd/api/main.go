@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/swibit/flowed/internal/adapter/httpapi"
+	"github.com/swibit/flowed/internal/adapter/payments"
 	"github.com/swibit/flowed/internal/adapter/postgres"
 	"github.com/swibit/flowed/internal/adapter/receipt"
 	"github.com/swibit/flowed/internal/app"
@@ -263,6 +264,8 @@ func buildEngine(
 	sessions := postgres.NewCashierSessionRepository(db)
 	audit := postgres.NewAuditRepository(db)
 	lifecycle := postgres.NewLifecycleRepository(db)
+	settlements := postgres.NewSettlementRepository(db)
+	intents := postgres.NewIntentRepository(db)
 	idempotency := postgres.NewIdempotencyRepository(db)
 	users := postgres.NewUserRepository(db)
 	authSessions := postgres.NewSessionRepository(db)
@@ -315,12 +318,13 @@ func buildEngine(
 	accountService := app.NewAccountService(deps)
 	enrollmentService := app.NewEnrollmentService(deps)
 	studentService := app.NewStudentService(deps)
+	paymentService := app.NewPaymentService(deps)
 
 	handlers := &Handlers{
 		Students:        studentService,
 		Enrollments:     enrollmentService,
 		Accounts:        accountService,
-		Payments:        app.NewPaymentService(deps),
+		Payments:        paymentService,
 		Refunds:         app.NewRefundService(deps),
 		Discounts:       app.NewDiscountService(deps),
 		Years:           app.NewYearService(deps),
@@ -342,6 +346,12 @@ func buildEngine(
 	importService := app.NewImportService(deps, imports, studentService, enrollmentService)
 	cashierService := app.NewCashierService(deps)
 	masterDataService := app.NewMasterDataService(deps)
+	settlementService := app.NewSettlementService(deps, settlements)
+
+	// Only the providers this deployment configured are registered. A channel
+	// that is off is absent rather than half-present, so the API can say "not
+	// offered here" instead of failing when a student tries it.
+	intentService := app.NewIntentService(deps, intents, buildProviderRegistry(cfg.Payments), paymentService)
 
 	// A receipt states Baghdad local time even though every stored timestamp is
 	// UTC: it records the moment the cashier and the student were both standing
@@ -378,6 +388,8 @@ func buildEngine(
 		UserAdmin:     httpapi.NewUserHandlers(userService),
 		Lifecycle:     httpapi.NewLifecycleHandlers(enrollmentService, studentService, accountService),
 		MasterData:    httpapi.NewMasterDataHandlers(masterDataService),
+		Settlement:    httpapi.NewSettlementHandlers(settlementService),
+		Intents:       httpapi.NewIntentHandlers(intentService, cfg.Payments.PublicBaseURL, log),
 		AuthService:   authService,
 		Users:         users,
 		Reports:       httpapi.NewReportHandlers(reports),
@@ -393,6 +405,41 @@ func buildEngine(
 	})
 
 	return engine, scheduler
+}
+
+// buildProviderRegistry assembles the electronic collection channels this
+// deployment has switched on.
+//
+// Branch collection is registered whenever a callback secret exists, because it
+// needs nothing else: the reference it mints is derived from that secret and
+// the bank statement is its confirmation.
+func buildProviderRegistry(cfg config.Payments) *payments.Registry {
+	var providers []payments.Provider
+
+	if cfg.ZainCash.Enabled {
+		providers = append(providers, payments.NewZainCash(toProviderConfig(cfg.ZainCash)))
+	}
+	if cfg.QiCard.Enabled {
+		providers = append(providers, payments.NewQiCard(toProviderConfig(cfg.QiCard)))
+	}
+	if cfg.FastPay.Enabled {
+		providers = append(providers, payments.NewFastPay(toProviderConfig(cfg.FastPay)))
+	}
+	if cfg.Branch.Enabled {
+		providers = append(providers, payments.NewBranchCollection(toProviderConfig(cfg.Branch)))
+	}
+	return payments.NewRegistry(providers...)
+}
+
+func toProviderConfig(p config.PaymentProvider) payments.Config {
+	return payments.Config{
+		Enabled:        p.Enabled,
+		BaseURL:        p.BaseURL,
+		MerchantID:     p.Merchant,
+		APIKey:         p.APIKey,
+		CallbackSecret: p.CallbackSecret,
+		Timeout:        p.Timeout,
+	}
 }
 
 // Handlers is an alias so buildEngine reads without repeating the package

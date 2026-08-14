@@ -22,6 +22,7 @@ type Config struct {
 	Database      Database
 	Auth          Auth
 	Receipt       Receipt
+	Payments      Payments
 	Log           Log
 	Observability Observability
 }
@@ -182,6 +183,36 @@ type Auth struct {
 	RequireHSTS bool
 }
 
+// Payments holds the electronic collection channels this deployment offers.
+//
+// Every provider is off unless configured. A university that collects only at
+// the desk configures none of them, and the API then says so plainly rather
+// than offering a channel that fails when a student tries it.
+type Payments struct {
+	// PublicBaseURL is where this deployment is reachable from the internet.
+	// Provider callbacks are built from it rather than from the incoming
+	// request, because a request through a misconfigured proxy would otherwise
+	// send the provider to an address only that proxy can reach.
+	PublicBaseURL string
+	ZainCash      PaymentProvider
+	QiCard        PaymentProvider
+	FastPay       PaymentProvider
+	Branch        PaymentProvider
+}
+
+// PaymentProvider is one provider's settings.
+type PaymentProvider struct {
+	Enabled  bool
+	BaseURL  string
+	Merchant string
+	APIKey   string
+	// CallbackSecret verifies their callbacks to us. Deliberately separate
+	// from the API key we send them: a leak of the outbound credential must
+	// not let anyone forge a confirmation.
+	CallbackSecret string
+	Timeout        time.Duration
+}
+
 // Receipt holds what a printed receipt says about the institution issuing it.
 //
 // Configuration rather than constants: one binary should serve any university,
@@ -294,6 +325,13 @@ func Load() (*Config, error) {
 			LockoutDuration:    envDuration("AUTH_LOCKOUT_DURATION", 15*time.Minute),
 			StrictSessionCheck: envBool("AUTH_STRICT_SESSION_CHECK", true),
 			RequireHSTS:        envBool("AUTH_REQUIRE_HSTS", false),
+		},
+		Payments: Payments{
+			PublicBaseURL: env("PUBLIC_BASE_URL", "http://localhost:8080"),
+			ZainCash:      providerConfig("ZAINCASH"),
+			QiCard:        providerConfig("QI"),
+			FastPay:       providerConfig("FASTPAY"),
+			Branch:        providerConfig("BRANCH"),
 		},
 		Receipt: Receipt{
 			UniversityNameAr: env("RECEIPT_UNIVERSITY_NAME", "الجامعة"),
@@ -422,6 +460,21 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid configuration:\n  - %s", strings.Join(problems, "\n  - "))
 	}
 	return nil
+}
+
+// providerConfig reads one payment provider's settings.
+//
+// Prefixed by the provider's own code so a deployment adding a second provider
+// adds variables rather than editing the ones the first is using.
+func providerConfig(code string) PaymentProvider {
+	return PaymentProvider{
+		Enabled:        envBool("PAY_"+code+"_ENABLED", false),
+		BaseURL:        env("PAY_"+code+"_BASE_URL", ""),
+		Merchant:       env("PAY_"+code+"_MERCHANT_ID", ""),
+		APIKey:         env("PAY_"+code+"_API_KEY", ""),
+		CallbackSecret: env("PAY_"+code+"_CALLBACK_SECRET", ""),
+		Timeout:        envDuration("PAY_"+code+"_TIMEOUT", 20*time.Second),
+	}
 }
 
 // ErrMissing reports a required variable with no value and no default.

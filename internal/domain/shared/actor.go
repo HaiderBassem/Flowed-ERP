@@ -26,12 +26,40 @@ const (
 	RoleReportViewer Role = "report_viewer"
 	// RoleAuditor reads everything, including the audit log, and writes nothing.
 	RoleAuditor Role = "auditor"
+	// RoleStudent is a student signed in to see their own account.
+	//
+	// Not an operator role. It reaches exactly one student's own statement and
+	// their own payment, and it is never granted to a staff account: the user
+	// administration refuses it, and a student credential is issued by a
+	// different route entirely.
+	RoleStudent Role = "student"
 )
 
 // AllRoles lists every role the system recognises.
 var AllRoles = []Role{
 	RoleAdmin, RoleFinanceManager, RoleCashier, RoleRegistrar,
+	RoleAcademicOfficer, RoleReportViewer, RoleAuditor, RoleStudent,
+}
+
+// StaffRoles are the roles an administrator may grant to an operator account.
+//
+// RoleStudent is deliberately absent: a student credential authenticates a
+// person to see their own fees, and granting it to a staff account would
+// create an actor that is both an operator and a student — which every
+// ownership check in the system would then have to reason about.
+var StaffRoles = []Role{
+	RoleAdmin, RoleFinanceManager, RoleCashier, RoleRegistrar,
 	RoleAcademicOfficer, RoleReportViewer, RoleAuditor,
+}
+
+// IsStaff reports whether the role belongs to an operator of the system.
+func (r Role) IsStaff() bool {
+	for _, staff := range StaffRoles {
+		if r == staff {
+			return true
+		}
+	}
+	return false
 }
 
 // Valid reports whether the role is one the system recognises.
@@ -53,6 +81,10 @@ type Actor struct {
 	SessionID string
 	// IPAddress is the request origin, recorded for the audit trail.
 	IPAddress string
+	// StudentID is set when the actor is a student signed in to the portal. It
+	// is the only thing that makes a student's authority meaningful: every
+	// route they can reach checks the row they are asking about against it.
+	StudentID *ID
 	// Scope is the actor's organisational reach. The zero value is
 	// university-wide, so an Actor built without thinking about scope behaves
 	// exactly as actors did before scoping existed — a missing field is then a
