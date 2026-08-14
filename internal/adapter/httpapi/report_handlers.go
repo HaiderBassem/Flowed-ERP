@@ -106,6 +106,10 @@ func (h *ReportHandlers) DepartmentSummary(c *gin.Context) {
 		httpx.Respond(c, err)
 		return
 	}
+	if exportRequested(c) {
+		writeExport(c, departmentTable(c, rows))
+		return
+	}
 	httpx.OK(c, emptyIfNil(rows))
 }
 
@@ -181,6 +185,10 @@ func (h *ReportHandlers) InstallmentReport(c *gin.Context) {
 		httpx.Respond(c, err)
 		return
 	}
+	if exportRequested(c) {
+		writeExport(c, installmentTable(c, rows))
+		return
+	}
 	httpx.OK(c, emptyIfNil(rows))
 }
 
@@ -209,9 +217,20 @@ func (h *ReportHandlers) DebtReport(c *gin.Context) {
 	}
 	f.MinimumAmount = minimum
 
+	// An export is the whole result, not one page of it: a finance officer
+	// exporting the debt list wants the list, and a spreadsheet of the first
+	// fifty rows is worse than no spreadsheet because it looks complete.
+	if exportRequested(c) {
+		f.Limit, f.Offset = maxExportRows, 0
+	}
+
 	rows, total, err := h.Reports.DebtReport(requestContext(c), f)
 	if err != nil {
 		httpx.Respond(c, err)
+		return
+	}
+	if exportRequested(c) {
+		writeExport(c, debtTable(c, rows))
 		return
 	}
 	httpx.OKPage(c, rows, total, limit, offset)
@@ -233,6 +252,10 @@ func (h *ReportHandlers) AgingReport(c *gin.Context) {
 	rows, err := h.Reports.AgingReport(requestContext(c), f)
 	if err != nil {
 		httpx.Respond(c, err)
+		return
+	}
+	if exportRequested(c) {
+		writeExport(c, agingTable(c, rows))
 		return
 	}
 	httpx.OK(c, emptyIfNil(rows))
@@ -493,3 +516,12 @@ func emptyIfNil[T any](rows []T) []T {
 	}
 	return rows
 }
+
+// maxExportRows bounds a single export.
+//
+// An export is the whole result rather than one page, but "the whole result"
+// still has to fit in a response somebody's browser will accept and in the
+// memory of a process serving cashier desks at the same time. Fifty thousand
+// rows is a year of a large university's debt list; beyond it the answer is a
+// narrower filter, and the limit is stated rather than silently truncating.
+const maxExportRows = 50_000

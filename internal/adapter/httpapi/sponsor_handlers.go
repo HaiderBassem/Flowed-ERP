@@ -189,6 +189,11 @@ func (h *SponsorHandlers) Receivables(c *gin.Context) {
 		return
 	}
 
+	if exportRequested(c) {
+		writeExport(c, sponsorReceivableTable(c, receivables))
+		return
+	}
+
 	views := make([]SponsorReceivableView, 0, len(receivables))
 	for _, r := range receivables {
 		views = append(views, SponsorReceivableView{
