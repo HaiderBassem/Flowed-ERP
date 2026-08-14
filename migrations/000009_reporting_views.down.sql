@@ -1,0 +1,10 @@
+DROP VIEW IF EXISTS v_over_refunded_payments;
+DROP VIEW IF EXISTS v_installment_reconciliation;
+DROP VIEW IF EXISTS v_account_reconciliation;
+DROP VIEW IF EXISTS v_cashier_daily;
+DROP VIEW IF EXISTS v_discount_usage;
+DROP VIEW IF EXISTS v_year_department_summary;
+DROP VIEW IF EXISTS v_debt;
+DROP VIEW IF EXISTS v_installment_status;
+DROP VIEW IF EXISTS v_account_balance;
+DROP VIEW IF EXISTS v_enrollment_effective;

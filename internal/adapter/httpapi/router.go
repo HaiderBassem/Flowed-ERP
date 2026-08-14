@@ -1,0 +1,347 @@
+package httpapi
+
+import (
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/swibit/flowed/internal/domain/shared"
+	"github.com/swibit/flowed/internal/platform/auth"
+	"github.com/swibit/flowed/internal/platform/config"
+	"github.com/swibit/flowed/internal/platform/httpx"
+	"github.com/swibit/flowed/internal/platform/observability"
+	"github.com/swibit/flowed/internal/platform/pg"
+	"github.com/swibit/flowed/internal/port"
+)
+
+// RouterDeps is everything the router needs to wire itself.
+//
+// The handler groups after Auth each own their own routes and mount them
+// through a Register method. Splitting them that way keeps one area's routing
+// out of another's file, which matters when several people work on the API at
+// once; the cost is this struct, which is a fair trade.
+type RouterDeps struct {
+	Config      *config.Config
+	Log         *slog.Logger
+	DB          *pg.DB
+	Handlers    *Handlers
+	Auth        *AuthHandlers
+	Reports     *ReportHandlers
+	ConfigAdmin *ConfigHandlers
+	Bulk        *BulkHandlers
+	Cashier     *CashierHandlers
+	Receipts    *ReceiptHandlers
+	Tokens      *auth.TokenService
+	Idempotency port.IdempotencyRepository
+	// RateLimiter is the cross-replica budget. Nil leaves the limiter
+	// per process.
+	RateLimiter   port.RateLimiter
+	Observability *observability.Provider
+	Version       string
+}
+
+// probeRoutes are exempt from rate limiting.
+//
+// They were not exempt while the limiter was per process, and leaving them in
+// once it is shared would be a regression: every replica's readiness probe now
+// draws on the same budget as the load balancer's own health check, all of it
+// keyed to one address, and the desks behind that address would start being
+// refused because the infrastructure was checking whether they were up.
+var probeRoutes = []string{"/health", "/ready"}
+
+// NewRouter builds the HTTP engine.
+//
+// The middleware order below is load-bearing rather than stylistic:
+//
+//   - RequestID first, because every layer after it — the logger, the error
+//     responder, the panic recovery — puts the id in its output.
+//   - Observe next, so the span exists before the request logger is built and
+//     every log record of the request carries the trace id, and so the latency
+//     it measures includes everything the server does rather than everything
+//     after the middleware that happens to be cheapest to instrument.
+//   - Logger outside Recovery, so a recovered panic still produces exactly one
+//     completion record, at error level.
+//   - CORS before authentication, so a browser preflight, which carries no
+//     Authorization header, is answered rather than rejected as unauthorised.
+//   - Rate limiting before authentication, so a flood is dropped before it
+//     costs a signature verification each.
+//   - Idempotency innermost, on individual money-moving routes only. It must
+//     sit inside authentication because it stamps the actor on the record, and
+//     inside the role check because a request that will be refused for lack of
+//     authority must not claim a key.
+func NewRouter(deps RouterDeps) *gin.Engine {
+	if deps.Config.App.IsProduction() {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	engine := gin.New()
+
+	// Client IP feeds both the rate limiter and the audit trail, so which
+	// proxies may rewrite it is a configuration decision, never a default.
+	if err := engine.SetTrustedProxies(deps.Config.HTTP.TrustedProxies); err != nil {
+		deps.Log.Error("configuring trusted proxies", slog.String("error", err.Error()))
+	}
+
+	engine.Use(
+		httpx.RequestID(),
+		httpx.Observe(deps.Observability),
+		httpx.Logger(deps.Log),
+		httpx.Recovery(deps.Log),
+		httpx.CORS(deps.Config.HTTP),
+		httpx.BodyLimit(deps.Config.HTTP.MaxRequestBodyBytes),
+		// Comfortably inside the server's write timeout, so a handler that runs
+		// long still gets to write its error before the socket is torn down.
+		httpx.Timeout(deps.Config.HTTP.WriteTimeout-2*time.Second),
+		httpx.RateLimit(httpx.RateLimitConfig{
+			PerMinute:    deps.Config.HTTP.RateLimitPerMinute,
+			Shared:       deps.RateLimiter,
+			ExemptRoutes: probeRoutes,
+			Metrics:      deps.Observability.Instruments(),
+			Log:          deps.Log,
+		}),
+	)
+
+	engine.NoRoute(func(c *gin.Context) {
+		httpx.Respond(c, shared.NotFound("route_not_found",
+			"no route matches %s %s", c.Request.Method, c.Request.URL.Path))
+	})
+
+	registerHealth(engine, deps)
+
+	v1 := engine.Group("/api/v1")
+
+	// Unauthenticated: obtaining credentials.
+	v1.POST("/auth/login", deps.Auth.Login)
+	v1.POST("/auth/refresh", deps.Auth.Refresh)
+
+	secured := v1.Group("")
+	secured.Use(httpx.Authenticate(deps.Tokens))
+
+	secured.GET("/auth/me", deps.Auth.Me)
+
+	registerReference(secured, deps.Handlers)
+	registerStudents(secured, deps.Handlers)
+	registerEnrollments(secured, deps.Handlers)
+	registerAccounts(secured, deps.Handlers, deps.Idempotency)
+	registerPayments(secured, deps.Handlers, deps.Idempotency)
+	registerRefunds(secured, deps.Handlers, deps.Idempotency)
+	registerDiscounts(secured, deps.Handlers)
+	registerYears(secured, deps.Handlers)
+	registerOversight(secured, deps.Handlers)
+
+	// Areas that own their own routing. Each mounts under the same
+	// authenticated group and applies its own role checks per route.
+	deps.Reports.Register(secured)
+	deps.ConfigAdmin.Register(secured)
+	deps.Bulk.Register(secured)
+	deps.Cashier.Register(secured)
+	deps.Receipts.Register(secured)
+
+	return engine
+}
+
+// registerHealth mounts the probes outside authentication: a load balancer has
+// no credentials, and a readiness check that needs a token cannot report that
+// authentication itself is broken.
+func registerHealth(engine *gin.Engine, deps RouterDeps) {
+	engine.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "ok",
+			"service": deps.Config.App.Name,
+			"version": deps.Version,
+		})
+	})
+
+	// Readiness reports the database, because an API that cannot reach
+	// PostgreSQL can serve nothing useful and should be taken out of rotation
+	// rather than left to fail every request.
+	engine.GET("/ready", func(c *gin.Context) {
+		ctx, cancel := c.Request.Context(), func() {}
+		defer cancel()
+
+		if err := deps.DB.Ping(ctx); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status": "unavailable",
+				"reason": "database unreachable",
+			})
+			return
+		}
+		stats := deps.DB.Stats()
+		c.JSON(http.StatusOK, gin.H{
+			"status": "ready",
+			"database": gin.H{
+				"acquired_conns": stats.AcquiredConns,
+				"idle_conns":     stats.IdleConns,
+				"total_conns":    stats.TotalConns,
+				"max_conns":      stats.MaxConns,
+			},
+		})
+	})
+}
+
+func registerReference(g *gin.RouterGroup, h *Handlers) {
+	// Readable by anyone signed in: a cashier's screen needs the list of
+	// payment methods, and a registrar's needs the departments.
+	g.GET("/study-types", h.ListStudyTypes)
+	g.GET("/colleges", h.ListColleges)
+	g.GET("/departments", h.ListDepartments)
+	g.GET("/payment-methods", h.ListPaymentMethods)
+}
+
+func registerStudents(g *gin.RouterGroup, h *Handlers) {
+	students := g.Group("/students")
+
+	students.GET("", h.SearchStudents)
+	students.GET("/:id", h.GetStudent)
+	students.GET("/:id/enrollments", h.StudentEnrollments)
+	students.GET("/:id/accounts", h.StudentAccounts)
+	students.GET("/:id/discounts", h.StudentDiscounts)
+
+	students.POST("",
+		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAdmin),
+		h.RegisterStudent)
+	students.PATCH("/:id/contact",
+		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAcademicOfficer, shared.RoleAdmin),
+		h.UpdateStudentContact)
+
+	// The audit trail is the auditor's, and an administrator's. A cashier who
+	// could read it could also learn which of their corrections were noticed.
+	students.GET("/:id/audit",
+		httpx.RequireRoles(shared.RoleAuditor, shared.RoleAdmin, shared.RoleFinanceManager),
+		h.StudentAudit)
+}
+
+func registerEnrollments(g *gin.RouterGroup, h *Handlers) {
+	enrollments := g.Group("/enrollments")
+
+	enrollments.GET("/:id", h.GetEnrollment)
+
+	enrollments.POST("",
+		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAcademicOfficer, shared.RoleAdmin),
+		h.EnrollStudent)
+	enrollments.POST("/:id/supersede",
+		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAdmin),
+		h.SupersedeEnrollment)
+	enrollments.POST("/:id/result",
+		httpx.RequireRoles(shared.RoleAcademicOfficer, shared.RoleAdmin),
+		h.RecordResult)
+	enrollments.POST("/:id/status",
+		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAcademicOfficer, shared.RoleAdmin),
+		h.ChangeEnrollmentStatus)
+}
+
+func registerAccounts(g *gin.RouterGroup, h *Handlers, idem port.IdempotencyRepository) {
+	accounts := g.Group("/accounts")
+
+	accounts.GET("/:id", h.GetAccount)
+
+	// Account generation is idempotent-keyed as well as payments: a retried
+	// generation that created a second account would give one enrollment two
+	// sets of prices.
+	accounts.POST("",
+		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
+		httpx.Idempotency(idem, "GenerateFinancialAccount"),
+		h.GenerateAccount)
+
+	accounts.POST("/adjustments",
+		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
+		httpx.Idempotency(idem, "PostAdjustment"),
+		h.PostAdjustment)
+}
+
+func registerPayments(g *gin.RouterGroup, h *Handlers, idem port.IdempotencyRepository) {
+	payments := g.Group("/payments")
+
+	payments.GET("/:id", h.GetPayment)
+
+	payments.POST("",
+		httpx.RequireRoles(shared.RoleCashier, shared.RoleFinanceManager),
+		httpx.Idempotency(idem, "RecordPayment"),
+		h.RecordPayment)
+
+	// Voiding is split in two on purpose. A cashier raises the request; a
+	// finance manager executes it. The two signatures leave a document behind,
+	// which is what the void register reads from — the single most useful
+	// fraud-detection report in the system.
+	voids := g.Group("/voids")
+	voids.GET("/pending",
+		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor),
+		h.ListPendingVoids)
+	voids.POST("",
+		httpx.RequireRoles(shared.RoleCashier, shared.RoleFinanceManager, shared.RoleAdmin),
+		h.RequestVoid)
+	voids.POST("/:id/execute",
+		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
+		httpx.Idempotency(idem, "ExecuteVoid"),
+		h.ExecuteVoid)
+}
+
+func registerRefunds(g *gin.RouterGroup, h *Handlers, idem port.IdempotencyRepository) {
+	refunds := g.Group("/refunds")
+
+	refunds.GET("/pending",
+		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor),
+		h.ListPendingRefunds)
+
+	refunds.POST("",
+		httpx.RequireRoles(shared.RoleCashier, shared.RoleFinanceManager, shared.RoleAdmin),
+		h.RequestRefund)
+	refunds.POST("/:id/approve",
+		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
+		h.ApproveRefund)
+	refunds.POST("/:id/reject",
+		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
+		h.RejectRefund)
+	refunds.POST("/:id/post",
+		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
+		httpx.Idempotency(idem, "PostRefund"),
+		h.PostRefund)
+}
+
+func registerDiscounts(g *gin.RouterGroup, h *Handlers) {
+	discounts := g.Group("/discounts")
+
+	discounts.POST("/assignments",
+		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAcademicOfficer,
+			shared.RoleFinanceManager, shared.RoleAdmin),
+		h.AssignDiscount)
+
+	// Approving a discount is deciding not to collect money, so it sits with
+	// finance — and the domain refuses it from whoever requested the grant.
+	discounts.POST("/assignments/:id/approve",
+		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
+		h.ApproveDiscount)
+	discounts.POST("/assignments/:id/revoke",
+		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
+		h.RevokeDiscount)
+	discounts.POST("/applications/:id/confirm",
+		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
+		h.ConfirmDiscountApplication)
+}
+
+func registerYears(g *gin.RouterGroup, h *Handlers) {
+	years := g.Group("/academic-years")
+
+	years.GET("", h.ListYears)
+
+	years.POST("", httpx.RequireRoles(shared.RoleAdmin), h.CreateYear)
+	years.POST("/:id/open", httpx.RequireRoles(shared.RoleAdmin), h.OpenYear)
+
+	// Shutting the books is finance's call; declaring the academic year over
+	// is not, so the two closes carry different authority.
+	years.POST("/:id/close-financially",
+		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
+		h.CloseYearFinancially)
+	years.POST("/:id/close", httpx.RequireRoles(shared.RoleAdmin), h.CloseYear)
+	years.POST("/:id/reopen", httpx.RequireRoles(shared.RoleAdmin), h.ReopenYear)
+}
+
+func registerOversight(g *gin.RouterGroup, h *Handlers) {
+	oversight := g.Group("/oversight")
+	oversight.Use(httpx.RequireRoles(shared.RoleAuditor, shared.RoleAdmin, shared.RoleFinanceManager))
+
+	oversight.GET("/audit/verify", h.VerifyAuditChain)
+	oversight.GET("/reconciliation", h.ReconciliationReport)
+}

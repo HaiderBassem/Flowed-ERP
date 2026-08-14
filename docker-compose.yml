@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: flowed-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: flowed
+      # C collation with UTF-8 encoding. Arabic name folding is done by the
+      # schema's own normalize_arabic function rather than by the collation,
+      # because no collation folds ta marbuta against ha or alef maqsura
+      # against ya consistently across versions. Pinning to C keeps sort order
+      # deterministic and index behaviour predictable.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    command:
+      - postgres
+      # Log anything slower than a second. At this workload's volume a
+      # one-second query is a defect worth seeing, not noise.
+      - -c
+      - log_min_duration_statement=1000
+      - -c
+      - log_lock_waits=on
+      - -c
+      - deadlock_timeout=1s
+      - -c
+      - max_connections=100
+      - -c
+      - shared_buffers=256MB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d flowed"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flowed-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: development
+      HTTP_PORT: 8080
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: flowed
+      DB_SSLMODE: disable
+      AUTH_JWT_SECRET: development-secret-change-me-in-production
+      LOG_FORMAT: json
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    profiles:
+      # Not started by `docker compose up -d postgres`; bring it up explicitly
+      # with `docker compose --profile full up`. Day-to-day development runs
+      # the API on the host against the containerised database.
+      - full
+
+volumes:
+  postgres-data:
