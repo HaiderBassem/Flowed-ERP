@@ -389,14 +389,31 @@ Errors share one shape, and the code is stable enough to branch on:
 
 ```bash
 api                                  # serve
+api version                          # what this build is; production refuses an unidentified one
 api healthcheck                      # probe (used by the container health check)
 api seed                             # first administrator, development only
 api create-user <user> <name> <roles># CREATE_USER_PASSWORD supplies the password
 api demo                             # exploration dataset, development only
+api audit-ship                       # copy the audit trail off-host
+api audit-ship verify                # compare that copy against the database
+api perf-seed --scale=medium         # a dataset big enough to measure, development only
 ```
 
-`seed` and `demo` both refuse to run in production: a known starting password
-is exactly the kind of thing that survives into a live system for years.
+`seed`, `demo` and `perf-seed` all refuse to run in production: a known starting
+password is exactly the kind of thing that survives into a live system for
+years, and a synthetic dataset in a live database is worse.
+
+Operational scripts, all of them exercised rather than described:
+
+```bash
+make backup            # dump, then prove pg_restore can read it
+make restore-drill     # restore into a scratch database and reconcile it
+make perf              # measure p50/p95/p99 against a seeded dataset
+make docker-build      # the deployable image, stamped so it can identify itself
+```
+
+Deployment — systemd units, a production compose file, nginx in front — is in
+`deploy/`, and `docs/operations/deployment.md` explains the choices.
 
 ## Exploring it
 
@@ -546,6 +563,16 @@ take the scheduler down with it.
 | Stalled import reaper | 10 min | Fails import batches whose worker heartbeat stopped, so a killed worker does not strand a batch in `importing` forever. |
 | Overdue snapshot | daily | Logs the overdue count and total, so the trend is visible before anyone opens a report. |
 | Rate-limit purge | 15 min | Deletes buckets nobody has touched. Registered only when the shared limiter is on. Without it the table grows by a row per client address and never shrinks — the same leak the in-process sweeper prevents, now somewhere a restart cannot clear. |
+| Audit shipping | 15 min | Copies the trail to a host this database cannot reach. The interval is the exposure: an entry written just after a pass exists only where somebody with the database role can delete it until the next one. Registered only when a destination is configured. |
+| Session purge | daily | Expired sessions and old sign-in attempts. Neither is an audit trail, and left to grow both are read on the login path. |
+| Reminder queue and delivery | daily / frequent | Consults the reminder policy, then hands what it queued to the gateway. A message queued at nine that arrives at five is a message about a due date that has passed. |
+| Payment intent expiry | 30 min | Closes abandoned electronic payments. |
+
+Every job runs a first pass shortly after start-up rather than waiting a full
+interval. That is not a nicety: a daily job on a service redeployed every
+afternoon would otherwise never run at all, and for a while reconciliation
+did not — the wiring built its configuration from a literal, and the flag that
+asks for the first pass is a bool, which the defaults could not fill.
 
 ## Metrics and tracing
 
@@ -635,20 +662,37 @@ configuration.
 
 ## Status
 
-Complete and running end to end. Schema (12 migrations), migration engine,
-domain layer, application services, PostgreSQL adapter, ~100 HTTP routes,
-authentication, reports, configuration administration, bulk promotion and
-account generation, staged import, cashier sessions, the background scheduler,
-printable Arabic receipts, metrics and tracing, the cross-replica rate limiter,
-and the operational commands. Build, vet, gofmt and the full test suite are
-clean under the race detector, and the demo dataset loads through the real
-commands with all four integrity checks at zero.
+Complete and running end to end. Schema (23 migrations), migration engine,
+domain layer, application services, PostgreSQL adapter, 103 documented HTTP
+paths, authentication with key rotation and session revocation, organisational
+scope, reports and exports, configuration administration, bulk promotion and
+account generation, staged import, cashier sessions, sponsors and settlement,
+electronic payment providers, the student portal, notifications, the background
+scheduler, printable Arabic receipts, metrics and tracing, the cross-replica
+rate limiter, the off-host audit archive, tracked reconciliation, and the
+operational commands. Build, vet, staticcheck, gofmt and the full test suite —
+368 test functions across unit, integration and end-to-end — are clean under
+the race detector, and the demo dataset loads through the real commands with
+all four integrity checks at zero.
 
-Nothing on the original gap list is still open. What would earn its keep next
-is alert rules on the instruments that already exist — voids climbing against
-collections, the pool starving, the limiter reporting `tier="degraded"`,
-reconciliation reporting a defect. The metrics are emitted; nothing reads them
-yet.
+Alert rules now exist for the instruments, in `deploy/alerts.yml`: an
+unexplained invariant violation, voids climbing against collection, an
+over-refund, a broken audit chain, the pool starving, the limiter reporting
+`tier="degraded"`, and — the one most often missing from a system like this —
+reconciliation not having run at all, because a check that stopped running looks
+exactly like a system with nothing wrong.
+
+What the operations documents cover, all of them written from runs rather than
+from intent:
+
+| Document | What it answers |
+|---|---|
+| `docs/operations/backup-restore.md` | The archive, the drill, and point-in-time recovery |
+| `docs/operations/audit-archive.md` | The off-host copy, and what each verification failure means |
+| `docs/operations/audit-growth.md` | What the trail costs at scale, measured |
+| `docs/operations/reconciliation.md` | Working the invariant queue, and why the fix is never an UPDATE |
+| `docs/operations/performance.md` | Measured latencies, and where the time goes |
+| `docs/operations/deployment.md` | systemd or Docker, secrets, draining, rollback |
 
 Two things are ruled out rather than pending. There will be **no external
 general-ledger integration** — Flowed is the system of record for fees and
