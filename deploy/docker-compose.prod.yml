@@ -24,10 +24,72 @@
 
 name: flowed
 
+# Settings every process needs, including the migrator.
+#
+# Configuration is loaded and validated whole by each binary, so `migrate` is
+# held to the same production rules as the API even though it never serves a
+# request: it wants a real signing secret and an explicit origin list, and says
+# so by refusing to run. That is why the JWT secret appears below on a process
+# that signs nothing.
+x-db-env: &db_env
+  APP_ENV: production
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_USER: flowed
+  DB_NAME: flowed
+  DB_PASSWORD_FILE: /run/secrets/db_password
+  # The database refuses plaintext in production, and pg-tls below is what
+  # makes `require` possible on this host.
+  DB_SSLMODE: require
+  AUTH_JWT_SECRET_FILE: /run/secrets/jwt_secret
+  # The address the university reaches this system at, e.g.
+  # https://fees.university.edu.iq. Production refuses the "*" default: an
+  # origin list that admits everyone admits every other page the browser has
+  # open. The interface is served from this same origin, so in the ordinary
+  # deployment this is the one entry there is.
+  HTTP_CORS_ORIGINS: ${FLOWED_PUBLIC_ORIGIN:?set FLOWED_PUBLIC_ORIGIN to the site URL, e.g. https://fees.university.edu.iq}
+
 services:
+  # The database's TLS material, generated once into its own volume.
+  #
+  # The application refuses to start in production with DB_SSLMODE=disable, and
+  # it is right to: "the database is on the same host" is a property of today's
+  # deployment, not of the connection string, and the day the database moves to
+  # another machine nobody re-reads this file. PostgreSQL will not use a key it
+  # considers world-readable or foreign, so the key is written 0600 and chowned
+  # to the uid the postgres image runs as (70) — which is why this is a
+  # privileged one-shot step rather than a file committed beside the compose.
+  #
+  # Self-signed, and the API connects with sslmode=require: encrypted, not
+  # authenticated. On one host with the database unpublished that is the honest
+  # trade. Move the database to another machine and this becomes a real
+  # certificate with DB_SSLMODE=verify-full.
+  pg-tls:
+    image: alpine:3.23
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        if [ ! -s /tls/server.key ]; then
+          apk add --no-cache openssl >/dev/null
+          openssl req -new -x509 -days 3650 -nodes -text \
+            -out /tls/server.crt -keyout /tls/server.key -subj "/CN=postgres"
+          echo "generated a new server certificate"
+        fi
+        chown 70:70 /tls/server.crt /tls/server.key
+        chmod 600 /tls/server.key
+        chmod 644 /tls/server.crt
+        echo "postgres tls material ready"
+    volumes:
+      - pg-tls:/tls
+
   postgres:
     image: postgres:18-alpine
     restart: unless-stopped
+    depends_on:
+      pg-tls:
+        condition: service_completed_successfully
     environment:
       POSTGRES_USER: flowed
       POSTGRES_DB: flowed
@@ -39,8 +101,13 @@ services:
     secrets:
       - db_password
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      # Mounted at /var/lib/postgresql, not at .../data: the 18+ images keep the
+      # cluster in a major-version subdirectory so `pg_upgrade --link` does not
+      # have to cross a mount boundary. Mounting the old path makes the image
+      # refuse to start and say so at length.
+      - postgres-data:/var/lib/postgresql
       - ./postgres/wal:/srv/wal
+      - pg-tls:/etc/pg-tls:ro
     # Not published. The API reaches it over the compose network; nothing else
     # needs to, and a database on the public interface is the single most
     # common way a system like this is lost.
@@ -74,6 +141,13 @@ services:
       - archive_command=test ! -f /srv/wal/%f && cp %p /srv/wal/%f
       - -c
       - archive_timeout=300
+      # TLS, from the material pg-tls prepared.
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/pg-tls/server.crt
+      - -c
+      - ssl_key_file=/etc/pg-tls/server.key
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U flowed -d flowed"]
       interval: 10s
@@ -85,22 +159,17 @@ services:
       options: { max-size: "50m", max-file: "5" }
 
   migrate:
-    image: ghcr.io/swibit/flowed:${FLOWED_VERSION:?set FLOWED_VERSION to the release being deployed}
+    image: ${FLOWED_IMAGE:-ghcr.io/swibit/flowed}:${FLOWED_VERSION:?set FLOWED_VERSION to the release being deployed}
     entrypoint: ["/app/migrate", "up"]
     restart: "no"
     depends_on:
       postgres:
         condition: service_healthy
-    environment: &db_env
-      APP_ENV: production
-      DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_USER: flowed
-      DB_NAME: flowed
-      DB_PASSWORD_FILE: /run/secrets/db_password
-      DB_SSLMODE: disable
+    environment:
+      <<: *db_env
     secrets:
       - db_password
+      - jwt_secret
     # Migrations run as their own step and the API waits for it. The API also
     # refuses to serve on a schema mismatch, so a partial deploy stops rather
     # than serving queries against a schema it does not understand.
@@ -109,7 +178,7 @@ services:
     cap_drop: [ALL]
 
   api:
-    image: ghcr.io/swibit/flowed:${FLOWED_VERSION:?set FLOWED_VERSION to the release being deployed}
+    image: ${FLOWED_IMAGE:-ghcr.io/swibit/flowed}:${FLOWED_VERSION:?set FLOWED_VERSION to the release being deployed}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -123,7 +192,6 @@ services:
       # Behind a reverse proxy: name it, or the client IP in the audit trail
       # and the rate limiter's key are both the proxy's.
       HTTP_TRUSTED_PROXIES: "172.16.0.0/12"
-      AUTH_JWT_SECRET_FILE: /run/secrets/jwt_secret
       AUTH_REQUIRE_HSTS: "true"
       AUTH_STRICT_SESSION_CHECK: "true"
       LOG_FORMAT: json
@@ -172,7 +240,7 @@ services:
       options: { max-size: "50m", max-file: "5" }
 
   backup:
-    image: ghcr.io/swibit/flowed:${FLOWED_VERSION:?set FLOWED_VERSION}
+    image: ${FLOWED_IMAGE:-ghcr.io/swibit/flowed}:${FLOWED_VERSION:?set FLOWED_VERSION}
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -196,6 +264,10 @@ services:
       RETENTION_DAYS: "30"
     secrets:
       - db_password
+      # The drill runs `migrate status` to learn which schema this build
+      # expects, and configuration is validated whole — so this process needs a
+      # real signing secret to ask a question about migrations.
+      - jwt_secret
     volumes:
       - ./backups:/srv/backups
     security_opt: [no-new-privileges:true]
@@ -212,3 +284,4 @@ secrets:
 
 volumes:
   postgres-data:
+  pg-tls:

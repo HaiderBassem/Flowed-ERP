@@ -1,0 +1,802 @@
+/* ===========================================================================
+   The shell: sidebar, context bar, screen area, command palette, login.
+
+   The layout is the classic ERP frame — a persistent brand sidebar carrying
+   the three planes of navigation, a slim context bar carrying the facts that
+   change what is legitimate (year, scope, shift), and the working surface.
+   The sidebar wears the identity (logo, dot-grid, gold active marker); the
+   working surface stays quiet so the figures own the contrast.
+   =========================================================================== */
+
+.shell {
+  display: grid;
+  grid-template-columns: 252px minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--paper);
+}
+.shell__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ------------------------------------------------------------------- nav --- */
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  border-inline-end: 1px solid var(--rule-strong);
+  background:
+    var(--pattern-on-tint),
+    linear-gradient(180deg, var(--surface) 0%, color-mix(in oklab, var(--surface-2) 55%, var(--surface)) 100%);
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow: hidden;
+}
+:root[data-theme="dark"] .nav,
+:root:not([data-theme="light"]) .nav {
+  background-image: var(--pattern-on-dark),
+    linear-gradient(180deg, var(--surface) 0%, var(--paper) 100%);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .nav {
+    background-image: var(--pattern-on-tint),
+      linear-gradient(180deg, var(--surface) 0%, color-mix(in oklab, var(--surface-2) 55%, var(--surface)) 100%);
+  }
+}
+
+/* Brand header: the abstract ribbon mark and the serif wordmark. The gold
+   hairline beneath is the identity's one flourish here. */
+.nav__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 16px 14px;
+  border-bottom: 1px solid var(--rule);
+  position: relative;
+  flex: none;
+}
+.nav__brand::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  inset-inline-start: 16px;
+  width: 56px;
+  height: 2px;
+  background: var(--gold);
+}
+.nav__brand-mark {
+  width: 34px;
+  height: 34px;
+  flex: none;
+}
+.nav__brand-name {
+  font-family: var(--display);
+  font-size: 1.55rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+  direction: ltr;
+}
+.nav__brand-tag {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.66rem;
+  color: var(--muted);
+  margin-top: 3px;
+  letter-spacing: 0.02em;
+}
+
+.nav__scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 10px 16px;
+  min-height: 0;
+}
+
+.nav__plane {
+  margin-bottom: 18px;
+}
+.nav__title {
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  margin: 0 0 6px;
+  padding-inline-start: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.nav__caption {
+  font-weight: 400;
+  letter-spacing: 0;
+  font-size: 0.66rem;
+  opacity: 0.8;
+}
+.nav__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.nav__link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: var(--step--1);
+  line-height: 1.4;
+  min-height: 32px;
+}
+.nav__link .icon {
+  color: var(--muted);
+  flex: none;
+}
+.nav__link:hover {
+  background: color-mix(in oklab, var(--surface-3) 60%, transparent);
+  color: var(--ink);
+}
+.nav__link:hover .icon {
+  color: var(--sage);
+}
+/* Active: celadon wash + a gold marker on the reading edge. The marker is
+   brand, not status — nothing in the lexicon is gold. */
+.nav__link.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+.nav__link.is-active .icon {
+  color: var(--accent);
+}
+.nav__link.is-active::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: -10px;
+  top: 5px;
+  bottom: 5px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--gold);
+}
+.nav__count {
+  font-family: var(--numeric);
+  font-feature-settings: var(--numeric-features);
+  font-size: var(--step--2);
+  font-weight: 700;
+  background: var(--pending-soft);
+  color: var(--pending);
+  border: 1px solid color-mix(in oklab, var(--pending) 40%, transparent);
+  border-radius: 999px;
+  padding: 0 6px;
+  min-width: 20px;
+  text-align: center;
+}
+.nav__planned {
+  color: var(--muted);
+  font-family: var(--mono);
+  opacity: 0.6;
+}
+
+/* The operator, pinned to the foot of the rail: who is signed in is a fact
+   the screen must never lose, and it is where sign-out lives. */
+.nav__user {
+  flex: none;
+  border-top: 1px solid var(--rule);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: color-mix(in oklab, var(--surface-2) 50%, transparent);
+}
+.nav__avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  flex: none;
+}
+.nav__user-name {
+  font-size: var(--step--1);
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav__user-role {
+  font-size: 0.68rem;
+  color: var(--muted);
+  line-height: 1.3;
+}
+.nav__signout {
+  margin-inline-start: auto;
+  border: 1px solid var(--rule-strong);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex: none;
+}
+.nav__signout:hover {
+  color: var(--void);
+  border-color: color-mix(in oklab, var(--void) 50%, transparent);
+  background: var(--void-soft);
+}
+
+/* ------------------------------------------------------------ context bar - */
+
+.ctx {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: color-mix(in oklab, var(--surface) 88%, var(--paper));
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--rule-strong);
+}
+.ctx__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 7px 18px;
+  min-height: 46px;
+  font-size: var(--step--1);
+}
+.ctx__sep {
+  width: 1px;
+  height: 16px;
+  background: var(--rule-strong);
+  flex: none;
+}
+.ctx__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  padding: 3px 11px;
+  background: var(--surface);
+  font-size: var(--step--2);
+  white-space: nowrap;
+  color: var(--ink-2);
+  text-decoration: none;
+  min-height: 26px;
+}
+.ctx__pill--input {
+  padding-inline-end: 5px;
+}
+.ctx__pill--warn {
+  border-color: color-mix(in oklab, var(--pending) 55%, transparent);
+  background: var(--pending-soft);
+  color: var(--pending);
+  font-weight: 700;
+}
+a.ctx__pill:hover,
+.ctx__pill--button:hover {
+  border-color: var(--sage);
+  color: var(--accent-ink);
+}
+.ctx__pill--button {
+  cursor: pointer;
+  font-family: inherit;
+}
+.ctx__select {
+  border: 0;
+  background: transparent;
+  font-family: var(--numeric);
+  font-feature-settings: var(--numeric-features);
+  font-size: var(--step--2);
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.ctx__keys {
+  display: inline-flex;
+  gap: 2px;
+}
+
+/* ----------------------------------------------------------------- screen - */
+
+.screen {
+  padding: 22px 26px 90px;
+  min-width: 0;
+  flex: 1;
+}
+.screen--wide {
+  padding: 16px 18px 70px;
+}
+.screen__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.screen__title {
+  font-size: var(--step-2);
+  line-height: 1.25;
+}
+.screen__lede {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  max-width: 72ch;
+  margin: 0 0 18px;
+}
+.screen__path {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+  margin: 0 0 14px;
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: end;
+  display: block;
+}
+
+/* ---------------------------------------------------------------- palette - */
+
+.palette {
+  position: fixed;
+  z-index: 51;
+  top: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(680px, calc(100vw - 32px));
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.palette__input {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  padding: 14px 18px;
+  font-size: var(--step-1);
+  background: var(--surface);
+  color: var(--ink);
+}
+.palette__input:focus {
+  outline: none;
+}
+.palette__fold {
+  margin: 0;
+  padding: 7px 18px;
+  font-size: var(--step--2);
+  color: var(--muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--rule);
+}
+.palette__results {
+  max-height: 52vh;
+  overflow-y: auto;
+}
+.palette__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+  font-size: var(--step--1);
+  color: var(--ink);
+}
+.palette__row.is-active {
+  background: var(--accent-soft);
+}
+.palette__row:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.palette__kind {
+  font-size: var(--step--2);
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  flex: none;
+}
+.palette__kind--command {
+  background: var(--gold-soft);
+  color: var(--gold-ink);
+}
+.palette__kind--dest {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.palette__empty {
+  padding: 24px 18px;
+  color: var(--muted);
+  text-align: center;
+  margin: 0;
+  font-size: var(--step--1);
+}
+
+/* ------------------------------------------------------------------ login - */
+
+.login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--pattern-on-light), var(--paper);
+}
+:root[data-theme="dark"] .login,
+:root:not([data-theme="light"]) .login {
+  background: var(--pattern-on-dark), var(--paper);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .login {
+    background: var(--pattern-on-light), var(--paper);
+  }
+}
+.login__card {
+  width: min(430px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-top: 3px solid var(--accent);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 30px 30px 26px;
+  position: relative;
+}
+.login__mark {
+  width: 84px;
+  height: auto;
+  display: block;
+  margin: 0 auto 10px;
+}
+.login__brand {
+  font-family: var(--display);
+  font-size: 2.4rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+  text-align: center;
+  direction: ltr;
+  line-height: 1.1;
+}
+.login__sub {
+  color: var(--muted);
+  font-size: var(--step--1);
+  margin: 2px 0 4px;
+  text-align: center;
+}
+/* The tagline, in gold — the identity's voice: declarative, no exclamation. */
+.login__tagline {
+  color: var(--gold-ink);
+  font-size: var(--step--1);
+  font-weight: 700;
+  text-align: center;
+  margin: 0 0 22px;
+}
+.login__tagline::before,
+.login__tagline::after {
+  content: "—";
+  color: var(--gold);
+  margin-inline: 8px;
+  font-weight: 400;
+}
+
+/* --------------------------------------------------------------- layouts - */
+
+.cols {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+}
+.cols--desk {
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
+}
+.cols--half {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+.cols--thirds {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+/* The window is 1366×768 first and widened from there, not the reverse. */
+@media (max-width: 1180px) {
+  .cols--desk {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .nav {
+    position: static;
+    height: auto;
+    max-height: none;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .nav__scroll {
+    max-height: 40vh;
+  }
+}
+
+/* ------------------------------------------------------------------ print - */
+
+@media print {
+  .nav,
+  .ctx,
+  .palette,
+  .overlay,
+  .btn {
+    display: none !important;
+  }
+  .shell {
+    grid-template-columns: 1fr;
+  }
+  .screen {
+    padding: 0;
+  }
+  body {
+    background: #fff;
+  }
+}
+
+/* ------------------------------------------------------------------- home - */
+
+.home-hero {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 26px 28px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  background:
+    var(--pattern-on-tint),
+    linear-gradient(135deg, var(--surface) 30%, color-mix(in oklab, var(--accent-soft) 55%, var(--surface)) 100%);
+  box-shadow: var(--shadow);
+  position: relative;
+  overflow: hidden;
+}
+/* The gold seal-line, echoing the sidebar brand mark. */
+.home-hero::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--gold), transparent 60%);
+}
+.home-hero__mark {
+  width: 76px;
+  height: 76px;
+  flex: none;
+  opacity: 0.95;
+}
+.home-hero__title {
+  font-size: var(--step-3);
+  line-height: 1.2;
+}
+.home-hero__sub {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  margin: 4px 0 0;
+}
+.home-hero__why {
+  color: var(--muted);
+  font-size: var(--step--1);
+  margin: 8px 0 0;
+  max-width: 60ch;
+}
+.home-hero__badge {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 14px 18px;
+  border: 1px solid color-mix(in oklab, var(--pending) 40%, transparent);
+  background: var(--pending-soft);
+  color: var(--pending);
+  border-radius: var(--radius);
+  text-decoration: none;
+  font-size: var(--step--2);
+  font-weight: 700;
+}
+.home-hero__badge b {
+  font-family: var(--numeric);
+  font-feature-settings: var(--numeric-features);
+  font-size: var(--step-2);
+  line-height: 1;
+}
+.home-launch__icon {
+  color: var(--sage);
+  flex: none;
+}
+
+/* ----------------------------------------------------------------- crumbs - */
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  font-size: var(--step--2);
+  min-height: 26px;
+}
+.crumbs__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--rule-strong);
+  background: var(--surface);
+  color: var(--ink-2);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-family: inherit;
+  font-size: var(--step--2);
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 26px;
+}
+.crumbs__back:hover {
+  border-color: var(--sage);
+  color: var(--accent-ink);
+}
+/* The chevron points the way travel goes: towards the parent, which under
+   RTL is to the right. */
+.crumbs__back .icon {
+  transform: scaleX(-1);
+}
+.crumbs__list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.crumbs__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.crumbs__link {
+  color: var(--muted);
+  text-decoration: none;
+}
+.crumbs__link:hover {
+  color: var(--accent-ink);
+  text-decoration: underline;
+}
+.crumbs__current {
+  color: var(--ink-2);
+  font-weight: 700;
+}
+.crumbs__sep {
+  color: var(--rule-strong);
+}
+
+/* ------------------------------------------------------------- nav: rail - */
+
+/* The collapsed sidebar. Requested by the people who live in the desk all
+   day: on 1366px the rail returns ~190px of working width to the tables.
+   The mode is a persisted choice (flowed.nav), applied before first paint,
+   toggled by the chevron in the brand row or Ctrl+B — a physical-key
+   shortcut, so it works identically on an Arabic layout. */
+:root[data-nav="rail"] .shell {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+:root[data-nav="rail"] .nav__brand {
+  padding: 14px 0 12px;
+  justify-content: center;
+}
+:root[data-nav="rail"] .nav__brand::after {
+  inset-inline-start: 50%;
+  transform: translateX(50%);
+  width: 28px;
+}
+:root[data-nav="rail"] .nav__brand-text,
+:root[data-nav="rail"] .nav__title,
+:root[data-nav="rail"] .nav__link .grow,
+:root[data-nav="rail"] .nav__planned,
+:root[data-nav="rail"] .nav__user-text {
+  display: none;
+}
+:root[data-nav="rail"] .nav__scroll {
+  padding: 10px 8px 12px;
+}
+:root[data-nav="rail"] .nav__plane {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--rule);
+}
+:root[data-nav="rail"] .nav__plane:last-child {
+  border-bottom: 0;
+}
+:root[data-nav="rail"] .nav__link {
+  justify-content: center;
+  padding: 7px 0;
+  position: relative;
+}
+:root[data-nav="rail"] .nav__link.is-active::before {
+  inset-inline-start: -8px;
+}
+/* The counter survives collapse as a number, not a bare dot — state is never
+   a colour alone, even at 64px. */
+:root[data-nav="rail"] .nav__count {
+  position: absolute;
+  top: 1px;
+  inset-inline-end: 4px;
+  min-width: 16px;
+  padding: 0 4px;
+  font-size: 0.62rem;
+  line-height: 1.5;
+}
+:root[data-nav="rail"] .nav__user {
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 6px;
+}
+:root[data-nav="rail"] .nav__signout {
+  margin-inline-start: 0;
+}
+
+.nav__collapse {
+  position: absolute;
+  top: 14px;
+  inset-inline-end: 8px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--rule-strong);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 6px;
+  cursor: pointer;
+  z-index: 2;
+}
+.nav__collapse:hover {
+  color: var(--accent-ink);
+  border-color: var(--sage);
+}
+/* The chevron shows the direction the rail will move: towards the edge when
+   open, back into the page when collapsed. scaleX flips it in rail mode. */
+:root[data-nav="rail"] .nav__collapse {
+  inset-inline-end: 50%;
+  transform: translateX(-50%);
+  top: 60px;
+}
+:root[data-nav="rail"] .nav__collapse .icon {
+  transform: scaleX(-1);
+}
+:root[data-nav="rail"] .nav__brand {
+  margin-bottom: 34px;
+}

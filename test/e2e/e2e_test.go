@@ -17,6 +17,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -140,6 +141,10 @@ type response struct {
 	status int
 	body   map[string]any
 	raw    []byte
+	// header is read by the export tests: the download's filename lives in
+	// Content-Disposition, and a client that has to invent one produces three
+	// downloads of three different days all called "report.csv".
+	header http.Header
 }
 
 // data unwraps the {data: …} envelope every successful response uses.
@@ -225,7 +230,7 @@ func (c *client) do(method, path string, body any, headers map[string]string) re
 	defer func() { _ = resp.Body.Close() }()
 
 	raw, _ := io.ReadAll(resp.Body)
-	out := response{status: resp.StatusCode, raw: raw}
+	out := response{status: resp.StatusCode, raw: raw, header: resp.Header.Clone()}
 	if len(raw) > 0 {
 		_ = json.Unmarshal(raw, &out.body)
 	}
@@ -996,6 +1001,95 @@ func TestReportsExportAsSpreadsheets(t *testing.T) {
 	// An unknown format is refused rather than silently becoming CSV.
 	if got := admin.get("/api/v1/reports/debt?academic_year_id=" + yearID + "&format=docx"); got.status != http.StatusBadRequest {
 		t.Errorf("an unknown export format answered %d, want 400", got.status)
+	}
+}
+
+// TestEveryReportExports is the coverage assertion behind the specification's
+// promise.
+//
+// The contract documents `format` on every /reports/ path, and a route that
+// documents an export and quietly answers JSON is worse than one that never
+// offered it: the caller saves the response as a .xlsx, opens a file of braces,
+// and reports it as a corrupt download. Every report is asked for its file
+// here, including the per-student statement.
+//
+// The CSV is parsed rather than merely counted, because encoding/csv refuses a
+// file whose records disagree on field count — which is exactly the failure a
+// short row produces, and one nothing else in the stack would notice: the sheet
+// still opens, with every figure after the short row one column to the left.
+func TestEveryReportExports(t *testing.T) {
+	admin := adminClient(t)
+	sc := setupScenario(t, admin)
+
+	years := admin.expect(admin.get("/api/v1/academic-years"), http.StatusOK, "years")
+	yearID := firstIDOf(t, years)
+	year := "academic_year_id=" + yearID
+
+	reports := map[string]string{
+		"departments":      "/api/v1/reports/departments?" + year,
+		"study types":      "/api/v1/reports/study-types?" + year,
+		"stages":           "/api/v1/reports/stages?" + year,
+		"year summary":     "/api/v1/reports/years/" + yearID + "?",
+		"installments":     "/api/v1/reports/installments?" + year,
+		"debt":             "/api/v1/reports/debt?" + year,
+		"aging":            "/api/v1/reports/aging?" + year,
+		"discounts":        "/api/v1/reports/discounts?" + year,
+		"exemptions":       "/api/v1/reports/exemptions?" + year,
+		"collection trend": "/api/v1/reports/collection-trend?" + year,
+		"cash flow":        "/api/v1/reports/cash-flow?" + year,
+		"cashier daily":    "/api/v1/reports/cashier-daily?from=2000-01-01&to=2100-01-01",
+		"voids":            "/api/v1/reports/voids?" + year,
+		"refunds":          "/api/v1/reports/refunds?" + year,
+		"statement":        "/api/v1/reports/students/" + sc.studentID + "/statement?",
+	}
+
+	for name, path := range reports {
+		for _, format := range []string{"csv", "xlsx"} {
+			got := admin.get(path + "&format=" + format)
+			if got.status != http.StatusOK {
+				t.Errorf("%s: the %s export answered %d: %s", name, format, got.status, got.raw)
+				continue
+			}
+			if len(got.raw) == 0 {
+				t.Errorf("%s: the %s export was empty", name, format)
+				continue
+			}
+			// The parameter is documented on every report; answering JSON
+			// under it is the drift this test exists to catch.
+			if bytes.HasPrefix(bytes.TrimSpace(got.raw), []byte("{")) ||
+				bytes.HasPrefix(bytes.TrimSpace(got.raw), []byte("[")) {
+				t.Errorf("%s: the %s export answered JSON — the format parameter was ignored", name, format)
+				continue
+			}
+			if disposition := got.header.Get("Content-Disposition"); !strings.Contains(disposition, "filename=") {
+				t.Errorf("%s: the %s export names no file (%q); a client then invents one",
+					name, format, disposition)
+			}
+			if format == "csv" {
+				assertRectangularCSV(t, name, got.raw)
+			}
+		}
+	}
+}
+
+// assertRectangularCSV reads the whole file, which is what refuses a record
+// whose field count disagrees with the header's.
+func assertRectangularCSV(t *testing.T, name string, raw []byte) {
+	t.Helper()
+
+	// The writer emits a byte-order mark so Excel reads Arabic names as UTF-8
+	// rather than as the local code page; the parser has to step over it or the
+	// first header carries an invisible rune.
+	body := bytes.TrimPrefix(raw, []byte{0xEF, 0xBB, 0xBF})
+
+	records, err := csv.NewReader(bytes.NewReader(body)).ReadAll()
+	if err != nil {
+		t.Errorf("%s: the CSV export does not parse (%v) — a row disagreeing with the header "+
+			"on field count shifts every figure after it one column left", name, err)
+		return
+	}
+	if len(records) == 0 {
+		t.Errorf("%s: the CSV export has not even a header row", name)
 	}
 }
 

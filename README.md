@@ -375,6 +375,19 @@ what bounds the scan, and figures from two years are not comparable anyway. The
 cashier daily sheet takes a date range instead, because a shift belongs to a
 day rather than to an academic year.
 
+**Every report exports, and the file is the whole result.** Add `?format=csv`,
+`xlsx` or `pdf` to any `/reports/` path — including one student's statement,
+which exports as the ledger that explains the balance rather than as the
+balance. Omit the parameter and the same route answers JSON. Finance offices
+run on spreadsheets, and a report that exists only as JSON is a report somebody
+re-types into Excel; a re-typed figure is a figure that can be wrong, which is
+the whole reason this system exists. CSV carries a byte-order mark so Excel
+opens Arabic names as UTF-8; `pdf` is a print-ready HTML page, because an
+Arabic PDF needs font shaping and bidirectional layout the browser already has.
+A paged report ignores `limit` under an export and returns the whole match set
+up to 50,000 rows: a spreadsheet of the first fifty rows is worse than no
+spreadsheet, because it looks complete.
+
 Every money-moving `POST` requires an `Idempotency-Key` header. A retry with
 the same key replays the original response and sets `Idempotent-Replay: true`;
 the same key with a different body is rejected outright.

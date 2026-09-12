@@ -93,6 +93,12 @@ that is the alerting path.
 
 ## Docker Compose
 
+`deploy/README.md` is the step-by-step version of this section — getting the
+image onto the machine, the two settings that are wrong by default for any
+site, the first administrator, the verification run, and every refusal a first
+deployment meets, quoted. Read it rather than this summary if Docker is the
+path you are taking.
+
 ```bash
 cd deploy
 mkdir -p secrets audit-archive backups postgres/wal && chmod 700 secrets
@@ -100,11 +106,20 @@ openssl rand -base64 48 > secrets/jwt_secret
 openssl rand -base64 32 > secrets/db_password
 chmod 600 secrets/*
 
-FLOWED_VERSION=1.4.0 docker compose -f docker-compose.prod.yml up -d
+cat > .env <<'EOF'
+FLOWED_IMAGE=registry.university.edu.iq/flowed
+FLOWED_VERSION=1.4.0
+FLOWED_PUBLIC_ORIGIN=https://fees.university.edu.iq
+EOF
+
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 `FLOWED_VERSION` has no default on purpose: `latest` is how a host ends up
 running a build nobody chose, and a rollback needs a version to roll back to.
+`FLOWED_PUBLIC_ORIGIN` has none either — production refuses the wildcard origin
+the development default carries, and refuses it in the migrator as well, which
+is validated whole like every other process here.
 
 The containers run read-only with no capabilities and `no-new-privileges`; the
 API's only writable path is `/tmp`. The database is not published — the API

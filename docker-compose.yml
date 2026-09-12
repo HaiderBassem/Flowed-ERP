@@ -15,7 +15,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
     command:
       - postgres
       # Log anything slower than a second. At this workload's volume a
@@ -38,7 +38,41 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Migrations are their own step, exactly as they are in production.
+  #
+  # `api serve` validates the schema at boot and refuses to serve on a
+  # mismatch, so without this the first `up` against an empty volume stops with
+  # "database is missing 24 migration(s)" — which reads like a broken image and
+  # is really a missing step. The API waits for this to complete successfully.
+  migrate:
+    image: flowed:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flowed-migrate
+    entrypoint: ["/app/migrate", "up"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: development
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: flowed
+      DB_SSLMODE: disable
+      AUTH_JWT_SECRET: development-secret-change-me-in-production
+      LOG_FORMAT: json
+    profiles:
+      - full
+
   api:
+    # The tag `make docker-build` produces. Named as well as built, so a later
+    # `up` reuses the image that was already built and tested rather than
+    # quietly rebuilding a different one from whatever the tree now holds.
+    image: flowed:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -46,6 +80,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       APP_ENV: development
       HTTP_PORT: 8080

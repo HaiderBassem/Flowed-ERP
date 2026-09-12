@@ -1,0 +1,175 @@
+/* ===========================================================================
+   Print — §12 treats this as a critical path, not a peripheral feature.
+
+   The receipt is the only thing that leaves this system and reaches a
+   student's hand. Two sheets: A5 for the official receipt and 80mm for the
+   thermal roll at the window. The preview matches the output, and a reprint
+   shows its stamp in the preview rather than surprising anyone at the paper.
+   =========================================================================== */
+
+.receipt {
+  background: #fff;
+  color: #000;
+  font-family: var(--sans);
+  line-height: 1.5;
+  margin: 0 auto;
+  border: 1px solid var(--rule);
+}
+
+/* The official document. */
+.receipt--a5 {
+  width: 148mm;
+  min-height: 210mm;
+  padding: 12mm 12mm;
+  font-size: 10pt;
+}
+
+/* The thermal roll. Narrow, monochrome, and unforgiving of anything that
+   relies on shading — hence borders and weight rather than fills. */
+.receipt--80mm {
+  width: 72mm;
+  padding: 4mm 3mm;
+  font-size: 9pt;
+  border: 1px dashed var(--rule);
+}
+
+.receipt__head {
+  text-align: center;
+  border-bottom: 1px solid #000;
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+.receipt__institution {
+  font-family: var(--naskh);
+  font-weight: 700;
+  font-size: 1.25em;
+}
+.receipt__kind {
+  font-size: 0.85em;
+  letter-spacing: 0.08em;
+}
+.receipt__no {
+  font-family: var(--mono);
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-weight: 700;
+  font-size: 1.1em;
+}
+.receipt__grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  margin-bottom: 8px;
+}
+.receipt__grid dt {
+  color: #333;
+  font-size: 0.9em;
+}
+.receipt__grid dd {
+  margin: 0;
+}
+.receipt__amount {
+  border-block: 1px solid #000;
+  padding: 6px 0;
+  margin: 8px 0;
+  text-align: center;
+}
+.receipt__figure {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-size: 1.6em;
+  font-weight: 700;
+}
+/* The written amount, which is what makes the figure hard to alter. */
+.receipt__words {
+  font-size: 0.95em;
+  margin-top: 3px;
+}
+.receipt__foot {
+  border-top: 1px solid #000;
+  margin-top: 10px;
+  padding-top: 6px;
+  font-size: 0.8em;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* A reprint declares itself, and a voided receipt still prints — the auditor
+   asking about it needs to see it, and disappearing is not an answer (§09). */
+.receipt__stamp {
+  border: 2px solid #000;
+  padding: 2px 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  display: inline-block;
+  transform: rotate(-4deg);
+  margin: 6px 0;
+}
+.receipt__stamp--void {
+  border-color: #000;
+  text-decoration: none;
+}
+.receipt--voided .receipt__figure {
+  text-decoration: line-through;
+}
+
+@page {
+  margin: 8mm;
+}
+
+@media print {
+  html,
+  body {
+    background: #fff !important;
+  }
+  .receipt {
+    border: 0;
+    margin: 0;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  /* A table split mid-row across two sheets is a table an auditor cannot
+     follow. */
+  tr,
+  .waterfall__line,
+  .receipt {
+    break-inside: avoid;
+  }
+  thead {
+    display: table-header-group;
+  }
+}
+
+.print-only {
+  display: none;
+}
+
+/* The context header §11 requires on every exported and printed report:
+   without it, a report is an anonymous sheet of paper in a meeting. */
+.report-context {
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  background: var(--surface-2);
+  font-size: var(--step--2);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 4px 16px;
+  margin-bottom: 12px;
+}
+.report-context dt {
+  color: var(--muted);
+  display: inline;
+}
+.report-context dd {
+  margin: 0 0 0 4px;
+  display: inline;
+  font-weight: 700;
+}

@@ -63,9 +63,40 @@ func (h *CashierHandlers) Register(g *gin.RouterGroup) {
 			shared.RoleAdmin, shared.RoleAuditor),
 		h.SessionSummary)
 
-	// Readable by anyone signed in: the login screen has to offer the desks
-	// before it knows who is standing at one.
+	// Readable by anyone signed in.
 	g.GET("/cashier-desks", h.ListDesks)
+}
+
+// RegisterPublic mounts the desk list outside authentication.
+//
+// A cashier cannot sign in without naming their desk — receipt series run per
+// desk, and auth.cashier_desk_required refuses the attempt without one. So the
+// sign-in form has to offer the list *before* anybody is signed in, and
+// mounting the list behind authentication makes that impossible: the operator
+// needs a token to see the desks and a desk to get a token.
+//
+// Nothing is disclosed by it. A desk is a window's code and its Arabic name,
+// both of which are printed on every receipt the university hands out, and the
+// service behind it never consulted the actor in the first place. Only active
+// desks are listed here: include_inactive is an administrative view and stays
+// on the authenticated route.
+func (h *CashierHandlers) RegisterPublic(engine *gin.Engine) {
+	engine.GET("/api/v1/public/cashier-desks", h.PublicDesks)
+}
+
+// PublicDesks lists the active desks a cashier may sign in at.
+func (h *CashierHandlers) PublicDesks(c *gin.Context) {
+	desks, err := h.Master.ListCashierDesks(requestContext(c), shared.Actor{}, true)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+
+	views := make([]CashierDeskView, 0, len(desks))
+	for _, desk := range desks {
+		views = append(views, toDeskView(desk))
+	}
+	httpx.OK(c, views)
 }
 
 // ---------------------------------------------------------------------------

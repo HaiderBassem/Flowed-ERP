@@ -1,0 +1,183 @@
+/* ===========================================================================
+   Design tokens.
+
+   Two sources feed this file and they are deliberately kept separate in the
+   reading order below:
+
+   1. The brand identity (docs/brand/README.md): Deep Celadon, Sage Slate,
+      Antiqued Gold on Parchment; DM Sans for everything read a hundred times a
+      day, Cormorant Garamond for the Latin wordmark, Noto Sans Arabic as the
+      Arabic face. Gold is DECORATIVE ONLY — the moment it marks a status it
+      collides with the pending amber and the lexicon stops being readable.
+
+   2. The state lexicon (§05 of the UX spec): live / pending / void / frozen
+      each mean exactly one thing. Green is live money, not "saved
+      successfully". These four are semantic and never borrowed for chrome.
+
+   Light is the base; dark redefines tokens only. Dark is never the default
+   (§15): windows are worked in daylight.
+   =========================================================================== */
+:root {
+  /* Brand constants — same in both themes, used for the logo's own colours. */
+  --brand-celadon: #1c3a2f;
+  --brand-sage: #3d6b5c;
+  --brand-gold: #c8a96e;
+  --brand-black: #1a1c1b;
+  --brand-parchment: #f4f1ec;
+
+  /* Ground and surfaces — parchment, not grey. */
+  --paper: #f4f1ec;
+  --surface: #ffffff;
+  --surface-2: #ece8df;
+  --surface-3: #e1dcd0;
+  --ink: #1a1c1b;
+  --ink-2: #3e4540;
+  --muted: #6e756f;
+  --rule: #e2ded4;
+  --rule-strong: #c9c4b7;
+
+  /* Primary action + live money: Deep Celadon, with Sage as the interactive
+     tone (hover, links, focus) exactly as the brand assigns it. */
+  --accent: #1c3a2f;
+  --accent-soft: #e2eae4;
+  --accent-ink: #16443a;
+  --on-accent: #f4f1ec;
+  --sage: #3d6b5c;
+
+  /* Antiqued Gold — decorative: the logo, the active-nav marker, hairline
+     flourishes, the login tagline. Never a status. */
+  --gold: #c8a96e;
+  --gold-soft: #f2e9d7;
+  --gold-ink: #8a6f3c;
+
+  /* The state lexicon. */
+  --void: #9c2f2f;
+  --void-soft: #f5e2df;
+  --pending: #8a6000;
+  --pending-soft: #f6ecd2;
+  --frozen: #3b5a83;
+  --frozen-soft: #e4e9f2;
+
+  --shadow: 0 1px 2px rgba(26, 28, 27, 0.05), 0 8px 24px -12px rgba(26, 28, 27, 0.16);
+  --shadow-lg: 0 2px 6px rgba(26, 28, 27, 0.07), 0 24px 60px -24px rgba(26, 28, 27, 0.28);
+
+  /* Type. Self-hosted (@fontsource) — a desk with no outside internet must
+     look exactly like a connected one, and the CSP forbids remote fonts
+     anyway. Arabic UI text leads with Noto Sans Arabic; Latin runs inside it
+     fall to DM Sans. The Latin wordmark alone wears Cormorant Garamond —
+     it has no Arabic cut, so Arabic headings are Noto set larger instead
+     (docs/brand/README.md, typography). */
+  --sans: "Noto Sans Arabic", "DM Sans", "Segoe UI", Tahoma, system-ui, sans-serif;
+  --latin: "DM Sans", "Noto Sans Arabic", system-ui, sans-serif;
+  --display: "Cormorant Garamond", "Times New Roman", Georgia, serif;
+  --naskh: "Noto Naskh Arabic", "Traditional Arabic", "Times New Roman", serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Financial figures: DM Sans, tabular, lining, Western digits — the brand's
+     --flowed-font-numeric. Tabular is not a preference: a column of amounts
+     that does not align is a column nobody audits by eye. */
+  --numeric: "DM Sans", "Noto Sans Arabic", system-ui, sans-serif;
+  --numeric-features: "tnum" 1, "lnum" 1;
+
+  --step--2: 0.72rem;
+  --step--1: 0.82rem;
+  --step-0: 0.95rem;
+  --step-1: 1.15rem;
+  --step-2: 1.45rem;
+  --step-3: 1.9rem;
+  --step-4: 2.5rem;
+
+  --radius: 8px;
+  --radius-lg: 12px;
+
+  /* The brand dot-grid: a 24pt tile, 2pt Deep Celadon dot, opacity by ground
+     (docs/brand/README.md, pattern). */
+  --pattern-on-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='2' fill='rgba(28,58,47,0.06)'/%3E%3C/svg%3E");
+  --pattern-on-tint: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='2' fill='rgba(28,58,47,0.05)'/%3E%3C/svg%3E");
+  --pattern-on-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='2' fill='rgba(200,169,110,0.10)'/%3E%3C/svg%3E");
+
+  /* Density (§05). Set on <html> by the density switch and remembered. */
+  --row-h: 36px;
+  --pad-y: 10px;
+  --pad-x: 14px;
+}
+
+:root[data-density="compact"] {
+  --row-h: 28px;
+  --pad-y: 6px;
+  --pad-x: 10px;
+}
+:root[data-density="comfortable"] {
+  --row-h: 44px;
+  --pad-y: 14px;
+  --pad-x: 18px;
+}
+
+/* Dark: Vault Black ground, sage-lit accents, gold warmed slightly. Defined
+   for both the explicit toggle and the system preference so neither can leave
+   a colour undefined. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #121413;
+    --surface: #191c1a;
+    --surface-2: #21251f;
+    --surface-3: #2b2f29;
+    --ink: #eceae2;
+    --ink-2: #c3c2b7;
+    --muted: #8f918a;
+    --rule: #2a2e29;
+    --rule-strong: #3b4038;
+
+    --accent: #6faf97;
+    --accent-soft: #17281f;
+    --accent-ink: #a6d7c3;
+    --on-accent: #0c120f;
+    --sage: #7cb9a3;
+
+    --gold: #d3b67f;
+    --gold-soft: #2a2415;
+    --gold-ink: #e3cfa1;
+
+    --void: #e08585;
+    --void-soft: #2c1717;
+    --pending: #d8a93e;
+    --pending-soft: #2a2110;
+    --frozen: #8fb0da;
+    --frozen-soft: #161f2c;
+
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 30px -14px rgba(0, 0, 0, 0.8);
+    --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.55), 0 28px 70px -28px rgba(0, 0, 0, 0.9);
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #121413;
+  --surface: #191c1a;
+  --surface-2: #21251f;
+  --surface-3: #2b2f29;
+  --ink: #eceae2;
+  --ink-2: #c3c2b7;
+  --muted: #8f918a;
+  --rule: #2a2e29;
+  --rule-strong: #3b4038;
+
+  --accent: #6faf97;
+  --accent-soft: #17281f;
+  --accent-ink: #a6d7c3;
+  --on-accent: #0c120f;
+  --sage: #7cb9a3;
+
+  --gold: #d3b67f;
+  --gold-soft: #2a2415;
+  --gold-ink: #e3cfa1;
+
+  --void: #e08585;
+  --void-soft: #2c1717;
+  --pending: #d8a93e;
+  --pending-soft: #2a2110;
+  --frozen: #8fb0da;
+  --frozen-soft: #161f2c;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 30px -14px rgba(0, 0, 0, 0.8);
+  --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.55), 0 28px 70px -28px rgba(0, 0, 0, 0.9);
+}

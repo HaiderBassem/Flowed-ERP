@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -18,7 +19,7 @@ import (
 	"github.com/swibit/flowed/internal/platform/observability"
 	"github.com/swibit/flowed/internal/platform/pg"
 	"github.com/swibit/flowed/internal/port"
-	"github.com/swibit/flowed/web"
+	"github.com/swibit/flowed/webui"
 )
 
 // RouterDeps is everything the router needs to wire itself.
@@ -185,6 +186,10 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	deps.ConfigAdmin.Register(secured)
 	deps.Bulk.Register(secured)
 	deps.Cashier.Register(secured)
+	// The desk list is also mounted unauthenticated: a cashier must name their
+	// desk to sign in, so the sign-in form has to offer the list before anyone
+	// holds a token. See CashierHandlers.RegisterPublic.
+	deps.Cashier.RegisterPublic(engine)
 	deps.Receipts.Register(secured)
 	if deps.UserAdmin != nil {
 		deps.UserAdmin.Register(secured)
@@ -253,30 +258,64 @@ func mustChangePassword(users port.UserRepository) func(ctx context.Context, use
 // is a static page: everything it can do it does through the API, which
 // authenticates every call. Serving the shell to an anonymous browser is what
 // lets that browser render a sign-in form.
+// uiContentSecurityPolicy is what the interface is allowed to load: its own
+// assets and nothing else. It is also why the interface bundles its fonts
+// rather than linking them — a window with no route to the public internet has
+// to look exactly as it does on a connected machine.
+const uiContentSecurityPolicy = "default-src 'self'; img-src 'self' data:; style-src 'self'; " +
+	"script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; " +
+	"form-action 'self'"
+
 func registerUI(engine *gin.Engine) {
 	// Content types are set explicitly rather than sniffed. The API sets
 	// X-Content-Type-Options: nosniff for good reasons, and a stylesheet
 	// served as text/plain under that header is a stylesheet the browser
 	// refuses.
 	contentTypes := map[string]string{
-		".html": "text/html; charset=utf-8",
-		".css":  "text/css; charset=utf-8",
-		".js":   "text/javascript; charset=utf-8",
+		".html":  "text/html; charset=utf-8",
+		".css":   "text/css; charset=utf-8",
+		".js":    "text/javascript; charset=utf-8",
+		".json":  "application/json; charset=utf-8",
+		".svg":   "image/svg+xml",
+		".ico":   "image/x-icon",
+		".png":   "image/png",
+		".woff2": "font/woff2",
 	}
 
+	assets := webui.Assets()
+	built := webui.Built()
+
 	engine.GET("/app/*filepath", func(c *gin.Context) {
+		// A binary built before `make ui-build` says so, rather than answering
+		// every asset with a 404 that reads like a broken deployment.
+		if !built {
+			c.Header("Content-Security-Policy", uiContentSecurityPolicy)
+			c.Data(http.StatusServiceUnavailable, "text/html; charset=utf-8",
+				[]byte(webui.NotBuiltNotice))
+			return
+		}
+
 		name := strings.TrimPrefix(c.Param("filepath"), "/")
 		if name == "" {
 			name = "index.html"
 		}
 
-		content, err := web.Assets.ReadFile(name)
+		content, err := fs.ReadFile(assets, name)
 		if err != nil {
-			// The interface is a hash-router: every screen is /app/ plus a
-			// fragment, so an unknown path is a stale bookmark rather than a
-			// route. Serving the shell is what makes a refreshed page land
-			// where the operator was.
-			content, err = web.Assets.ReadFile("index.html")
+			// The interface is a history-router: every screen is a real path
+			// under /app/, so an unknown path is a deep link or a refresh
+			// rather than a missing file. Serving the shell is what makes a
+			// refreshed page land where the operator was.
+			//
+			// A missing *asset* must not be answered this way: handing
+			// index.html to a request for a .js file gives the browser HTML
+			// where it expected a module, which fails with a MIME error that
+			// names nothing useful. Those 404 honestly.
+			if ext := filepath.Ext(name); ext != "" && ext != ".html" {
+				c.Status(http.StatusNotFound)
+				return
+			}
+			content, err = fs.ReadFile(assets, "index.html")
 			if err != nil {
 				c.Status(http.StatusNotFound)
 				return
@@ -287,9 +326,23 @@ func registerUI(engine *gin.Engine) {
 		// The document-wide policy is written for JSON responses, which load
 		// nothing. The interface loads its own stylesheet and modules and
 		// nothing else, which is exactly what 'self' expresses.
-		c.Header("Content-Security-Policy",
-			"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "+
-				"connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		c.Header("Content-Security-Policy", uiContentSecurityPolicy)
+
+		// Fingerprinted assets are immutable; the shell never is, or an
+		// operator keeps yesterday's interface against today's API.
+		//
+		// no-store rather than no-cache for the shell, and the difference
+		// matters here: no-cache permits a cached copy to be reused once
+		// revalidated, and this response carries no ETag or Last-Modified to
+		// revalidate against — so a browser may keep serving an old shell that
+		// points at asset hashes this binary no longer contains. The shell is
+		// about a kilobyte; re-fetching it is cheaper than a screen of 404s.
+		if strings.HasPrefix(name, "assets/") {
+			c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			c.Header("Cache-Control", "no-store")
+		}
+
 		c.Data(http.StatusOK, contentTypes[filepath.Ext(name)], content)
 	})
 }

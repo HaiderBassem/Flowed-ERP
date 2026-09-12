@@ -314,6 +314,13 @@ var operationMetadata = map[string]operationMeta{
 			"old password ends.",
 		Request: ResetPasswordRequest{}, Response: CreateUserResponse{}, Roles: []string{"admin"},
 	},
+	"GET /api/v1/public/cashier-desks": {
+		Summary: "Desks a cashier may sign in at",
+		Description: "Public, and it has to be: a cashier cannot obtain a token without naming " +
+			"a desk, so a list behind authentication would need a token to see the desks and a " +
+			"desk to get a token. Active desks only; the administrative view is authenticated.",
+		Response: []CashierDeskView{}, Public: true,
+	},
 	"GET /api/v1/reconciliation/findings": {
 		Summary: "The invariant queue",
 		Description: "Open findings, worst and oldest first. `seen_count` is how many nightly " +

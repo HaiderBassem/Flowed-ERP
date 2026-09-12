@@ -94,7 +94,21 @@ say ""
 # The schema is this build's schema. A restore of an older dump into a newer
 # binary is a real scenario and it has to be noticed here rather than at boot.
 restored_version="$(psql_value "SELECT coalesce(max(version), 0) FROM schema_migrations" "$scratch")"
-expected_version="$(ls -1 migrations/*.up.sql | tail -1 | sed 's#.*/0*\([0-9]*\)_.*#\1#')"
+# From the migration files when they are on disk, and from the binary when they
+# are not. In the container image the migrations are embedded rather than
+# shipped as files, so reading the directory made the drill die here — after
+# reporting a successful restore and before checking a single invariant, which
+# is the half of the drill that matters.
+if ls migrations/*.up.sql >/dev/null 2>&1; then
+	expected_version="$(ls -1 migrations/*.up.sql | tail -1 | sed 's#.*/0*\([0-9]*\)_.*#\1#')"
+else
+	# Never fatal: under `set -o pipefail` a failing binary here would end the
+	# drill before it checked a single invariant, which is the half that
+	# matters. An unknown expectation prints a note; a broken restore must not
+	# be hidden behind it.
+	expected_version="$(./migrate status 2>/dev/null | awk '/^[0-9][0-9]*/ { v = $1 } END { print v + 0 }')" \
+		|| expected_version="unknown"
+fi
 if [ "$restored_version" = "$expected_version" ]; then
 	say "  ok    schema is at migration $restored_version, matching this build"
 else

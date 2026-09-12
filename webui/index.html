@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <title>Flowed — نظام أجور الطلبة</title>
+    <!--
+      No external stylesheet, font or script is referenced here, and none may be
+      added. §12: a window with no outside internet must look exactly as it does
+      on a connected machine, and the document's Content-Security-Policy is
+      'self' for every directive — an external font is a blank screen in the
+      one environment that matters.
+
+      The density attribute is set before first paint so the desk does not
+      render at the default row height and then reflow to compact in front of a
+      queue.
+    -->
+    <script type="module" src="/src/boot.ts"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      هذه الواجهة تحتاج جافاسكربت. مسارات الـ API تعمل بدونها.
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

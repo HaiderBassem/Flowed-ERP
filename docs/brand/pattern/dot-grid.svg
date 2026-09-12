@@ -1,0 +1,7 @@
+<!-- The brand pattern: a 24px dot grid, tiled. The dot is always Deep Celadon;
+     only its alpha changes, so the texture reads as the same mark on every
+     ground rather than as three different patterns. See README.md for the
+     alpha per ground. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <circle cx="12" cy="12" r="2" fill="#1C3A2F" fill-opacity="0.06"/>
+</svg>

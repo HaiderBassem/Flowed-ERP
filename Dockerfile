@@ -71,13 +71,26 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 RUN /out/api version
 
 # Runtime stage.
-FROM alpine:3.20
+FROM alpine:3.23
 
 # ca-certificates for outbound TLS; tzdata because report boundaries and
 # installment due dates are evaluated against Asia/Baghdad even though every
 # timestamp is stored in UTC. postgresql-client so the backup and restore-drill
 # scripts can run from this image rather than needing a second one on the host.
-RUN apk add --no-cache ca-certificates tzdata postgresql17-client \
+#
+# The client major version must be at least the server's: pg_dump refuses to
+# dump from a server newer than itself, so a client behind the deployed
+# PostgreSQL turns the nightly backup into a nightly error. It tracks the
+# server in deploy/docker-compose.prod.yml — 18 — and the base image is chosen
+# for carrying that client, which is why this is not the same Alpine the build
+# stage happens to use.
+#
+# bash because the operational scripts are bash and are shared with the systemd
+# deployment, where it is always present. Without it the nightly backup and the
+# weekly restore drill fail with "can't execute bash" — the backup job's own
+# failure mode being invisible until the morning it is needed is exactly what
+# those scripts exist to prevent.
+RUN apk add --no-cache ca-certificates tzdata postgresql18-client bash \
  && adduser -D -u 10001 -h /app app
 
 WORKDIR /app

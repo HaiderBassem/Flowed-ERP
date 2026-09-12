@@ -166,6 +166,10 @@ var publicPaths = map[string]bool{
 	"POST /api/v1/auth/refresh":         true,
 	"POST /webhooks/payments/:provider": true,
 	"GET /verify/statement/:code":       true,
+	// The sign-in form needs the desk list before anybody is signed in: a
+	// cashier cannot get a token without naming a desk. It carries a code and
+	// an Arabic name, both printed on every receipt the university hands out.
+	"GET /api/v1/public/cashier-desks": true,
 }
 
 // BuildSpec produces the specification from a router.

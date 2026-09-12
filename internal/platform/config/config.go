@@ -7,6 +7,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -128,12 +130,26 @@ type Database struct {
 }
 
 // DSN renders the connection string for pgx.
+//
+// The credentials are escaped rather than interpolated, because a generated
+// password is not URL-safe and the failure is remote from its cause. A password
+// containing "/" ends the authority early, so `postgres://flowed:ab/cd@host…`
+// parses as host "flowed", port "ab", and the process dies reporting an invalid
+// port that appears nowhere in its configuration. `openssl rand -base64 32` —
+// what every instruction here tells an operator to run — produces a "/" about
+// half the time, so this was a coin flip on first deployment.
 func (d Database) DSN() string {
-	return fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?sslmode=%s&connect_timeout=%d",
-		d.User, d.Password, d.Host, d.Port, d.Name, d.SSLMode,
-		int(d.ConnectTimeout.Seconds()),
-	)
+	u := url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(d.User, d.Password),
+		Host:   net.JoinHostPort(d.Host, strconv.Itoa(d.Port)),
+		Path:   "/" + d.Name,
+	}
+	q := url.Values{}
+	q.Set("sslmode", d.SSLMode)
+	q.Set("connect_timeout", strconv.Itoa(int(d.ConnectTimeout.Seconds())))
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // RedactedDSN renders the connection string with the password masked, for logs.

@@ -92,6 +92,10 @@ func (h *ReportHandlers) StudentStatement(c *gin.Context) {
 		httpx.Respond(c, err)
 		return
 	}
+	if exportRequested(c) {
+		writeExport(c, statementTable(c, statement))
+		return
+	}
 	httpx.OK(c, statement)
 }
 
@@ -120,6 +124,10 @@ func (h *ReportHandlers) StudyTypeSummary(c *gin.Context) {
 		httpx.Respond(c, err)
 		return
 	}
+	if exportRequested(c) {
+		writeExport(c, studyTypeTable(c, rows))
+		return
+	}
 	httpx.OK(c, emptyIfNil(rows))
 }
 
@@ -129,6 +137,10 @@ func (h *ReportHandlers) StageSummary(c *gin.Context) {
 	rows, err := h.Reports.StageSummary(requestContext(c), reportSummaryFilter(c))
 	if err != nil {
 		httpx.Respond(c, err)
+		return
+	}
+	if exportRequested(c) {
+		writeExport(c, stageTable(c, rows))
 		return
 	}
 	httpx.OK(c, emptyIfNil(rows))
@@ -144,6 +156,10 @@ func (h *ReportHandlers) YearSummary(c *gin.Context) {
 	summary, err := h.Reports.YearSummary(requestContext(c), id)
 	if err != nil {
 		httpx.Respond(c, err)
+		return
+	}
+	if exportRequested(c) {
+		writeExport(c, yearSummaryTable(c, summary))
 		return
 	}
 	httpx.OK(c, summary)
@@ -283,6 +299,10 @@ func (h *ReportHandlers) DiscountReport(c *gin.Context) {
 		httpx.Respond(c, err)
 		return
 	}
+	if exportRequested(c) {
+		writeExport(c, discountUsageTable(c, rows))
+		return
+	}
 	httpx.OK(c, emptyIfNil(rows))
 }
 
@@ -296,6 +316,10 @@ func (h *ReportHandlers) ExemptionRegister(c *gin.Context) {
 	rows, total, err := h.Reports.ExemptionRegister(requestContext(c), f)
 	if err != nil {
 		httpx.Respond(c, err)
+		return
+	}
+	if exportRequested(c) {
+		writeExport(c, exemptionTable(c, rows))
 		return
 	}
 	httpx.OKPage(c, rows, total, limit, offset)
@@ -341,6 +365,10 @@ func (h *ReportHandlers) CashierDaily(c *gin.Context) {
 		httpx.Respond(c, err)
 		return
 	}
+	if exportRequested(c) {
+		writeExport(c, cashierDailyTable(c, rows))
+		return
+	}
 	httpx.OK(c, emptyIfNil(rows))
 }
 
@@ -361,6 +389,10 @@ func (h *ReportHandlers) CollectionTrend(c *gin.Context) {
 	trend, err := h.Reports.CollectionTrend(requestContext(c), f)
 	if err != nil {
 		httpx.Respond(c, err)
+		return
+	}
+	if exportRequested(c) {
+		writeExport(c, collectionTrendTable(c, trend))
 		return
 	}
 	httpx.OK(c, trend)
@@ -390,6 +422,10 @@ func (h *ReportHandlers) ExpectedCashFlow(c *gin.Context) {
 		httpx.Respond(c, err)
 		return
 	}
+	if exportRequested(c) {
+		writeExport(c, cashFlowTable(c, rows))
+		return
+	}
 	httpx.OK(c, emptyIfNil(rows))
 }
 
@@ -410,6 +446,10 @@ func (h *ReportHandlers) VoidRegister(c *gin.Context) {
 		httpx.Respond(c, err)
 		return
 	}
+	if exportRequested(c) {
+		writeExport(c, voidTable(c, rows))
+		return
+	}
 	httpx.OKPage(c, rows, total, limit, offset)
 }
 
@@ -423,6 +463,10 @@ func (h *ReportHandlers) RefundRegister(c *gin.Context) {
 	rows, total, err := h.Reports.RefundRegister(requestContext(c), f)
 	if err != nil {
 		httpx.Respond(c, err)
+		return
+	}
+	if exportRequested(c) {
+		writeExport(c, refundTable(c, rows))
 		return
 	}
 	httpx.OKPage(c, rows, total, limit, offset)
@@ -472,6 +516,15 @@ func reportRegisterFilter(c *gin.Context) (port.RegisterFilter, int, int, error)
 		return port.RegisterFilter{}, 0, 0, err
 	}
 	f.From, f.To = from, to
+
+	// An export is the whole register, not the page somebody happened to be
+	// looking at. The same rule the debt report states: a spreadsheet of the
+	// first fifty rows is worse than no spreadsheet, because it looks complete
+	// — and a void register read as complete is an oversight document that
+	// silently omits the reversals nobody scrolled to.
+	if exportRequested(c) {
+		f.Limit, f.Offset = maxExportRows, 0
+	}
 	return f, limit, offset, nil
 }
 

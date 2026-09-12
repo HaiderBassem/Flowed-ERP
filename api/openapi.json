@@ -77,6 +77,9 @@
       "description": "Collection. Every posting is idempotent and every receipt is immutable."
     },
     {
+      "name": "public"
+    },
+    {
       "name": "ready"
     },
     {
@@ -7617,6 +7620,129 @@
         }
       }
     },
+    "/api/v1/public/cashier-desks": {
+      "get": {
+        "operationId": "getPublicCashierDesks",
+        "summary": "Desks a cashier may sign in at",
+        "description": "Public, and it has to be: a cashier cannot obtain a token without naming a desk, so a list behind authentication would need a token to see the desks and a desk to get a token. Active desks only; the administrative view is authenticated.",
+        "tags": [
+          "public"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, default 50, maximum 500.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Rows to skip.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CashierDeskView"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/reconciliation/findings": {
       "get": {
         "operationId": "getReconciliationFindings",
@@ -12297,6 +12423,27 @@
   },
   "components": {
     "schemas": {
+      "CashierDeskView": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "college_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "name_ar": {
+            "type": "string"
+          }
+        }
+      },
       "ChangePasswordRequest": {
         "type": "object",
         "properties": {

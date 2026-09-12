@@ -1,0 +1,839 @@
+/* ===========================================================================
+   The component library, §07.
+
+   Everything here is built from the tokens and nothing here invents a colour.
+   Where a rule looks fussy it is usually carrying a specific failure named in
+   the specification; those are commented at the rule.
+   =========================================================================== */
+
+/* ------------------------------------------------------------------ chip -- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--step--2);
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid;
+  white-space: nowrap;
+  line-height: 1.7;
+  vertical-align: middle;
+}
+/* A filled dot as well as a colour: §12 forbids carrying state in colour
+   alone, and these screens run on windows with poor monitors. */
+.chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.chip--live {
+  color: var(--accent);
+  border-color: color-mix(in oklab, var(--accent) 40%, transparent);
+  background: var(--accent-soft);
+}
+.chip--void {
+  color: var(--void);
+  border-color: color-mix(in oklab, var(--void) 40%, transparent);
+  background: var(--void-soft);
+}
+.chip--pending {
+  color: var(--pending);
+  border-color: color-mix(in oklab, var(--pending) 40%, transparent);
+  background: var(--pending-soft);
+}
+.chip--frozen {
+  color: var(--frozen);
+  border-color: color-mix(in oklab, var(--frozen) 40%, transparent);
+  background: var(--frozen-soft);
+}
+.chip--muted {
+  color: var(--muted);
+  border-color: var(--rule-strong);
+  background: var(--surface-2);
+}
+.chip[data-hint] {
+  cursor: help;
+}
+
+/* ----------------------------------------------------------------- panel -- */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.panel__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px var(--pad-x);
+  background: color-mix(in oklab, var(--surface-2) 70%, var(--surface));
+  border-bottom: 1px solid var(--rule);
+  font-weight: 700;
+  font-size: var(--step--1);
+  min-height: 38px;
+}
+.panel__head .grow {
+  flex: 1;
+  min-width: 0;
+}
+.panel__body {
+  padding: var(--pad-y) var(--pad-x);
+}
+.panel__body--flush {
+  padding: 0;
+}
+.panel__foot {
+  padding: 8px var(--pad-x);
+  border-top: 1px solid var(--rule);
+  background: var(--surface-2);
+  font-size: var(--step--1);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--rule);
+  min-height: var(--row-h);
+}
+.row:last-child {
+  border-bottom: 0;
+}
+.row .grow {
+  flex: 1;
+  min-width: 0;
+}
+.label {
+  color: var(--muted);
+  font-size: var(--step--2);
+}
+
+/* ---------------------------------------------------------------- button -- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--rule-strong);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: var(--step--1);
+  font-weight: 700;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  /* The mouse at a window is worn out; §02 sets a 32px minimum target. */
+  min-height: 32px;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--sage);
+  border-color: var(--sage);
+}
+.btn--danger {
+  border-color: color-mix(in oklab, var(--void) 50%, transparent);
+  color: var(--void);
+  background: var(--void-soft);
+}
+.btn--ghost {
+  background: transparent;
+  border-style: dashed;
+  color: var(--muted);
+}
+.btn--sm {
+  padding: 2px 8px;
+  min-height: 24px;
+  font-size: var(--step--2);
+}
+.btn--lg {
+  padding: 10px 20px;
+  min-height: 40px;
+  font-size: var(--step-0);
+}
+/* Disabled, not hidden (§03 principle 05). A permission the operator cannot
+   see is a permission they route around by worse means, so the control stays
+   on screen wearing its reason. */
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn[data-reason] {
+  cursor: help;
+}
+
+.kbd {
+  font-family: var(--mono);
+  font-size: var(--step--2);
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 5px;
+  background: var(--surface);
+  color: var(--muted);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------------------- money -- */
+
+.money {
+  font-family: var(--numeric);
+  font-feature-settings: var(--numeric-features);
+  font-variant-numeric: tabular-nums lining-nums;
+  direction: ltr;
+  unicode-bidi: isolate;
+  white-space: nowrap;
+}
+.money--big {
+  font-size: var(--step-1);
+  font-weight: 700;
+}
+.money--huge {
+  font-size: var(--step-2);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.money--neg {
+  color: var(--void);
+}
+.money--pos {
+  color: var(--accent);
+}
+/* An absent figure is not a zero. The dash gets its own muted treatment so the
+   difference survives a glance down a debt column. */
+.money--absent {
+  color: var(--muted);
+  cursor: help;
+}
+
+.field {
+  display: block;
+  margin-bottom: 12px;
+}
+.field__label {
+  display: block;
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.field__hint {
+  font-size: var(--step--2);
+  color: var(--muted);
+  margin-top: 4px;
+}
+.field__error {
+  font-size: var(--step--2);
+  color: var(--void);
+  margin-top: 4px;
+  font-weight: 700;
+}
+.input {
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--paper);
+  font-size: var(--step-0);
+  width: 100%;
+  color: var(--ink);
+}
+.input:focus {
+  background: var(--surface);
+}
+.input--money {
+  font-family: var(--numeric);
+  font-feature-settings: var(--numeric-features);
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  text-align: end;
+  font-size: var(--step-2);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.input--invalid {
+  border-color: var(--void);
+}
+select.input {
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------- waterfall -- */
+
+/* §07 pattern two. The visual explanation of the system's central equation,
+   identical in the account page, the student statement and the pricing
+   preview — the sameness is the point. */
+.waterfall__line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--rule);
+}
+.waterfall__line:last-child {
+  border-bottom: 0;
+}
+.waterfall__line--sub {
+  padding-inline-start: 16px;
+  border-bottom-style: none;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.waterfall__line--frozen {
+  border-top: 1px solid var(--rule-strong);
+  border-bottom: 0;
+  margin-top: 6px;
+  padding-top: 10px;
+}
+/* The effective net is the answer to "what is owed", and it is the only line
+   that gets the accent rule. */
+.waterfall__line--effective {
+  border-top: 2px solid var(--accent);
+  border-bottom: 0;
+  margin-top: 6px;
+  padding-top: 10px;
+}
+.waterfall__line .grow {
+  flex: 1;
+  min-width: 0;
+}
+.waterfall__source {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: start;
+  text-decoration: underline dotted color-mix(in oklab, currentColor 35%, transparent);
+  text-underline-offset: 3px;
+}
+.waterfall__source:hover {
+  color: var(--accent-ink);
+}
+
+.bar {
+  height: 10px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  overflow: hidden;
+  display: flex;
+  border: 1px solid var(--rule);
+}
+.bar i {
+  display: block;
+  height: 100%;
+}
+
+/* --------------------------------------------------------------- refusal -- */
+
+/* §07 pattern three, and §10's whole table. What was prevented, why, and what
+   to do instead — with the code and request id always visible in small type,
+   because that is what turns a twenty-minute support call into thirty
+   seconds. */
+.refusal {
+  border: 1px solid color-mix(in oklab, var(--void) 40%, transparent);
+  background: var(--void-soft);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.refusal__title {
+  color: var(--void);
+  font-weight: 700;
+  margin: 0 0 4px;
+  font-size: var(--step-0);
+}
+.refusal__body {
+  font-size: var(--step--1);
+  color: var(--ink-2);
+  margin: 0 0 8px;
+}
+.refusal__remedy {
+  font-size: var(--step--1);
+  border-inline-start: 2px solid color-mix(in oklab, var(--void) 45%, transparent);
+  padding-inline-start: 10px;
+  margin: 0 0 10px;
+}
+.refusal__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.refusal__meta {
+  margin-top: 10px;
+  font-size: var(--step--2);
+  color: var(--muted);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.refusal__meta code {
+  font-family: var(--mono);
+  background: transparent;
+  padding: 0;
+  border: 0;
+  cursor: copy;
+}
+.refusal--pending {
+  border-color: color-mix(in oklab, var(--pending) 45%, transparent);
+  background: var(--pending-soft);
+}
+.refusal--pending .refusal__title {
+  color: var(--pending);
+}
+.refusal--pending .refusal__remedy {
+  border-inline-start-color: color-mix(in oklab, var(--pending) 45%, transparent);
+}
+/* An invariant breach is the system catching itself before writing corrupt
+   state. §10: not hidden and not softened. */
+.refusal--invariant {
+  border-width: 2px;
+}
+
+/* ------------------------------------------------------------------ grid -- */
+
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--step--1);
+}
+.grid th,
+.grid td {
+  text-align: start;
+  padding: calc(var(--pad-y) * 0.7) var(--pad-x);
+  border-bottom: 1px solid var(--rule);
+  line-height: 1.5;
+}
+.grid thead th {
+  background: var(--surface-2);
+  font-weight: 700;
+  font-size: var(--step--2);
+  letter-spacing: 0.03em;
+  color: var(--ink-2);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  white-space: nowrap;
+}
+.grid tbody tr {
+  height: var(--row-h);
+}
+/* Zebra + hover, the ERP way: faint enough that the parchment stays parchment,
+   present enough that an eye tracking one row across ten columns does not
+   drift a line. */
+.grid tbody tr:nth-child(even) td {
+  background: color-mix(in oklab, var(--surface-2) 42%, transparent);
+}
+.grid tbody tr:hover td {
+  background: color-mix(in oklab, var(--accent-soft) 55%, transparent);
+}
+.grid tbody tr:last-child td {
+  border-bottom: 0;
+}
+.grid tbody tr[data-clickable] {
+  cursor: pointer;
+}
+.grid tbody tr[data-clickable]:hover {
+  background: var(--surface-2);
+}
+.grid tbody tr[aria-selected="true"] {
+  background: var(--accent-soft);
+}
+.grid td.n,
+.grid th.n {
+  font-family: var(--numeric);
+  font-feature-settings: var(--numeric-features);
+  font-variant-numeric: tabular-nums lining-nums;
+  text-align: end;
+  white-space: nowrap;
+  direction: ltr;
+}
+.grid td.k {
+  font-family: var(--mono);
+  font-size: var(--step--2);
+  white-space: nowrap;
+  color: var(--accent-ink);
+}
+/* §11: counts and money come from different populations on purpose, and the
+   rule between them is what stops someone dividing one by the other. */
+.grid .col-group-money {
+  border-inline-start: 2px solid var(--rule-strong);
+}
+.grid tr.is-void td {
+  color: var(--muted);
+}
+.grid tr.is-void .money {
+  text-decoration: line-through;
+  color: var(--void);
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+/* A dense table in a half-width column squashes rather than scrolls, and the
+   first casualty is a status chip clipped down to its dot — a state badge
+   reduced to a coloured mark is worse than no badge, because it still looks
+   like an answer. Give the table a floor and let the container scroll. */
+.table-wrap .grid,
+.panel__body--flush > .grid,
+.panel__body--flush > .table-wrap > .grid {
+  min-width: 760px;
+}
+.panel__body--flush {
+  overflow-x: auto;
+}
+
+/* ------------------------------------------------------------ empty state -- */
+
+/* Three kinds, never one (§07). Conflating them hides a permission fault
+   behind a screen that looks fine. */
+.empty {
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--step--1);
+}
+.empty__title {
+  font-size: var(--step-0);
+  font-weight: 700;
+  color: var(--ink-2);
+  margin: 0 0 6px;
+}
+.empty__action {
+  margin-top: 12px;
+}
+.empty--forbidden .empty__title {
+  color: var(--pending);
+}
+/* The healthy state of reconciliation is empty, and §09 asks the interface to
+   celebrate that rather than render it as a failure. */
+.empty--clean .empty__title {
+  color: var(--accent);
+}
+
+/* ------------------------------------------------------------------ deck -- */
+
+.deck {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.stat {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  background: var(--surface);
+}
+.stat {
+  position: relative;
+  overflow: hidden;
+}
+/* A restrained gold seal-line, not a status: decoration stays decoration. */
+.stat::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--gold), color-mix(in oklab, var(--gold) 30%, transparent));
+}
+.stat b {
+  display: block;
+  font-family: var(--numeric);
+  font-feature-settings: var(--numeric-features);
+  font-size: var(--step-2);
+  font-variant-numeric: tabular-nums lining-nums;
+  direction: ltr;
+  text-align: start;
+  line-height: 1.2;
+}
+.stat span {
+  font-size: var(--step--2);
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------- command -- */
+
+.sheet__stages {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--rule);
+  padding: 0 12px;
+  background: var(--surface-2);
+}
+.sheet__stage {
+  padding: 8px 12px;
+  font-size: var(--step--2);
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+.sheet__stage[data-state="current"] {
+  color: var(--accent-ink);
+  border-bottom-color: var(--accent);
+  font-weight: 700;
+  background: var(--surface);
+}
+.sheet__stage[data-state="done"] {
+  color: var(--ink-2);
+}
+
+.precondition {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--rule);
+  font-size: var(--step--1);
+}
+.precondition:last-child {
+  border-bottom: 0;
+}
+.precondition__mark {
+  font-weight: 700;
+  flex: none;
+  width: 1.2em;
+  text-align: center;
+}
+.precondition[data-state="met"] .precondition__mark {
+  color: var(--accent);
+}
+.precondition[data-state="warn"] .precondition__mark {
+  color: var(--pending);
+}
+.precondition[data-state="blocked"] .precondition__mark {
+  color: var(--void);
+}
+.precondition[data-state="checking"] .precondition__mark {
+  color: var(--muted);
+}
+
+/* -------------------------------------------------------------- timeline -- */
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+.timeline::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 7px;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: var(--rule);
+}
+.timeline__item {
+  position: relative;
+  padding-inline-start: 26px;
+  padding-block: 7px;
+  font-size: var(--step--1);
+}
+.timeline__dot {
+  position: absolute;
+  inset-inline-start: 3px;
+  top: 13px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  background: var(--muted);
+}
+.timeline__dot[data-tone="live"] {
+  background: var(--accent);
+}
+.timeline__dot[data-tone="void"] {
+  background: var(--void);
+}
+.timeline__dot[data-tone="pending"] {
+  background: var(--pending);
+}
+.timeline__dot[data-tone="frozen"] {
+  background: var(--frozen);
+}
+.timeline__when {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--step--2);
+}
+.timeline__who {
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------- dialog -- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklab, var(--ink) 45%, transparent);
+  backdrop-filter: blur(2px);
+  z-index: 50;
+}
+.dialog {
+  position: fixed;
+  z-index: 51;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.dialog__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface-2);
+}
+.dialog__title {
+  font-size: var(--step-1);
+  font-family: var(--naskh);
+}
+.dialog__body {
+  padding: 16px;
+}
+.dialog__foot {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--rule);
+  background: var(--surface-2);
+}
+
+/* --------------------------------------------------------------- banner -- */
+
+/* A degraded mode is announced, never hidden (§07). */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px;
+  font-size: var(--step--1);
+  border-bottom: 1px solid;
+}
+.banner--pending {
+  background: var(--pending-soft);
+  border-color: color-mix(in oklab, var(--pending) 45%, transparent);
+  color: var(--pending);
+}
+.banner--void {
+  background: var(--void-soft);
+  border-color: color-mix(in oklab, var(--void) 45%, transparent);
+  color: var(--void);
+}
+.banner--frozen {
+  background: var(--frozen-soft);
+  border-color: color-mix(in oklab, var(--frozen) 45%, transparent);
+  color: var(--frozen);
+}
+.banner .grow {
+  flex: 1;
+}
+.banner__note {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+
+/* ------------------------------------------------------------------ misc -- */
+
+.callout {
+  border: 1px solid var(--rule);
+  border-inline-start: 3px solid var(--accent);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: var(--step--1);
+}
+.callout--warn {
+  border-inline-start-color: var(--void);
+}
+.callout--note {
+  border-inline-start-color: var(--frozen);
+}
+
+.note {
+  font-size: var(--step--2);
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cluster {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* The report filter bar.
+   A grid rather than a cluster: these selects hold department names of very
+   different lengths, and a wrapping flex row puts them in a different order at
+   every window width — which is how an operator reads the college select as
+   the department one and narrows to the wrong thing. */
+.filter-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px 12px;
+  align-items: end;
+}
+.filter-bar .field {
+  margin-bottom: 0;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 25%,
+    var(--surface-3) 50%,
+    var(--surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 4px;
+  color: transparent;
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
