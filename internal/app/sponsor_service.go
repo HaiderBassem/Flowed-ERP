@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
 
 // SponsorService administers sponsoring bodies and their agreements, and

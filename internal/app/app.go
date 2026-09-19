@@ -25,9 +25,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/observability"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/observability"
+	"flowed/internal/port"
 )
 
 // Deps is everything the services need, wired once at start-up.

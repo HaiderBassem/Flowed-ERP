@@ -3,9 +3,9 @@ package billing_test
 import (
 	"testing"
 
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
 )
 
 func openInstallment(number int16, day int, amount, paid money.Amount) billing.OpenInstallment {

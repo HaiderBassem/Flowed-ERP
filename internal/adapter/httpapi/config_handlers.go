@@ -7,13 +7,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/app"
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/discount"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/httpx"
+	"flowed/internal/app"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/discount"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/httpx"
 )
 
 // ConfigHandlers exposes the configuration administration: fee policies,
@@ -56,16 +56,25 @@ func (h *ConfigHandlers) Register(g *gin.RouterGroup) {
 	policies.GET("", read, h.ListFeePolicies)
 	policies.GET("/:id", read, h.GetFeePolicy)
 	policies.POST("/:id/publish", write, h.PublishFeePolicy)
+	policies.POST("/:id/retire", write, h.RetireFeePolicy)
 	// A preview writes nothing; it is a POST because the scope it is asked
 	// about is six fields, and because the same shape is what account
 	// generation's dry run already uses.
 	policies.POST("/preview-resolution", read, h.PreviewFeeResolution)
+	// The one-call configuration surface for a study type's default debt on
+	// creation — same authority as defining any other policy, since that is
+	// exactly what this does under one name.
+	policies.POST("/study-type-defaults", write, h.SetStudyTypeInitialDebt)
 
 	templates := g.Group("/installment-templates")
 	templates.POST("", write, h.DefineInstallmentTemplate)
 	templates.GET("", read, h.ListInstallmentTemplates)
 	templates.GET("/:id", read, h.GetInstallmentTemplate)
 	templates.POST("/:id/publish", write, h.PublishInstallmentTemplate)
+	templates.POST("/:id/retire", write, h.RetireInstallmentTemplate)
+	// The one-call configuration surface for a study type's default
+	// installment plan — same authority as defining any other template.
+	templates.POST("/study-type-defaults", write, h.SetStudyTypeInstallmentPlan)
 
 	discounts := g.Group("/discounts")
 	discounts.POST("/definitions", write, h.DefineDiscount)
@@ -110,7 +119,7 @@ type DefineFeePolicyRequest struct {
 	AcademicYearID    string  `json:"academic_year_id" binding:"required,uuid"`
 	CollegeID         *string `json:"college_id" binding:"omitempty,uuid"`
 	DepartmentID      *string `json:"department_id" binding:"omitempty,uuid"`
-	Stage             *int16  `json:"stage" binding:"omitempty,min=1,max=8"`
+	Stage             *int16  `json:"stage" binding:"omitempty,min=1,max=5"`
 	StudyTypeID       *string `json:"study_type_id" binding:"omitempty,uuid"`
 	StudentCategoryID *string `json:"student_category_id" binding:"omitempty,uuid"`
 
@@ -128,18 +137,24 @@ type PreviewFeeResolutionRequest struct {
 	AcademicYearID string `json:"academic_year_id" binding:"required,uuid"`
 	CollegeID      string `json:"college_id" binding:"required,uuid"`
 	DepartmentID   string `json:"department_id" binding:"required,uuid"`
-	Stage          int16  `json:"stage" binding:"required,min=1,max=8"`
+	Stage          int16  `json:"stage" binding:"required,min=1,max=5"`
 	StudyTypeID    string `json:"study_type_id" binding:"required,uuid"`
 	// StudentCategoryCode defaults to REGULAR, matching what enrollment
 	// derives for a first attempt at a stage.
 	StudentCategoryCode string `json:"student_category_code"`
 }
 
-// TemplateLineRequest is one weighted share of an installment plan.
+// TemplateLineRequest is one installment of a plan, given either as a
+// percentage share or a literal amount — never both, and every line on a
+// template must agree on which.
 type TemplateLineRequest struct {
 	// LineNo may be omitted, in which case the lines are numbered in order.
-	LineNo  int16 `json:"line_no" binding:"omitempty,min=1"`
-	ShareBP int32 `json:"share_bp" binding:"required,min=1,max=10000"`
+	LineNo int16 `json:"line_no" binding:"omitempty,min=1"`
+	// ShareBP is required unless every line instead carries Amount.
+	ShareBP int32 `json:"share_bp" binding:"omitempty,min=1,max=10000"`
+	// Amount is a literal installment figure ("400,000"), for a plan
+	// authored in amounts rather than percentages.
+	Amount *int64 `json:"amount" binding:"omitempty,min=0"`
 	// DueOffsetDays counts from the academic year's start, so one template
 	// serves every year.
 	DueOffsetDays int     `json:"due_offset_days" binding:"min=0"`
@@ -157,7 +172,7 @@ type DefineInstallmentTemplateRequest struct {
 	AcademicYearID *string `json:"academic_year_id" binding:"omitempty,uuid"`
 	CollegeID      *string `json:"college_id" binding:"omitempty,uuid"`
 	DepartmentID   *string `json:"department_id" binding:"omitempty,uuid"`
-	Stage          *int16  `json:"stage" binding:"omitempty,min=1,max=8"`
+	Stage          *int16  `json:"stage" binding:"omitempty,min=1,max=5"`
 	StudyTypeID    *string `json:"study_type_id" binding:"omitempty,uuid"`
 
 	MaxInstallments int16                 `json:"max_installments" binding:"omitempty,min=1,max=24"`
@@ -218,7 +233,7 @@ type CreateDepartmentRequest struct {
 	NameEn    *string `json:"name_en"`
 	// StageCount is the programme's length in years: six for medicine, four or
 	// five for engineering.
-	StageCount int16 `json:"stage_count" binding:"required,min=1,max=8"`
+	StageCount int16 `json:"stage_count" binding:"required,min=1,max=5"`
 }
 
 // CreateStudyTypeRequest adds a mode of study.
@@ -298,11 +313,15 @@ type FeeResolutionPreviewView struct {
 	Explanation string `json:"explanation"`
 }
 
-// TemplateLineView is one weighted share of a plan shape.
+// TemplateLineView is one installment of a plan shape.
 type TemplateLineView struct {
-	LineNo        int16   `json:"line_no"`
-	ShareBP       int32   `json:"share_bp"`
-	SharePercent  string  `json:"share_percent"`
+	LineNo       int16  `json:"line_no"`
+	ShareBP      int32  `json:"share_bp"`
+	SharePercent string `json:"share_percent"`
+	// Amount is set when this line was authored as a literal figure rather
+	// than a percentage; ShareBP is still shown, since it is what a mid-year
+	// re-split actually uses.
+	Amount        *int64  `json:"amount,omitempty"`
 	DueOffsetDays int     `json:"due_offset_days"`
 	Label         *string `json:"label_ar,omitempty"`
 }
@@ -331,6 +350,7 @@ type InstallmentTemplateView struct {
 	TotalBP int32 `json:"total_bp"`
 
 	PublishedAt *time.Time `json:"published_at,omitempty"`
+	RetiredAt   *time.Time `json:"retired_at,omitempty"`
 }
 
 // DiscountDefinitionView is a catalogue entry. It carries no value: every
@@ -519,6 +539,73 @@ func (h *ConfigHandlers) PublishFeePolicy(c *gin.Context) {
 	httpx.OK(c, view)
 }
 
+// RetireFeePolicy takes a published policy out of resolution, freeing its
+// scope for a new version.
+func (h *ConfigHandlers) RetireFeePolicy(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	policy, err := h.Config.RetireFeePolicy(requestContext(c), httpx.MustActor(c), id)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	view, err := toFeePolicyView(policy)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	httpx.OK(c, view)
+}
+
+// SetStudyTypeInitialDebtRequest names the flat default debt a newly created
+// enrollment of one study type should be priced at, for one academic year.
+type SetStudyTypeInitialDebtRequest struct {
+	AcademicYearID string `json:"academic_year_id" binding:"required,uuid"`
+	StudyTypeID    string `json:"study_type_id" binding:"required,uuid"`
+	Amount         int64  `json:"amount" binding:"min=0"`
+}
+
+// SetStudyTypeInitialDebt is the configuration surface for §"initial debt by
+// study type": one call, naming a year, a study type and an amount, that
+// defines and publishes the wildcard fee policy behind it — retiring the
+// previous amount for that study type first, in the same transaction, so a
+// finance manager changes the figure without ever touching fee_policy_version
+// through anything but this and the generic fee-policy screen.
+func (h *ConfigHandlers) SetStudyTypeInitialDebt(c *gin.Context) {
+	var req SetStudyTypeInitialDebtRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	yearID, err := shared.ParseID(req.AcademicYearID)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	studyTypeID, err := shared.ParseID(req.StudyTypeID)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+
+	policy, err := h.Config.SetStudyTypeInitialDebt(requestContext(c), httpx.MustActor(c), app.SetStudyTypeInitialDebtInput{
+		AcademicYearID: yearID,
+		StudyTypeID:    studyTypeID,
+		Amount:         money.Amount(req.Amount),
+	})
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	view, err := toFeePolicyView(policy)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	httpx.OK(c, view)
+}
+
 // ListFeePolicies returns every policy defined for a year.
 func (h *ConfigHandlers) ListFeePolicies(c *gin.Context) {
 	yearID, ok := requiredQueryID(c, "academic_year_id")
@@ -645,9 +732,15 @@ func (h *ConfigHandlers) DefineInstallmentTemplate(c *gin.Context) {
 		MaxInstallments: req.MaxInstallments,
 	}
 	for _, line := range req.Lines {
+		var amount *money.Amount
+		if line.Amount != nil {
+			v := money.Amount(*line.Amount)
+			amount = &v
+		}
 		in.Lines = append(in.Lines, app.TemplateLineInput{
 			LineNo:        line.LineNo,
 			ShareBP:       money.BasisPoints(line.ShareBP),
+			Amount:        amount,
 			DueOffsetDays: line.DueOffsetDays,
 			Label:         line.Label,
 		})
@@ -669,6 +762,76 @@ func (h *ConfigHandlers) PublishInstallmentTemplate(c *gin.Context) {
 		return
 	}
 	template, err := h.Config.PublishInstallmentTemplate(requestContext(c), httpx.MustActor(c), id)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	httpx.OK(c, toTemplateView(template))
+}
+
+// RetireInstallmentTemplate takes a published template out of resolution,
+// freeing its scope for a new version.
+func (h *ConfigHandlers) RetireInstallmentTemplate(c *gin.Context) {
+	id, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	template, err := h.Config.RetireInstallmentTemplate(requestContext(c), httpx.MustActor(c), id)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	httpx.OK(c, toTemplateView(template))
+}
+
+// StudyTypeInstallmentLineRequest is one literal installment on a study
+// type's default plan.
+type StudyTypeInstallmentLineRequest struct {
+	Amount        int64   `json:"amount" binding:"required,min=1"`
+	DueOffsetDays int     `json:"due_offset_days" binding:"min=0"`
+	Label         *string `json:"label_ar"`
+}
+
+// SetStudyTypeInstallmentPlanRequest names the literal installments a newly
+// created enrollment of one study type should be split into.
+type SetStudyTypeInstallmentPlanRequest struct {
+	AcademicYearID string                            `json:"academic_year_id" binding:"required,uuid"`
+	StudyTypeID    string                            `json:"study_type_id" binding:"required,uuid"`
+	Lines          []StudyTypeInstallmentLineRequest `json:"lines" binding:"required,min=1,dive"`
+}
+
+// SetStudyTypeInstallmentPlan is the configuration surface for a study type's
+// default installment plan — see app.ConfigService.SetStudyTypeInstallmentPlan.
+func (h *ConfigHandlers) SetStudyTypeInstallmentPlan(c *gin.Context) {
+	var req SetStudyTypeInstallmentPlanRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	yearID, err := shared.ParseID(req.AcademicYearID)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	studyTypeID, err := shared.ParseID(req.StudyTypeID)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+
+	lines := make([]app.StudyTypeInstallmentLineInput, 0, len(req.Lines))
+	for _, line := range req.Lines {
+		lines = append(lines, app.StudyTypeInstallmentLineInput{
+			Amount:        money.Amount(line.Amount),
+			DueOffsetDays: line.DueOffsetDays,
+			Label:         line.Label,
+		})
+	}
+
+	template, err := h.Config.SetStudyTypeInstallmentPlan(requestContext(c), httpx.MustActor(c), app.SetStudyTypeInstallmentPlanInput{
+		AcademicYearID: yearID,
+		StudyTypeID:    studyTypeID,
+		Lines:          lines,
+	})
 	if err != nil {
 		httpx.Respond(c, err)
 		return
@@ -1052,14 +1215,20 @@ func toTemplateView(t *billing.InstallmentTemplate) InstallmentTemplateView {
 		Status:           string(t.Status),
 		Lines:            make([]TemplateLineView, 0, len(t.Lines)),
 		PublishedAt:      t.PublishedAt,
+		RetiredAt:        t.RetiredAt,
 	}
 	var total money.BasisPoints
 	for _, line := range t.Lines {
 		total += line.ShareBP
+		var amount *int64
+		if line.Amount != nil {
+			amount = ptrInt64(line.Amount.Int64())
+		}
 		view.Lines = append(view.Lines, TemplateLineView{
 			LineNo:        line.LineNo,
 			ShareBP:       line.ShareBP.Int32(),
 			SharePercent:  line.ShareBP.String(),
+			Amount:        amount,
 			DueOffsetDays: line.DueOffsetDays,
 			Label:         line.Label,
 		})

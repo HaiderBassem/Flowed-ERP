@@ -322,7 +322,7 @@ export function EnrollScreen() {
             <label className="field">
               <span className="field__label">المرحلة</span>
               <select className="input" value={stage} onChange={(e) => setStage(e.target.value)}>
-                {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
+                {[1, 2, 3, 4, 5].map((s) => (
                   <option key={s} value={s}>
                     {s}
                   </option>

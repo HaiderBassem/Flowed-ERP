@@ -174,6 +174,12 @@ export const PLANES: NavPlane[] = [
         icon: "operators",
         capability: "operators.administer",
       },
+      {
+        label: "النسخ الاحتياطي",
+        to: "/admin/backups",
+        icon: "backup",
+        capability: "backup.manage",
+      },
     ],
   },
 ];

@@ -7,10 +7,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/pg"
+	"flowed/internal/port"
 )
 
 // ---------------------------------------------------------------------------

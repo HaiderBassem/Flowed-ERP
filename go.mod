@@ -1,4 +1,4 @@
-module github.com/swibit/flowed
+module flowed
 
 go 1.26.6
 

@@ -6,10 +6,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/pg"
+	"flowed/internal/port"
 )
 
 // ---------------------------------------------------------------------------
@@ -124,6 +125,28 @@ func (r *FeePolicyRepository) Publish(ctx context.Context, policyID shared.ID, a
 			WithDetail("fee_policy_id", policyID.String())
 	}
 	return pg.WrapQuery("fee_policy.Publish", err)
+}
+
+// Retire takes a published policy out of resolution.
+func (r *FeePolicyRepository) Retire(ctx context.Context, policyID shared.ID, at time.Time) error {
+	if err := r.db.RequireTx(ctx, "fee_policy.Retire"); err != nil {
+		return err
+	}
+	const query = `
+		UPDATE fee_policy_version
+		SET status = 'retired', retired_at = COALESCE($2, now())
+		WHERE id = $1 AND status = 'published'
+		RETURNING id`
+
+	q := r.db.Conn(ctx)
+	var id shared.ID
+	err := q.QueryRow(ctx, query, policyID, instant(at)).Scan(&id)
+	if pg.IsNotFound(err) {
+		return shared.PreconditionFailed("fee_policy.not_retirable",
+			"fee policy %s is either unknown or not currently published", policyID).
+			WithDetail("fee_policy_id", policyID.String())
+	}
+	return pg.WrapQuery("fee_policy.Retire", err)
 }
 
 // GetByID returns one policy with its components.
@@ -276,7 +299,7 @@ const templateColumns = `
 	id, code, name_ar, name_en,
 	academic_year_id, college_id, department_id, stage, study_type_id,
 	specificity_score, max_installments, status,
-	published_at, published_by, created_at, updated_at`
+	published_at, published_by, retired_at, created_at, updated_at`
 
 func scanTemplate(row pgx.Row) (*billing.InstallmentTemplate, error) {
 	var t billing.InstallmentTemplate
@@ -284,7 +307,7 @@ func scanTemplate(row pgx.Row) (*billing.InstallmentTemplate, error) {
 		&t.ID, &t.Code, &t.NameAr, &t.NameEn,
 		&t.AcademicYearID, &t.CollegeID, &t.DepartmentID, &t.Stage, &t.StudyTypeID,
 		&t.SpecificityScore, &t.MaxInstallments, &t.Status,
-		&t.PublishedAt, &t.PublishedBy, &t.CreatedAt, &t.UpdatedAt,
+		&t.PublishedAt, &t.PublishedBy, &t.RetiredAt, &t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -319,12 +342,13 @@ func (r *InstallmentTemplateRepository) Create(ctx context.Context, t *billing.I
 	}
 
 	const insertLine = `
-		INSERT INTO installment_template_line (id, template_id, line_no, share_bp, due_offset_days, label_ar)
-		VALUES ($1, $2, $3, $4, $5, $6)`
+		INSERT INTO installment_template_line (id, template_id, line_no, share_bp, due_offset_days, label_ar, amount)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`
 
 	batch := &pgx.Batch{}
 	for _, line := range t.Lines {
-		batch.Queue(insertLine, shared.NewID(), t.ID, line.LineNo, line.ShareBP, line.DueOffsetDays, line.Label)
+		batch.Queue(insertLine,
+			shared.NewID(), t.ID, line.LineNo, line.ShareBP, line.DueOffsetDays, line.Label, amountOrNil(line.Amount))
 	}
 	return pg.WrapQuery("installment_template.Create.lines", execBatch(ctx, q, batch))
 }
@@ -447,7 +471,7 @@ func (r *InstallmentTemplateRepository) attachLines(ctx context.Context, templat
 	}
 
 	const query = `
-		SELECT template_id, line_no, share_bp, due_offset_days, label_ar
+		SELECT template_id, line_no, share_bp, due_offset_days, label_ar, amount
 		FROM installment_template_line
 		WHERE template_id = ANY($1)
 		ORDER BY template_id, line_no`
@@ -462,13 +486,39 @@ func (r *InstallmentTemplateRepository) attachLines(ctx context.Context, templat
 		var (
 			templateID shared.ID
 			line       billing.TemplateLine
+			amount     *money.Amount
 		)
-		if err := rows.Scan(&templateID, &line.LineNo, &line.ShareBP, &line.DueOffsetDays, &line.Label); err != nil {
+		if err := rows.Scan(
+			&templateID, &line.LineNo, &line.ShareBP, &line.DueOffsetDays, &line.Label, &amount,
+		); err != nil {
 			return pg.WrapQuery("installment_template.lines", err)
 		}
+		line.Amount = amount
 		if t, ok := byID[templateID]; ok {
 			t.Lines = append(t.Lines, line)
 		}
 	}
 	return pg.WrapQuery("installment_template.lines", rows.Err())
+}
+
+// Retire takes a published template out of resolution.
+func (r *InstallmentTemplateRepository) Retire(ctx context.Context, templateID shared.ID, at time.Time) error {
+	if err := r.db.RequireTx(ctx, "installment_template.Retire"); err != nil {
+		return err
+	}
+	const query = `
+		UPDATE installment_template
+		SET status = 'retired', retired_at = COALESCE($2, now())
+		WHERE id = $1 AND status = 'published'
+		RETURNING id`
+
+	q := r.db.Conn(ctx)
+	var id shared.ID
+	err := q.QueryRow(ctx, query, templateID, instant(at)).Scan(&id)
+	if pg.IsNotFound(err) {
+		return shared.PreconditionFailed("installment_template.not_retirable",
+			"installment template %s is either unknown or not currently published", templateID).
+			WithDetail("template_id", templateID.String())
+	}
+	return pg.WrapQuery("installment_template.Retire", err)
 }

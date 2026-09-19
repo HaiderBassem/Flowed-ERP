@@ -58,6 +58,18 @@
   --frozen: #3b5a83;
   --frozen-soft: #e4e9f2;
 
+  /* Study type — a distinguishing label, not a state, so these are their own
+     hues rather than borrowed from the lexicon above: reusing --pending for
+     "Morning" would make one colour mean two unrelated things (§ tokens
+     header). Three modes only ever need three colours regardless of how many
+     study types an administrator later adds — see labelStudyType's fallback. */
+  --study-morning: #b5541f;
+  --study-morning-soft: #f5e6da;
+  --study-evening: #5b3a8e;
+  --study-evening-soft: #eae3f3;
+  --study-parallel: #0f7a8c;
+  --study-parallel-soft: #dcedef;
+
   --shadow: 0 1px 2px rgba(26, 28, 27, 0.05), 0 8px 24px -12px rgba(26, 28, 27, 0.16);
   --shadow-lg: 0 2px 6px rgba(26, 28, 27, 0.07), 0 24px 60px -24px rgba(26, 28, 27, 0.28);
 
@@ -145,6 +157,13 @@
     --frozen: #8fb0da;
     --frozen-soft: #161f2c;
 
+    --study-morning: #e0935f;
+    --study-morning-soft: #2c2015;
+    --study-evening: #b79ce0;
+    --study-evening-soft: #241d2e;
+    --study-parallel: #5fc4d3;
+    --study-parallel-soft: #142728;
+
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 30px -14px rgba(0, 0, 0, 0.8);
     --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.55), 0 28px 70px -28px rgba(0, 0, 0, 0.9);
   }
@@ -177,6 +196,13 @@
   --pending-soft: #2a2110;
   --frozen: #8fb0da;
   --frozen-soft: #161f2c;
+
+  --study-morning: #e0935f;
+  --study-morning-soft: #2c2015;
+  --study-evening: #b79ce0;
+  --study-evening-soft: #241d2e;
+  --study-parallel: #5fc4d3;
+  --study-parallel-soft: #142728;
 
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 30px -14px rgba(0, 0, 0, 0.8);
   --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.55), 0 28px 70px -28px rgba(0, 0, 0, 0.9);

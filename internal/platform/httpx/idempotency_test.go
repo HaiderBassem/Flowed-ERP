@@ -12,10 +12,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/httpx"
-	"github.com/swibit/flowed/internal/platform/logger"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/httpx"
+	"flowed/internal/platform/logger"
+	"flowed/internal/port"
 )
 
 const testKey = "idem-key-0001"

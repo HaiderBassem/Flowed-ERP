@@ -5,8 +5,8 @@ package billing
 import (
 	"sort"
 
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
 )
 
 // OpenInstallment is an installment with money still owing, as the allocation

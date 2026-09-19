@@ -5,12 +5,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/app"
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/httpx"
+	"flowed/internal/app"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/httpx"
 )
 
 // LifecycleHandlers expose the commands that existed in the domain with no way
@@ -215,7 +215,6 @@ func (h *LifecycleHandlers) RecordIdentityChange(c *gin.Context) {
 		StudentID:         id,
 		FullName:          req.FullName,
 		MotherName:        req.MotherName,
-		NationalID:        req.NationalID,
 		BirthDate:         birthDate,
 		CourtDecisionNo:   req.CourtDecisionNo,
 		CourtDecisionDate: decisionDate,
@@ -249,7 +248,6 @@ func (h *LifecycleHandlers) IdentityHistory(c *gin.Context) {
 			VersionNo:       v.VersionNo,
 			FullName:        v.FullName,
 			MotherName:      v.MotherName,
-			NationalID:      v.NationalID,
 			EffectiveFrom:   ptr(v.EffectiveFrom.String()),
 			CourtDecisionNo: v.CourtDecisionNo,
 			Reason:          v.ChangeReason,

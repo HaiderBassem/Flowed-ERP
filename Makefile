@@ -13,7 +13,7 @@ VERSION        ?= $(shell cat VERSION 2>/dev/null || echo unknown)
 GIT_COMMIT     ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 BUILD_TIME     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 TREE_STATE     ?= $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo clean || echo dirty)
-BUILDINFO      := github.com/swibit/flowed/internal/platform/buildinfo
+BUILDINFO      := flowed/internal/platform/buildinfo
 LDFLAGS        := -X $(BUILDINFO).version=$(VERSION) \
                   -X $(BUILDINFO).commit=$(GIT_COMMIT) \
                   -X $(BUILDINFO).buildTime=$(BUILD_TIME) \

@@ -16,8 +16,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/logger"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/logger"
 )
 
 // genericInternalMessage is what a client is told when the real message is not

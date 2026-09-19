@@ -5,10 +5,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/app"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/httpx"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/app"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/httpx"
+	"flowed/internal/port"
 )
 
 // AuthHandlers issue, renew and withdraw credentials.

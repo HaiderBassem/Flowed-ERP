@@ -76,7 +76,11 @@ duration=$((seconds_end - seconds_start))
 #    system, whatever its size.
 listing="$(pg_restore --list "$archive")" || die "the archive cannot be read by pg_restore"
 for table in financial_account payment installment audit_log student; do
-	printf '%s' "$listing" | grep -q "TABLE DATA public $table " \
+	# A here-string, not a pipe: grep -q exits the moment it finds a match,
+	# and piping a multi-thousand-line listing into it raced a SIGPIPE on the
+	# writer against pipefail, failing this check on real archives depending
+	# on how far grep had read before it stopped.
+	grep -q "TABLE DATA public $table " <<<"$listing" \
 		|| die "the archive contains no data for $table"
 done
 

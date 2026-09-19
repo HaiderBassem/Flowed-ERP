@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/adapter/postgres"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/adapter/postgres"
+	"flowed/internal/domain/shared"
 )
 
 // Verifying the whole chain every night is work that grows forever. The

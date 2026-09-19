@@ -41,6 +41,7 @@ const PATHS: Record<string, string> = {
   sponsors: "M7 11 12 6l5 5M2 12l5-5 5 5-5 5zM12 12l5-5 5 5-5 5z",
   bank: "M3 9l9-6 9 6M4 9v9M9 9v9M15 9v9M20 9v9M2 21h20M2 18h20",
   sessions: "M3 5h18v12H3zM8 21h8M12 17v4",
+  backup: "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6",
   home: "M3 11 12 3l9 8M6 10v10h12V10",
   // Actions / status marks
   search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-5-5",

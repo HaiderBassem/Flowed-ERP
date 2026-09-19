@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swibit/flowed/internal/adapter/payments"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/payment"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/adapter/payments"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/payment"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
 
 // IntentService drives electronic collection: begin a payment at a provider,

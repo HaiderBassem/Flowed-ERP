@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
 
 // RegisterHostingInput attaches a hosting agreement to an enrollment.

@@ -3,7 +3,7 @@ package shared_test
 import (
 	"testing"
 
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/shared"
 )
 
 func TestZeroScopeIsUniversityWide(t *testing.T) {

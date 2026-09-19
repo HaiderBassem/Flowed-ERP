@@ -11,10 +11,10 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/swibit/flowed/internal/adapter/auditship"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/observability"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/adapter/auditship"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/observability"
+	"flowed/internal/port"
 )
 
 // AuditShipService copies the audit trail somewhere the database cannot reach,

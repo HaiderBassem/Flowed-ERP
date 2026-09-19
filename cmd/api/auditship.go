@@ -7,13 +7,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/swibit/flowed/internal/adapter/postgres"
-	"github.com/swibit/flowed/internal/app"
-	"github.com/swibit/flowed/internal/bootstrap"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/config"
-	"github.com/swibit/flowed/internal/platform/logger"
-	"github.com/swibit/flowed/internal/platform/pg"
+	"flowed/internal/adapter/postgres"
+	"flowed/internal/app"
+	"flowed/internal/bootstrap"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/config"
+	"flowed/internal/platform/logger"
+	"flowed/internal/platform/pg"
 )
 
 // auditShip is the operator's hand on the off-host audit archive.

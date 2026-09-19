@@ -3,7 +3,7 @@ package money_test
 import (
 	"testing"
 
-	"github.com/swibit/flowed/internal/domain/money"
+	"flowed/internal/domain/money"
 )
 
 // Not an assertion — a readable sample of the spelling across the range a

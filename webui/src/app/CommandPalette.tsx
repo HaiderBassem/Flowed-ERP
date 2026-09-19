@@ -43,6 +43,7 @@ const COMMANDS: Command[] = [
   { id: "templates", label: "قوالب الأقساط", to: "/config/installment-templates", capability: "config.write" },
   { id: "discount-defs", label: "تعريفات الخصومات", to: "/config/discounts", capability: "config.write" },
   { id: "operators", label: "المستخدمون والجلسات", to: "/admin/operators", capability: "operators.administer" },
+  { id: "backups", label: "النسخ الاحتياطي", to: "/admin/backups", capability: "backup.manage" },
   { id: "sponsors", label: "الكفلاء ومستحقاتهم", to: "/sponsors", capability: "settlement.read" },
   { id: "settlements", label: "التسويات البنكية", to: "/settlements", capability: "settlement.read" },
   { id: "settlement-exceptions", label: "استثناءات التسوية", to: "/settlements?tab=exceptions", capability: "settlement.write" },

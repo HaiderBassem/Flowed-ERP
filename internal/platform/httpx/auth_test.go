@@ -8,11 +8,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/auth"
-	"github.com/swibit/flowed/internal/platform/config"
-	"github.com/swibit/flowed/internal/platform/httpx"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/auth"
+	"flowed/internal/platform/config"
+	"flowed/internal/platform/httpx"
+	"flowed/internal/port"
 )
 
 func testTokenService() *auth.TokenService {

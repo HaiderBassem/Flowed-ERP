@@ -5,8 +5,8 @@ package discount
 import (
 	"sort"
 
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
 )
 
 // ValueType distinguishes a rate from a flat sum.

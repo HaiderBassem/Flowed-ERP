@@ -12,9 +12,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/httpx"
-	"github.com/swibit/flowed/internal/platform/logger"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/httpx"
+	"flowed/internal/platform/logger"
 )
 
 // respondTo runs Respond for one error and returns the response together with

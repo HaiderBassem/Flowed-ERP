@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/shared"
 )
 
 // SessionChecker reports whether a session may still be used. Implemented by

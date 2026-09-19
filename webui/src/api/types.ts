@@ -54,12 +54,41 @@ export interface StudentView {
   full_name: string;
   /** Never a secondary field: two names identical after normalisation are told apart by it (§06). */
   mother_name: string;
-  national_id?: string | null;
   birth_date?: IsoDate | null;
   gender?: string | null;
   phone?: string | null;
+  phone_alt?: string | null;
   email?: string | null;
+  address?: string | null;
+  guardian_name?: string | null;
+  guardian_phone?: string | null;
   status: string;
+
+  /**
+   * Read-time convenience from the student's most recent non-superseded
+   * enrollment — not a stored student attribute. Study type and stage still
+   * live only on enrollment. Absent when the student has no enrollment.
+   */
+  current_study_type_id?: UUID | null;
+  current_study_type_code?: string | null;
+  current_stage?: number | null;
+  current_academic_year_id?: UUID | null;
+}
+
+/** The outcome of POST /students/intake — identity, placement, and pricing
+ * in one request. */
+export interface RegisterStudentWithPlacementView {
+  student: StudentView;
+  enrollment: EnrollmentView;
+  /** Absent when pricing_pending is true. */
+  account?: AccountView | null;
+  /**
+   * True when the enrollment was created but no account was generated with
+   * it: either the actor lacks finance authority, or no fee policy matched
+   * this enrollment's scope. pricing_note explains which.
+   */
+  pricing_pending: boolean;
+  pricing_note?: string;
 }
 
 export interface EnrollmentView {
@@ -234,7 +263,7 @@ export interface YearView {
   closed_at?: IsoTime | null;
 }
 
-export type YearStatus = "draft" | "open" | "financially_closed" | "closed";
+export type YearStatus = "draft" | "open" | "financially_closed" | "closed" | "adjustment_open";
 
 /* --------------------------------------------------------------- reference */
 
@@ -416,6 +445,8 @@ export interface TemplateLineView {
   line_no: number;
   share_bp: number;
   share_percent: string;
+  /** Set when this line was authored as a literal amount rather than a percentage. */
+  amount?: RawAmount | null;
   due_offset_days: number;
   label_ar?: string | null;
 }
@@ -437,6 +468,7 @@ export interface InstallmentTemplateView {
   /** Must reach 10000 basis points, or one line carries the remainder. */
   total_bp: number;
   published_at?: IsoTime | null;
+  retired_at?: IsoTime | null;
 }
 
 export interface DiscountDefinitionView {
@@ -884,6 +916,43 @@ export interface ReconciliationFindingView {
   resolution?: string | null;
 }
 
+/* --------------------------------------------------- backup and restore */
+
+export interface BackupView {
+  id: UUID;
+  kind: "manual" | "automatic" | "safety" | "imported";
+  status: "running" | "verified" | "failed";
+  started_at: IsoTime;
+  finished_at?: IsoTime | null;
+  bytes: number;
+  verified: boolean;
+  error?: string | null;
+}
+
+export interface RestoreCheckView {
+  name: string;
+  passed: boolean;
+  detail?: string;
+}
+
+export interface RestoreView {
+  id: UUID;
+  backup_id: UUID;
+  safety_backup_id?: UUID;
+  status: "running" | "checking" | "swapping" | "restored" | "failed";
+  started_at: IsoTime;
+  finished_at?: IsoTime | null;
+  checks?: RestoreCheckView[];
+  error?: string | null;
+}
+
+export interface BackupScheduleView {
+  enabled: boolean;
+  interval_hours: number;
+  retention_count: number;
+  last_run_at?: IsoTime | null;
+}
+
 /* ---------------------------------------------------------------- hosting */
 
 export interface HostingView {
@@ -910,7 +979,6 @@ export interface IdentityVersionView {
   version_no: number;
   full_name: string;
   mother_name: string;
-  national_id?: string | null;
   effective_from?: IsoDate | null;
   court_decision_no?: string | null;
   court_decision_date?: IsoDate | null;

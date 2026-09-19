@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
 )
 
 // SettlementMode says who carries the risk when a sponsor does not pay.

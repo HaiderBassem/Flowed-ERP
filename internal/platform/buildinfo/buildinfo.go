@@ -29,7 +29,7 @@ import (
 
 // Stamped by the release build:
 //
-//	go build -ldflags "-X github.com/swibit/flowed/internal/platform/buildinfo.version=1.0.0 ..."
+//	go build -ldflags "-X flowed/internal/platform/buildinfo.version=1.0.0 ..."
 //
 // Left empty by every other build, which is what lets the resolver tell a
 // release apart from a local compile instead of guessing.

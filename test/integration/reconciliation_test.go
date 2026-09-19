@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/adapter/postgres"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/adapter/postgres"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
 
 // A finding has a life, and most of that life is SQL: the upsert that turns a

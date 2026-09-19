@@ -7,10 +7,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/domain/student"
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/shared"
+	"flowed/internal/domain/student"
+	"flowed/internal/platform/pg"
+	"flowed/internal/port"
 )
 
 // StudentRepository stores student identity.
@@ -22,7 +22,7 @@ func NewStudentRepository(db *pg.DB) *StudentRepository { return &StudentReposit
 var _ port.StudentRepository = (*StudentRepository)(nil)
 
 const studentColumns = `
-	id, student_no, full_name, mother_name, national_id, birth_date, gender,
+	id, student_no, full_name, mother_name, birth_date, gender,
 	phone, phone_alt, email, address, guardian_name, guardian_phone,
 	first_admission_year, status, merged_into_id, notes,
 	created_at, updated_at, created_by`
@@ -37,7 +37,7 @@ func scanStudent(row pgx.Row, extra ...any) (*student.Student, error) {
 		gender    *string
 	)
 	dest := []any{
-		&s.ID, &s.StudentNo, &s.FullName, &s.MotherName, &s.NationalID, &birthDate, &gender,
+		&s.ID, &s.StudentNo, &s.FullName, &s.MotherName, &birthDate, &gender,
 		&s.Phone, &s.PhoneAlt, &s.Email, &s.Address, &s.GuardianName, &s.GuardianPhone,
 		&s.FirstAdmissionYear, &s.Status, &s.MergedIntoID, &s.Notes,
 		&s.CreatedAt, &s.UpdatedAt, &s.CreatedBy,
@@ -58,19 +58,19 @@ func (r *StudentRepository) Create(ctx context.Context, s *student.Student) erro
 	}
 	const query = `
 		INSERT INTO student (
-			id, student_no, full_name, mother_name, national_id, birth_date, gender,
+			id, student_no, full_name, mother_name, birth_date, gender,
 			phone, phone_alt, email, address, guardian_name, guardian_phone,
 			first_admission_year, status, merged_into_id, notes, created_by
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7,
-			$8, $9, $10, $11, $12, $13,
-			$14, $15, $16, $17, $18
+			$1, $2, $3, $4, $5, $6,
+			$7, $8, $9, $10, $11, $12,
+			$13, $14, $15, $16, $17
 		)
 		RETURNING created_at, updated_at`
 
 	q := r.db.Conn(ctx)
 	err := q.QueryRow(ctx, query,
-		s.ID, s.StudentNo, s.FullName, s.MotherName, s.NationalID, timeOrNil(s.BirthDate), enumValue(s.Gender),
+		s.ID, s.StudentNo, s.FullName, s.MotherName, timeOrNil(s.BirthDate), enumValue(s.Gender),
 		s.Phone, s.PhoneAlt, s.Email, s.Address, s.GuardianName, s.GuardianPhone,
 		s.FirstAdmissionYear, s.Status, s.MergedIntoID, s.Notes, s.CreatedBy,
 	).Scan(&s.CreatedAt, &s.UpdatedAt)
@@ -89,25 +89,24 @@ func (r *StudentRepository) Update(ctx context.Context, s *student.Student) erro
 			student_no           = $2,
 			full_name            = $3,
 			mother_name          = $4,
-			national_id          = $5,
-			birth_date           = $6,
-			gender               = $7,
-			phone                = $8,
-			phone_alt            = $9,
-			email                = $10,
-			address              = $11,
-			guardian_name        = $12,
-			guardian_phone       = $13,
-			first_admission_year = $14,
-			status               = $15,
-			merged_into_id       = $16,
-			notes                = $17
+			birth_date           = $5,
+			gender               = $6,
+			phone                = $7,
+			phone_alt            = $8,
+			email                = $9,
+			address              = $10,
+			guardian_name        = $11,
+			guardian_phone       = $12,
+			first_admission_year = $13,
+			status               = $14,
+			merged_into_id       = $15,
+			notes                = $16
 		WHERE id = $1
 		RETURNING updated_at`
 
 	q := r.db.Conn(ctx)
 	err := q.QueryRow(ctx, query,
-		s.ID, s.StudentNo, s.FullName, s.MotherName, s.NationalID, timeOrNil(s.BirthDate), enumValue(s.Gender),
+		s.ID, s.StudentNo, s.FullName, s.MotherName, timeOrNil(s.BirthDate), enumValue(s.Gender),
 		s.Phone, s.PhoneAlt, s.Email, s.Address, s.GuardianName, s.GuardianPhone,
 		s.FirstAdmissionYear, s.Status, s.MergedIntoID, s.Notes,
 	).Scan(&s.UpdatedAt)
@@ -236,6 +235,7 @@ func (r *StudentRepository) searchPredicates(s port.StudentSearch, args *argList
 		// normalize_arabic, which is the same function the generated columns
 		// were written with.
 		raw := args.next(term)
+		rawAgain := args.next(term)
 		pattern := args.next(likeEscape(term))
 		where = append(where, `(
 		        s.full_name_norm   LIKE normalize_arabic(`+pattern+`) || '%'
@@ -245,6 +245,10 @@ func (r *StudentRepository) searchPredicates(s port.StudentSearch, args *argList
 		     OR s.student_no       = `+raw+`
 		     OR s.phone_norm       = normalize_phone(`+raw+`)
 		     OR s.phone_alt_norm   = normalize_phone(`+raw+`)
+		     OR (
+		          length(phone_digits(`+rawAgain+`)) >= 3
+		          AND s.phone_rev LIKE reverse_text(phone_digits(`+rawAgain+`)) || '%'
+		        )
 		  )`)
 		prefixMatch = "s.full_name_norm LIKE normalize_arabic(" + pattern + ") || '%'"
 	}
@@ -312,21 +316,21 @@ func (r *StudentRepository) AppendIdentityVersion(ctx context.Context, v *studen
 	}
 	const query = `
 		INSERT INTO student_identity_version (
-			id, student_id, version_no, full_name, mother_name, national_id,
+			id, student_id, version_no, full_name, mother_name,
 			birth_date, birth_place, gender, nationality, effective_from,
 			court_decision_no, court_decision_date, document_ref, change_reason,
 			recorded_at, recorded_by
 		) VALUES (
-			$1, $2, $3, $4, $5, $6,
-			$7, $8, $9, $10, $11,
-			$12, $13, $14, $15,
-			COALESCE($16, now()), $17
+			$1, $2, $3, $4, $5,
+			$6, $7, $8, $9, $10,
+			$11, $12, $13, $14,
+			COALESCE($15, now()), $16
 		)
 		RETURNING recorded_at`
 
 	q := r.db.Conn(ctx)
 	err := q.QueryRow(ctx, query,
-		v.ID, v.StudentID, v.VersionNo, v.FullName, v.MotherName, v.NationalID,
+		v.ID, v.StudentID, v.VersionNo, v.FullName, v.MotherName,
 		timeOrNil(v.BirthDate), v.BirthPlace, enumValue(v.Gender), v.Nationality, v.EffectiveFrom.Time(),
 		v.CourtDecisionNo, timeOrNil(v.CourtDecisionDate), v.DocumentRef, v.ChangeReason,
 		instant(v.RecordedAt), v.RecordedBy,
@@ -337,7 +341,7 @@ func (r *StudentRepository) AppendIdentityVersion(ctx context.Context, v *studen
 // IdentityHistory returns every recorded identity for a student, oldest first.
 func (r *StudentRepository) IdentityHistory(ctx context.Context, studentID shared.ID) ([]*student.IdentityVersion, error) {
 	const query = `
-		SELECT id, student_id, version_no, full_name, mother_name, national_id,
+		SELECT id, student_id, version_no, full_name, mother_name,
 		       birth_date, birth_place, gender, nationality, effective_from,
 		       court_decision_no, court_decision_date, document_ref, change_reason,
 		       recorded_at, recorded_by
@@ -359,7 +363,7 @@ func (r *StudentRepository) IdentityHistory(ctx context.Context, studentID share
 			decisionDate  *time.Time
 		)
 		if err := row.Scan(
-			&v.ID, &v.StudentID, &v.VersionNo, &v.FullName, &v.MotherName, &v.NationalID,
+			&v.ID, &v.StudentID, &v.VersionNo, &v.FullName, &v.MotherName,
 			&birthDate, &v.BirthPlace, &gender, &v.Nationality, &effectiveFrom,
 			&v.CourtDecisionNo, &decisionDate, &v.DocumentRef, &v.ChangeReason,
 			&v.RecordedAt, &v.RecordedBy,
@@ -376,6 +380,50 @@ func (r *StudentRepository) IdentityHistory(ctx context.Context, studentID share
 		return nil, pg.WrapQuery("student.IdentityHistory", err)
 	}
 	return history, nil
+}
+
+// CurrentEnrollmentSummaries batches port.CurrentEnrollmentSummary lookups for
+// a page of students into one query: DISTINCT ON picks, per student, the
+// non-superseded enrollment whose academic year started most recently.
+func (r *StudentRepository) CurrentEnrollmentSummaries(
+	ctx context.Context, studentIDs []shared.ID,
+) (map[shared.ID]port.CurrentEnrollmentSummary, error) {
+	result := make(map[shared.ID]port.CurrentEnrollmentSummary, len(studentIDs))
+	if len(studentIDs) == 0 {
+		return result, nil
+	}
+
+	const query = `
+		SELECT DISTINCT ON (e.student_id)
+		       e.student_id, e.study_type_id, st.code, e.stage, e.academic_year_id
+		FROM enrollment e
+		JOIN academic_year y ON y.id = e.academic_year_id
+		JOIN study_type st ON st.id = e.study_type_id
+		WHERE e.student_id = ANY($1) AND e.enrollment_status <> 'superseded'
+		ORDER BY e.student_id, y.start_date DESC, e.sequence_no DESC`
+
+	q := r.db.Conn(ctx)
+	rows, err := q.Query(ctx, query, studentIDs)
+	if err != nil {
+		return nil, pg.WrapQuery("student.CurrentEnrollmentSummaries", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			studentID shared.ID
+			summary   port.CurrentEnrollmentSummary
+		)
+		if err := rows.Scan(&studentID, &summary.StudyTypeID, &summary.StudyTypeCode,
+			&summary.Stage, &summary.AcademicYearID); err != nil {
+			return nil, pg.WrapQuery("student.CurrentEnrollmentSummaries", err)
+		}
+		result[studentID] = summary
+	}
+	if err := rows.Err(); err != nil {
+		return nil, pg.WrapQuery("student.CurrentEnrollmentSummaries", err)
+	}
+	return result, nil
 }
 
 // scopeExists renders a scope filter as an EXISTS predicate over enrollment.

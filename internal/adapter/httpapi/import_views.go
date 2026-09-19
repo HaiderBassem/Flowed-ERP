@@ -3,7 +3,7 @@ package httpapi
 import (
 	"time"
 
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/port"
 )
 
 // The import port's structs carry no JSON tags, so returning them directly

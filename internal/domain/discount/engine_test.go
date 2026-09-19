@@ -3,9 +3,9 @@ package discount_test
 import (
 	"testing"
 
-	"github.com/swibit/flowed/internal/domain/discount"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/discount"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
 )
 
 func tuitionOnly(amount money.Amount) []discount.ComponentAmount {

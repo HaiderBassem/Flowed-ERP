@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
 
 // AdjustPlanKind is what kind of change is being made to an installment plan.

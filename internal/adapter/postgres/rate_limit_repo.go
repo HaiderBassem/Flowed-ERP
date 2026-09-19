@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/platform/pg"
+	"flowed/internal/port"
 )
 
 // RateLimitRepository is the cross-replica token bucket.

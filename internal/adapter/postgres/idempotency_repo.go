@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/pg"
+	"flowed/internal/port"
 )
 
 // IdempotencyRepository remembers commands already executed, so a retry

@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/auth"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/auth"
+	"flowed/internal/port"
 )
 
 // TokenIssuer is the subset of the platform token service the login flow needs.

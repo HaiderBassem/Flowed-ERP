@@ -152,7 +152,7 @@ export function BulkAccountsScreen() {
             <span className="field__label">المرحلة</span>
             <select className="input" value={stage} onChange={(e) => setStage(e.target.value)}>
               <option value="">كل المراحل</option>
-              {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
+              {[1, 2, 3, 4, 5].map((s) => (
                 <option key={s} value={s}>
                   {s}
                 </option>

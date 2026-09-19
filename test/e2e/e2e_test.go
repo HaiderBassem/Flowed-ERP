@@ -32,17 +32,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/adapter/postgres"
-	"github.com/swibit/flowed/internal/app"
-	"github.com/swibit/flowed/internal/bootstrap"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/auth"
-	"github.com/swibit/flowed/internal/platform/config"
-	"github.com/swibit/flowed/internal/platform/migrate"
-	"github.com/swibit/flowed/internal/platform/observability"
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/internal/port"
-	"github.com/swibit/flowed/migrations"
+	"flowed/internal/adapter/postgres"
+	"flowed/internal/app"
+	"flowed/internal/bootstrap"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/auth"
+	"flowed/internal/platform/config"
+	"flowed/internal/platform/migrate"
+	"flowed/internal/platform/observability"
+	"flowed/internal/platform/pg"
+	"flowed/internal/port"
+	"flowed/migrations"
 )
 
 var (

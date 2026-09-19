@@ -10,10 +10,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/app"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/httpx"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/app"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/httpx"
+	"flowed/internal/port"
 )
 
 // BulkHandlers is the HTTP surface of the cohort-wide commands and the staged
@@ -76,7 +76,7 @@ type PromoteBulkRequest struct {
 	CollegeID    *string `json:"college_id" binding:"omitempty,uuid"`
 	DepartmentID *string `json:"department_id" binding:"omitempty,uuid"`
 	StudyTypeID  *string `json:"study_type_id" binding:"omitempty,uuid"`
-	Stage        *int16  `json:"stage" binding:"omitempty,min=1,max=8"`
+	Stage        *int16  `json:"stage" binding:"omitempty,min=1,max=5"`
 	// DryRun computes the plan and writes nothing. A commit is refused without
 	// the plan hash a dry run returned.
 	DryRun          bool   `json:"dry_run"`
@@ -89,7 +89,7 @@ type GenerateAccountsBulkRequest struct {
 	CollegeID      *string `json:"college_id" binding:"omitempty,uuid"`
 	DepartmentID   *string `json:"department_id" binding:"omitempty,uuid"`
 	StudyTypeID    *string `json:"study_type_id" binding:"omitempty,uuid"`
-	Stage          *int16  `json:"stage" binding:"omitempty,min=1,max=8"`
+	Stage          *int16  `json:"stage" binding:"omitempty,min=1,max=5"`
 	DryRun         bool    `json:"dry_run"`
 	// Approved carries the dry run's rows back, each with the hash of the
 	// outcome that was shown. A row whose numbers moved since is skipped rather

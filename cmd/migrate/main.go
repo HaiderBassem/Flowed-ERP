@@ -25,11 +25,11 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/swibit/flowed/internal/platform/config"
-	"github.com/swibit/flowed/internal/platform/logger"
-	"github.com/swibit/flowed/internal/platform/migrate"
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/migrations"
+	"flowed/internal/platform/config"
+	"flowed/internal/platform/logger"
+	"flowed/internal/platform/migrate"
+	"flowed/internal/platform/pg"
+	"flowed/migrations"
 )
 
 func main() {

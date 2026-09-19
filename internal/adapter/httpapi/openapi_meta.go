@@ -1,6 +1,6 @@
 package httpapi
 
-import "github.com/swibit/flowed/internal/app"
+import "flowed/internal/app"
 
 // operationMetadata carries what a route table cannot: what an endpoint is
 // for, which roles reach it, and the Go types it binds and returns.

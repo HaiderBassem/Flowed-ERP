@@ -6,19 +6,19 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/swibit/flowed/internal/adapter/postgres"
-	"github.com/swibit/flowed/internal/app"
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/discount"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/payment"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/auth"
-	"github.com/swibit/flowed/internal/platform/config"
-	"github.com/swibit/flowed/internal/platform/logger"
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/adapter/postgres"
+	"flowed/internal/app"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/discount"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/payment"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/auth"
+	"flowed/internal/platform/config"
+	"flowed/internal/platform/logger"
+	"flowed/internal/platform/pg"
+	"flowed/internal/port"
 )
 
 // demo builds an exploration dataset: three academic years of an Iraqi
@@ -244,7 +244,7 @@ func (d *demoBuilder) seedOrganisation(ctx context.Context) error {
 			code, name string
 			stages     int16
 		}{
-			{"MED", "الطب العام", 6},
+			{"MED", "الطب العام", 5},
 			{"DEN", "طب الأسنان", 5},
 		}},
 	}

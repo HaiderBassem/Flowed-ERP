@@ -56,12 +56,12 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 
-	"github.com/swibit/flowed/internal/platform/config"
+	"flowed/internal/platform/config"
 )
 
 // instrumentationScope names this codebase in every metric and span it emits,
 // which is how a backend tells our instrumentation from a library's.
-const instrumentationScope = "github.com/swibit/flowed"
+const instrumentationScope = "flowed"
 
 // Provider owns the pipelines for the life of the process.
 //

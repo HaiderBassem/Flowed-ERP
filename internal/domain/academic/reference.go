@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/shared"
 )
 
 var codePattern = regexp.MustCompile(`^[A-Z0-9_]{2,32}$`)
@@ -41,9 +41,8 @@ type Department struct {
 	Code      string
 	NameAr    string
 	NameEn    *string
-	// StageCount is the programme length in years. Medicine runs six,
-	// engineering four or five, so an enrollment's stage is validated against
-	// this rather than a global maximum.
+	// StageCount is the programme length in years, capped university-wide at
+	// five (First through Fifth Stage).
 	StageCount int16
 	IsActive   bool
 	CreatedAt  time.Time
@@ -60,9 +59,9 @@ func NewDepartment(collegeID shared.ID, code, nameAr string, stageCount int16) (
 	if strings.TrimSpace(nameAr) == "" {
 		return nil, shared.Validation("department.name_required", "the Arabic name is required")
 	}
-	if stageCount < 1 || stageCount > 8 {
+	if stageCount < 1 || stageCount > 5 {
 		return nil, shared.Validation("department.invalid_stage_count",
-			"a programme runs between 1 and 8 years, got %d", stageCount)
+			"a programme runs between 1 and 5 years, got %d", stageCount)
 	}
 	return &Department{
 		ID:         shared.NewID(),

@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/adapter/auditship"
-	"github.com/swibit/flowed/internal/adapter/postgres"
-	"github.com/swibit/flowed/internal/app"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/config"
-	"github.com/swibit/flowed/internal/platform/pg"
+	"flowed/internal/adapter/auditship"
+	"flowed/internal/adapter/postgres"
+	"flowed/internal/app"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/config"
+	"flowed/internal/platform/pg"
 )
 
 // The audit trail's hash chain proves no entry was edited. It cannot prove none

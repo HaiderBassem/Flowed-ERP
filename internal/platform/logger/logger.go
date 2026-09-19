@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/swibit/flowed/internal/platform/config"
+	"flowed/internal/platform/config"
 )
 
 type contextKey struct{}

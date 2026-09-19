@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/settlement"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/settlement"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
 
 // SettlementService imports bank and card statements and reconciles them

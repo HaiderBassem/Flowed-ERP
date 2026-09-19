@@ -11,7 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/platform/config"
+	"flowed/internal/platform/config"
 )
 
 // OpenAPI generation.

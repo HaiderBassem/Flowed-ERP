@@ -3,14 +3,25 @@ package app
 import (
 	"context"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/domain/student"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/shared"
+	"flowed/internal/domain/student"
+	"flowed/internal/port"
 )
 
 // StudentService handles student identity commands.
 type StudentService struct {
 	deps Deps
+	// enrollments and accounts let RegisterStudentWithPlacement continue
+	// straight into academic placement and, when the actor holds finance
+	// authority, initial pricing — by calling those services' own commands,
+	// never by duplicating their rules. Nil-safe: set by WithPlacement after
+	// construction; RegisterStudentWithPlacement refuses cleanly without it
+	// rather than panicking, and every other method on this service ignores
+	// them entirely.
+	enrollments *EnrollmentService
+	accounts    *AccountService
 	auditor
 }
 
@@ -19,12 +30,18 @@ func NewStudentService(d Deps) *StudentService {
 	return &StudentService{deps: d, auditor: newAuditor(d.Audit, d.Clock)}
 }
 
+// WithPlacement attaches the services combined student intake composes.
+func (s *StudentService) WithPlacement(enrollments *EnrollmentService, accounts *AccountService) *StudentService {
+	s.enrollments = enrollments
+	s.accounts = accounts
+	return s
+}
+
 // RegisterStudentInput creates a person record.
 type RegisterStudentInput struct {
 	StudentNo  string
 	FullName   string
 	MotherName string
-	NationalID *string
 	BirthDate  *shared.Date
 	Gender     *student.Gender
 	Phone      *string
@@ -82,7 +99,6 @@ func (s *StudentService) RegisterStudent(ctx context.Context, actor shared.Actor
 			StudentNo:  in.StudentNo,
 			FullName:   in.FullName,
 			MotherName: in.MotherName,
-			NationalID: in.NationalID,
 			BirthDate:  in.BirthDate,
 			Gender:     in.Gender,
 			Phone:      in.Phone,
@@ -135,6 +151,127 @@ func (s *StudentService) RegisterStudent(ctx context.Context, actor shared.Actor
 	return result, nil
 }
 
+// RegisterStudentWithPlacementInput is student intake in one submission:
+// identity plus the academic placement that has otherwise been a separate
+// "enroll in a year" screen.
+type RegisterStudentWithPlacementInput struct {
+	RegisterStudentInput
+	AcademicYearID shared.ID
+	DepartmentID   shared.ID
+	StudyTypeID    shared.ID
+	Stage          int16
+}
+
+// RegisterStudentWithPlacementResult carries every row the request produced.
+type RegisterStudentWithPlacementResult struct {
+	Student            *student.Student
+	PossibleDuplicates []*student.Student
+	Enrollment         *academic.Enrollment
+	// Account is nil when pricing did not happen — see PricingPending.
+	Account *billing.Account
+	// PricingPending is true when the enrollment was created but no account
+	// was generated with it: either the actor lacks finance authority, or no
+	// fee policy matched this enrollment's scope. Nothing here retries or
+	// defaults silently — the existing "generate account" screen finishes
+	// this later, for whoever holds that authority.
+	PricingPending bool
+	PricingNote    string
+}
+
+// RegisterStudentWithPlacement registers an identity, places it into an
+// academic year, and — only when the actor also holds finance authority —
+// prices it immediately, all as one request.
+//
+// This does not fold three authorities into one. It calls RegisterStudent,
+// then EnrollStudent, then, conditionally, GenerateFinancialAccount — the same
+// three commands available separately, each still running its own
+// RequireAnyRole. A registrar without finance authority gets the identity and
+// the enrollment; the response's PricingPending says a finance manager
+// finishes the rest, exactly as generating an account has always been kept
+// separate from enrolling (see EnrollStudent and the account-generation
+// screen) rather than something enrolling triggers on its own.
+//
+// The three steps run as nested transactions (savepoints) inside one outer
+// write, so a failure in placement rolls back the identity too — but a
+// failure to *price* (no matching fee policy, or missing authority) does not
+// roll back the identity or the enrollment: those are reported as pending,
+// not lost, because an enrollment is a complete and useful thing on its own.
+func (s *StudentService) RegisterStudentWithPlacement(
+	ctx context.Context, actor shared.Actor, in RegisterStudentWithPlacementInput,
+) (*RegisterStudentWithPlacementResult, error) {
+	if err := actor.RequireAnyRole("RegisterStudentWithPlacement",
+		shared.RoleRegistrar, shared.RoleAdmin); err != nil {
+		return nil, err
+	}
+	if s.enrollments == nil || s.accounts == nil {
+		return nil, shared.Internal("student.placement_not_configured", nil,
+			"this server was not wired for combined student intake")
+	}
+	if shared.IsNil(in.AcademicYearID) {
+		return nil, shared.Validation("student.academic_year_required",
+			"an academic year is required to place a new student")
+	}
+	if shared.IsNil(in.DepartmentID) {
+		return nil, shared.Validation("student.department_required",
+			"a department is required to place a new student")
+	}
+	if shared.IsNil(in.StudyTypeID) {
+		return nil, shared.Validation("student.study_type_required",
+			"a study type is required to place a new student")
+	}
+	if in.Stage < 1 {
+		return nil, shared.Validation("student.stage_required",
+			"a stage is required to place a new student")
+	}
+
+	result := &RegisterStudentWithPlacementResult{}
+	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
+		registered, err := s.RegisterStudent(ctx, actor, in.RegisterStudentInput)
+		if err != nil {
+			return err
+		}
+		result.Student = registered.Student
+		result.PossibleDuplicates = registered.PossibleDuplicates
+
+		enrolled, err := s.enrollments.EnrollStudent(ctx, actor, EnrollStudentInput{
+			StudentID:      registered.Student.ID,
+			AcademicYearID: in.AcademicYearID,
+			DepartmentID:   in.DepartmentID,
+			StudyTypeID:    in.StudyTypeID,
+			Stage:          in.Stage,
+		})
+		if err != nil {
+			return err
+		}
+		result.Enrollment = enrolled.Enrollment
+
+		if !actor.HasAnyRole(shared.RoleFinanceManager, shared.RoleAdmin) {
+			result.PricingPending = true
+			result.PricingNote = "pricing requires finance authority; a finance manager can generate the account from this enrollment"
+			return nil
+		}
+
+		priced, err := s.accounts.GenerateFinancialAccount(ctx, actor, GenerateAccountInput{
+			EnrollmentID: enrolled.Enrollment.ID,
+		})
+		if err != nil {
+			// Reported, not swallowed: an enrollment left with no account and
+			// no explanation is indistinguishable from a bug. The commonest
+			// cause is exactly what the message says — no fee policy for this
+			// study type yet.
+			result.PricingPending = true
+			result.PricingNote = err.Error()
+			return nil
+		}
+		result.Account = priced.Account
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // UpdateContactInput changes how a student is reached.
 type UpdateContactInput struct {
 	StudentID     shared.ID
@@ -169,7 +306,11 @@ func (s *StudentService) UpdateContactDetails(ctx context.Context, actor shared.
 
 		before := snapshotOf(person)
 		if in.Phone != nil {
-			person.Phone = in.Phone
+			phone, err := student.NormalizeIraqiPhone(in.Phone)
+			if err != nil {
+				return err
+			}
+			person.Phone = phone
 		}
 		if in.PhoneAlt != nil {
 			person.PhoneAlt = in.PhoneAlt
@@ -226,7 +367,6 @@ type RecordIdentityChangeInput struct {
 	StudentID         shared.ID
 	FullName          *string
 	MotherName        *string
-	NationalID        *string
 	BirthDate         *shared.Date
 	CourtDecisionNo   string
 	CourtDecisionDate shared.Date
@@ -276,9 +416,6 @@ func (s *StudentService) RecordIdentityChange(ctx context.Context, actor shared.
 		}
 		if in.MotherName != nil {
 			person.MotherName = *in.MotherName
-		}
-		if in.NationalID != nil {
-			person.NationalID = in.NationalID
 		}
 		if in.BirthDate != nil {
 			person.BirthDate = in.BirthDate

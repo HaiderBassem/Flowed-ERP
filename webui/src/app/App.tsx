@@ -9,6 +9,7 @@ import { ShiftScreen } from "@/domains/desk/ShiftScreen";
 import { StudentSearchScreen } from "@/domains/students/StudentSearchScreen";
 import { StudentScreen } from "@/domains/students/StudentScreen";
 import { RegisterStudentScreen } from "@/domains/students/RegisterStudentScreen";
+import { EditStudentScreen } from "@/domains/students/EditStudentScreen";
 import { AccountScreen } from "@/domains/accounts/AccountScreen";
 import { GenerateAccountScreen } from "@/domains/accounts/GenerateAccountScreen";
 import { PaymentScreen } from "@/domains/payments/PaymentScreen";
@@ -28,6 +29,7 @@ import { ImportsScreen } from "@/domains/imports/ImportsScreen";
 import { ImportScreen } from "@/domains/imports/ImportScreen";
 import { OperatorsScreen } from "@/domains/admin/OperatorsScreen";
 import { OperatorScreen } from "@/domains/admin/OperatorScreen";
+import { BackupScreen } from "@/domains/admin/BackupScreen";
 import { ReportsScreen } from "@/domains/reports/ReportsScreen";
 import { KeyedReportScreen } from "@/domains/reports/ReportScreen";
 import { ReconciliationScreen } from "@/domains/oversight/ReconciliationScreen";
@@ -35,6 +37,7 @@ import { AuditChainScreen } from "@/domains/oversight/AuditChainScreen";
 import { VoidLogScreen } from "@/domains/oversight/VoidLogScreen";
 import { YearsScreen } from "@/domains/years/YearsScreen";
 import { YearScreen } from "@/domains/years/YearScreen";
+import { NewYearScreen } from "@/domains/years/NewYearScreen";
 import { SponsorsScreen } from "@/domains/sponsors/SponsorsScreen";
 import { SettlementsScreen } from "@/domains/settlements/SettlementsScreen";
 import { HostingScreen } from "@/domains/hosting/HostingScreen";
@@ -130,6 +133,7 @@ export function App() {
             <Route path="/students/:id/identity" element={<IdentityScreen />} />
             <Route path="/students/:id/statement" element={<StatementScreen />} />
             <Route path="/students/new" element={<RegisterStudentScreen />} />
+            <Route path="/students/:id/edit" element={<EditStudentScreen />} />
             <Route path="/students/:id" element={<StudentScreen />} />
             <Route path="/students/:id/discounts/new" element={<GrantDiscountScreen />} />
             <Route path="/enrollments/new" element={<EnrollScreen />} />
@@ -142,6 +146,7 @@ export function App() {
             <Route path="/settlements" element={<SettlementsScreen />} />
             <Route path="/me/sessions" element={<MySessionsScreen />} />
             <Route path="/years" element={<YearsScreen />} />
+            <Route path="/years/new" element={<NewYearScreen />} />
             <Route path="/years/:id" element={<YearScreen />} />
             <Route path="/imports" element={<ImportsScreen />} />
             <Route path="/imports/:id" element={<ImportScreen />} />
@@ -171,6 +176,7 @@ export function App() {
             <Route path="/oversight/voids" element={<VoidLogScreen />} />
             <Route path="/admin/operators" element={<OperatorsScreen />} />
             <Route path="/admin/operators/:id" element={<OperatorScreen />} />
+            <Route path="/admin/backups" element={<BackupScreen />} />
 
             <Route path="*" element={<NotBuiltScreen />} />
           </Routes>

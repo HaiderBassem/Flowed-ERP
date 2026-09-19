@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swibit/flowed/internal/domain/money"
+	"flowed/internal/domain/money"
 )
 
 // The written amount is what makes a receipt hard to alter, so it has to be

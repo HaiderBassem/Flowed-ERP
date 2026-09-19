@@ -8,9 +8,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/platform/config"
-	"github.com/swibit/flowed/internal/platform/httpx"
-	"github.com/swibit/flowed/internal/platform/logger"
+	"flowed/internal/platform/config"
+	"flowed/internal/platform/httpx"
+	"flowed/internal/platform/logger"
 )
 
 func get(t *testing.T, router *gin.Engine, path string, headers map[string]string) *httptest.ResponseRecorder {
@@ -207,7 +207,7 @@ func TestBodyLimitStopsAnOversizedRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(httpx.RequestID())
-	router.Use(httpx.BodyLimit(64))
+	router.Use(httpx.BodyLimit(64, nil))
 	router.POST("/import", func(c *gin.Context) {
 		if _, err := c.GetRawData(); err != nil {
 			httpx.Respond(c, err)

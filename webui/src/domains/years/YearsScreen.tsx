@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 
 import { StateChip } from "@/components/Chip";
 import { EmptyState, Panel, Skeleton } from "@/components/primitives";
+import { useSession } from "@/app/session";
 import { useWorkingContext } from "@/app/working-context";
 import { formatDate } from "@/lib/dates";
 import { labelDebtPolicy } from "@/design/lexicon";
@@ -16,6 +17,7 @@ import { labelDebtPolicy } from "@/design/lexicon";
  */
 export function YearsScreen() {
   const { years, loading } = useWorkingContext();
+  const { can } = useSession();
 
   if (loading) {
     return (
@@ -29,6 +31,12 @@ export function YearsScreen() {
     <main className="screen">
       <div className="screen__head">
         <h1 className="screen__title">السنوات الدراسية</h1>
+        <span className="grow" />
+        {can("year.administer") && (
+          <Link className="btn btn--primary" to="/years/new">
+            سنة جديدة
+          </Link>
+        )}
       </div>
 
       <Panel flush>

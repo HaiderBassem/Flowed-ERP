@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/shared"
 )
 
 // Keyring holds the signing keys this service will accept.

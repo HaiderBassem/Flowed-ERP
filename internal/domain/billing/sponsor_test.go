@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
 )
 
 func bp(v money.BasisPoints) *money.BasisPoints { return &v }

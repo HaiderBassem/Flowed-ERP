@@ -107,12 +107,6 @@ export function IdentityScreen() {
                     <b>الإصدار {version.version_no}</b> — {version.full_name}
                     <div className="note">
                       الأم: {version.mother_name}
-                      {version.national_id && (
-                        <>
-                          {" "}
-                          · وطني <span className="num">{version.national_id}</span>
-                        </>
-                      )}
                       {version.court_decision_no && (
                         <>
                           {" "}

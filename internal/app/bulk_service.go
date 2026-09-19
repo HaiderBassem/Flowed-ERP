@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
 
 // BulkService runs the commands that act on a whole cohort at once: rolling a

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/payment"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/payment"
+	"flowed/internal/domain/shared"
 )
 
 func newTestIntent(t *testing.T) *payment.Intent {

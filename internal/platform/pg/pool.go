@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -19,7 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/tracelog"
 
-	"github.com/swibit/flowed/internal/platform/config"
+	"flowed/internal/platform/config"
 )
 
 // Executor is the subset of pgx shared by a pool and a transaction. Every
@@ -41,9 +42,20 @@ var (
 
 // DB wraps the connection pool and resolves, per call, whether work should run
 // on the pool or on a transaction already open in the context.
+//
+// The pool sits behind a mutex rather than being a plain field because of one
+// caller: the backup system's live-database restore swaps the database out
+// from under the running process (a database cannot be renamed while a
+// connection to it is open) and then reopens the pool against the same name,
+// now pointing at the restored data. That is the only code path that ever
+// calls Drain or Reopen; every other caller sees a pool that never changes
+// once Connect returns, and the lock they pay for it is one RLock per query.
 type DB struct {
-	pool *pgxpool.Pool
-	log  *slog.Logger
+	mu     sync.RWMutex
+	pool   *pgxpool.Pool
+	log    *slog.Logger
+	cfg    config.Database
+	tracer pgx.QueryTracer
 }
 
 // Connect opens the pool, applies session defaults, and verifies the database
@@ -61,6 +73,25 @@ type DB struct {
 // choice between them belongs to configuration, which refuses the combination
 // outright rather than letting one silently win.
 func Connect(ctx context.Context, cfg config.Database, log *slog.Logger, tracer pgx.QueryTracer) (*DB, error) {
+	pool, err := newPool(ctx, cfg, log, tracer)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Info("database connected",
+		slog.String("dsn", cfg.RedactedDSN()),
+		slog.Int("max_conns", int(cfg.MaxConns)),
+		slog.Int("min_conns", int(cfg.MinConns)),
+		slog.Duration("statement_timeout", cfg.StatementTimeout),
+		slog.Duration("lock_timeout", cfg.LockTimeout),
+	)
+
+	return &DB{pool: pool, log: log, cfg: cfg, tracer: tracer}, nil
+}
+
+// newPool builds and verifies one pool. Shared by Connect and Reopen so the
+// two can never drift into building the pool differently.
+func newPool(ctx context.Context, cfg config.Database, log *slog.Logger, tracer pgx.QueryTracer) (*pgxpool.Pool, error) {
 	poolCfg, err := pgxpool.ParseConfig(cfg.DSN())
 	if err != nil {
 		return nil, fmt.Errorf("parsing database DSN: %w", err)
@@ -104,26 +135,26 @@ func Connect(ctx context.Context, cfg config.Database, log *slog.Logger, tracer 
 		pool.Close()
 		return nil, fmt.Errorf("connecting to %s: %w", cfg.RedactedDSN(), err)
 	}
-
-	log.Info("database connected",
-		slog.String("dsn", cfg.RedactedDSN()),
-		slog.Int("max_conns", int(cfg.MaxConns)),
-		slog.Int("min_conns", int(cfg.MinConns)),
-		slog.Duration("statement_timeout", cfg.StatementTimeout),
-		slog.Duration("lock_timeout", cfg.LockTimeout),
-	)
-
-	return &DB{pool: pool, log: log}, nil
+	return pool, nil
 }
 
-// NewDB wraps an existing pool, for tests that supply their own.
+// NewDB wraps an existing pool, for tests that supply their own. Drain and
+// Reopen are unusable on a DB built this way, since there is no config to
+// reopen against — nothing in this codebase needs them outside the live
+// restore path, and that path always runs against a DB built by Connect.
 func NewDB(pool *pgxpool.Pool, log *slog.Logger) *DB {
 	return &DB{pool: pool, log: log}
 }
 
 // Pool exposes the underlying pool for the few callers that genuinely need it,
 // such as the migration runner and pool statistics.
-func (db *DB) Pool() *pgxpool.Pool { return db.pool }
+func (db *DB) Pool() *pgxpool.Pool { return db.currentPool() }
+
+func (db *DB) currentPool() *pgxpool.Pool {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	return db.pool
+}
 
 // Conn returns the executor for the current context: the open transaction if
 // one is in flight, otherwise the pool. Repositories call this rather than
@@ -133,7 +164,7 @@ func (db *DB) Conn(ctx context.Context) Executor {
 	if tx := txFromContext(ctx); tx != nil {
 		return tx
 	}
-	return db.pool
+	return db.currentPool()
 }
 
 // InTransaction reports whether the context carries an open transaction. The
@@ -143,15 +174,55 @@ func (db *DB) InTransaction(ctx context.Context) bool { return txFromContext(ctx
 
 // Ping verifies the database answers.
 func (db *DB) Ping(ctx context.Context) error {
-	if err := db.pool.Ping(ctx); err != nil {
+	pool := db.currentPool()
+	if pool == nil {
+		return fmt.Errorf("database ping: no pool is open")
+	}
+	if err := pool.Ping(ctx); err != nil {
 		return fmt.Errorf("database ping: %w", err)
 	}
 	return nil
 }
 
+// Drain closes the current pool without opening a replacement.
+//
+// This is the one moment nothing — including this process — holds the
+// database open, which is what makes the rename in Runner.SwapLive legal. It
+// exists only for the live-restore flow; ordinary shutdown uses Close, which
+// is exactly Drain with no Reopen ever following it.
+func (db *DB) Drain(ctx context.Context) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if db.pool != nil {
+		db.pool.Close()
+		db.pool = nil
+	}
+	return nil
+}
+
+// Reopen rebuilds the pool from the configuration Connect was given, after
+// Drain closed it. Nothing about the configuration changes — the database
+// name is exactly what it was — but a restore's swap has, in between, renamed
+// what that name refers to, so the pool that opens here connects to the
+// restored data rather than to what was live before Drain.
+func (db *DB) Reopen(ctx context.Context) error {
+	pool, err := newPool(ctx, db.cfg, db.log, db.tracer)
+	if err != nil {
+		return err
+	}
+	db.mu.Lock()
+	db.pool = pool
+	db.mu.Unlock()
+	return nil
+}
+
 // Stats reports pool utilisation for the health endpoint and metrics.
 func (db *DB) Stats() PoolStats {
-	s := db.pool.Stat()
+	pool := db.currentPool()
+	if pool == nil {
+		return PoolStats{}
+	}
+	s := pool.Stat()
 	return PoolStats{
 		AcquiredConns:   s.AcquiredConns(),
 		IdleConns:       s.IdleConns(),
@@ -181,7 +252,7 @@ type PoolStats struct {
 // Close drains the pool. Callers should have stopped accepting requests first.
 func (db *DB) Close() {
 	db.log.Info("closing database pool")
-	db.pool.Close()
+	_ = db.Drain(context.Background())
 }
 
 func millis(d time.Duration) string {

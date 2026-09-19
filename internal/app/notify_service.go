@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/notify"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/notify"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
 
 // NotifyService queues due-date reminders and hands them to whatever channel

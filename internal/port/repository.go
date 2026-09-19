@@ -11,13 +11,13 @@ import (
 	"context"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/discount"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/payment"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/domain/student"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/discount"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/payment"
+	"flowed/internal/domain/shared"
+	"flowed/internal/domain/student"
 )
 
 // TxManager owns the transaction boundary.
@@ -65,6 +65,19 @@ type StudentSearch struct {
 	Offset int
 }
 
+// CurrentEnrollmentSummary is a read-time convenience, not a stored fact: the
+// student's most recent non-superseded enrollment, for display next to their
+// identity in a list or search result. It is never written back and it is
+// not part of the student aggregate — study type and stage still live only on
+// enrollment, and a student with no enrollment or several has no single
+// "current" one in any authoritative sense, only this best-effort pick.
+type CurrentEnrollmentSummary struct {
+	StudyTypeID    shared.ID
+	StudyTypeCode  string
+	Stage          int16
+	AcademicYearID shared.ID
+}
+
 // StudentRepository stores student identity.
 type StudentRepository interface {
 	Create(ctx context.Context, s *student.Student) error
@@ -78,6 +91,10 @@ type StudentRepository interface {
 	Search(ctx context.Context, q StudentSearch) ([]*student.Student, int, error)
 	AppendIdentityVersion(ctx context.Context, v *student.IdentityVersion) error
 	IdentityHistory(ctx context.Context, studentID shared.ID) ([]*student.IdentityVersion, error)
+	// CurrentEnrollmentSummaries batches the read above over several students at
+	// once, so a page of search results costs one query rather than one per row.
+	// A student with no non-superseded enrollment simply has no entry in the map.
+	CurrentEnrollmentSummaries(ctx context.Context, studentIDs []shared.ID) (map[shared.ID]CurrentEnrollmentSummary, error)
 }
 
 // ---------------------------------------------------------------------------
@@ -246,6 +263,7 @@ type FeeScope struct {
 type FeePolicyRepository interface {
 	Create(ctx context.Context, p *billing.FeePolicy) error
 	Publish(ctx context.Context, policyID shared.ID, actor shared.ID, at time.Time) error
+	Retire(ctx context.Context, policyID shared.ID, at time.Time) error
 	GetByID(ctx context.Context, id shared.ID) (*billing.FeePolicy, error)
 	List(ctx context.Context, yearID shared.ID) ([]*billing.FeePolicy, error)
 	// Resolve returns the single published policy that best matches the scope,
@@ -259,6 +277,7 @@ type FeePolicyRepository interface {
 type InstallmentTemplateRepository interface {
 	Create(ctx context.Context, t *billing.InstallmentTemplate) error
 	Publish(ctx context.Context, templateID shared.ID, actor shared.ID, at time.Time) error
+	Retire(ctx context.Context, templateID shared.ID, at time.Time) error
 	GetByID(ctx context.Context, id shared.ID) (*billing.InstallmentTemplate, error)
 	List(ctx context.Context, yearID *shared.ID) ([]*billing.InstallmentTemplate, error)
 	Resolve(ctx context.Context, scope FeeScope) (*billing.InstallmentTemplate, error)

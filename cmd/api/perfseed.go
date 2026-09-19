@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swibit/flowed/internal/platform/config"
-	"github.com/swibit/flowed/internal/platform/logger"
-	"github.com/swibit/flowed/internal/platform/pg"
+	"flowed/internal/platform/config"
+	"flowed/internal/platform/logger"
+	"flowed/internal/platform/pg"
 )
 
 // perfSeed loads a dataset large enough for the timings to mean something.

@@ -5,11 +5,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/swibit/flowed/internal/adapter/receipt"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/payment"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/adapter/receipt"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/payment"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
 
 // ReceiptService assembles the document a student walks away with.

@@ -7,10 +7,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/swibit/flowed/internal/domain/settlement"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/settlement"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/pg"
+	"flowed/internal/port"
 )
 
 // SettlementRepository stores imported statements and their match results.

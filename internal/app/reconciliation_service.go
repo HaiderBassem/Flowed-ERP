@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
 
 // ReconciliationService runs the invariant checks and keeps what they find.
