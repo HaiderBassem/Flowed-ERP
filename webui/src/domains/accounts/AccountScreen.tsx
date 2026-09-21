@@ -17,7 +17,6 @@ import { formatDateTime } from "@/lib/dates";
 import { amount } from "@/lib/money";
 import { AdjustSheet } from "./AdjustSheet";
 import { InstallmentTable } from "./InstallmentTable";
-import { IntentsPanel } from "./IntentsPanel";
 import { PlanRevisions, PlanSheet } from "./PlanSheet";
 
 type Tab = "installments" | "payments" | "refunds" | "discounts" | "adjustments";
@@ -182,8 +181,6 @@ export function AccountScreen() {
               onDone={() => setPlanning(false)}
             />
           )}
-
-          <IntentsPanel accountId={view.id} />
 
           <Panel title="الأرقام كما هي">
             <Row label="الصافي المجمّد">

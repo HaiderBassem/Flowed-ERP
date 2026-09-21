@@ -3,7 +3,7 @@ import { NavLink, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
-import type { RefundView, SettlementExceptionView, VoidRequestView } from "@/api/types";
+import type { RefundView, VoidRequestView } from "@/api/types";
 import logoMark from "@/assets/logo-mark.svg";
 import { Icon } from "@/components/Icon";
 import { PLANES, type NavItem } from "./navigation";
@@ -172,16 +172,9 @@ function useCounters(): Record<string, number | undefined> {
     refetchInterval: 60_000,
   });
 
-  const exceptions = useQuery({
-    queryKey: ["settlements", "exceptions"],
-    queryFn: () => api.get<SettlementExceptionView[]>("/settlements/exceptions"),
-    enabled: can("settlement.write"),
-    refetchInterval: 120_000,
-  });
 
   return {
     voids: voids.data?.length,
     refunds: refunds.data?.length,
-    settlement_exceptions: exceptions.data?.length,
   };
 }

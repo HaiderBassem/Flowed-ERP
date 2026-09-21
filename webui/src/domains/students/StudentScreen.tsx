@@ -17,7 +17,6 @@ import { formatDateTime } from "@/lib/dates";
 import { amount, format, sum, type Amount } from "@/lib/money";
 import { formatPhone } from "@/lib/text";
 import { labelEnrollmentKind, labelResult, labelStudentStatus } from "@/design/lexicon";
-import { SponsorshipPanel } from "@/domains/sponsors/SponsorshipPanel";
 
 /**
  * The student file — §09.
@@ -280,7 +279,6 @@ export function StudentScreen() {
       </div>
 
       <div style={{ marginTop: 14 }}>
-        <SponsorshipPanel studentId={view.id} />
       </div>
 
       {/* ------------------------------------------------------- timeline */}

@@ -47,7 +47,7 @@ import { CollectPanel } from "./CollectPanel";
 export function DeskScreen() {
   const [params, setParams] = useSearchParams();
   const { can, reason } = useSession();
-  const { shift, activeYear, years } = useWorkingContext();
+  const { activeYear, years } = useWorkingContext();
 
   const [term, setTerm] = useState(params.get("student") ?? "");
   const [selectedStudent, setSelectedStudent] = useState<string | null>(null);
@@ -57,14 +57,15 @@ export function DeskScreen() {
   const searchRef = useRef<HTMLInputElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
 
+  // Collecting no longer waits on an open shift: there are no shifts. What can
+  // still stop it is a year whose books are shut, and that refusal has to be
+  // stated rather than shown as a disabled button with no reason.
   const canCollect = can("payment.record");
   const collectReason = !canCollect
     ? reason("payment.record")
-    : !shift || shift.status !== "open"
-      ? "لا وردية مفتوحة على هذا الشبّاك — افتح وردية أولاً"
-      : activeYear && !activeYear.accepts_financial_posting
-        ? `السنة ${activeYear.code} لا تقبل الترحيل المالي`
-        : undefined;
+    : activeYear && !activeYear.accepts_financial_posting
+      ? `السنة ${activeYear.code} لا تقبل الترحيل المالي`
+      : undefined;
 
   /* --------------------------------------------------------------- search */
 
@@ -355,11 +356,6 @@ export function DeskScreen() {
             <div className="callout callout--warn">
               <b>القبض متعذّر الآن</b>
               <p style={{ margin: "4px 0 0" }}>{collectReason}</p>
-              {(!shift || shift.status !== "open") && can("shift.open") && (
-                <Link className="btn btn--primary btn--sm" to="/desk/session/open" style={{ marginTop: 8 }}>
-                  فتح وردية
-                </Link>
-              )}
             </div>
           )}
 
@@ -394,32 +390,26 @@ export function DeskScreen() {
 }
 
 /**
- * The shift's receipts.
+ * What this browser session has collected.
  *
- * §08 wants this list, including voided receipts struck through and still
- * numbered, because hiding them hides exactly the pattern the void register
- * exists to reveal.
+ * Voided receipts stay in the list, struck through and still numbered, because
+ * hiding them hides exactly the pattern the void register exists to reveal.
  *
- * The API has no endpoint that lists individual receipts — GET /payments/:id
- * fetches one, and /reports/cashier-daily aggregates by cashier, day and
- * method rather than enumerating slips. So what this panel can show honestly
- * is what *this browser session* posted, and it says so rather than presenting
- * a partial list as if it were the shift. The shift sheet, which the server
- * does compute, is one click away.
+ * The API lists no individual receipts — GET /payments/:id fetches one, and
+ * /reports/cashier-daily aggregates by operator, day and method rather than
+ * enumerating slips. So this shows what *this browser* posted and says so,
+ * rather than presenting a partial list as though it were the day's takings.
  */
 function ShiftReceipts({ justPosted }: { justPosted: RecordPaymentResponse[] }) {
-  const { shift } = useWorkingContext();
   const posted: PaymentView[] = justPosted.map((p) => p.payment);
 
   return (
     <Panel
       title="ما قبضتُه في هذه الجلسة"
       aside={
-        shift ? (
-          <Link className="label" to="/desk/sessions">
-            كشف الوردية ←
-          </Link>
-        ) : null
+        <Link className="label" to="/reports/cashier-daily">
+          كشف اليوم ←
+        </Link>
       }
     >
       {posted.length === 0 ? (
@@ -444,8 +434,8 @@ function ShiftReceipts({ justPosted }: { justPosted: RecordPaymentResponse[] }) 
         ))
       )}
       <p className="note" style={{ marginTop: 8 }}>
-        هذه وصولات هذه الجلسة على هذا المتصفح فقط — لا يوفّر الـ API قائمة وصولات الوردية.
-        المجاميع المعتمدة في <Link to="/desk/sessions">كشف الوردية</Link>.
+        هذه وصولات هذه الجلسة على هذا المتصفح فقط. المجاميع المعتمدة في{" "}
+        <Link to="/reports/cashier-daily">كشف اليوم</Link>.
       </p>
     </Panel>
   );

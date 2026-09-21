@@ -27,6 +27,19 @@ import type { Role, TokenResponse, UserView } from "@/api/types";
 
 const USER_KEY = "flowed.user";
 
+/**
+ * A capability is a thing the operator can do.
+ *
+ * There used to be a grant table here mapping each one to the roles that held
+ * it, mirroring the server's separation of duties. The system is now run from
+ * a single account that holds everything, so the table said "yes" to every
+ * question and the only thing it could still do was disagree with the server —
+ * a control greyed out over a permission the server would have allowed.
+ *
+ * The names survive because the call sites read better for them: `can(
+ * "payment.void.execute")` at a button says what the button does. They all
+ * answer true, and the server remains the only thing that enforces anything.
+ */
 export type Capability =
   | "payment.record"
   | "payment.void.request"
@@ -36,9 +49,6 @@ export type Capability =
   | "refund.post"
   | "account.generate"
   | "account.adjust"
-  | "shift.open"
-  | "shift.close"
-  | "shift.approve"
   | "student.register"
   | "student.contact"
   | "enrollment.write"
@@ -53,154 +63,12 @@ export type Capability =
   | "oversight.read"
   | "operators.administer"
   | "backup.manage"
-  | "sponsor.manage"
-  | "sponsorship.create"
-  | "settlement.read"
-  | "settlement.write"
+  | "data.transfer"
   | "hosting.write"
   | "identity.write"
   | "identity.read"
-  | "plan.adjust"
-  | "intent.create";
+  | "plan.adjust";
 
-/** Who may do what, and the sentence shown when they may not. */
-const GRANTS: Record<Capability, { roles: Role[]; refusal: string }> = {
-  "payment.record": {
-    roles: ["cashier"],
-    refusal: "القبض صلاحية الصراف على شبّاك بوردية مفتوحة",
-  },
-  "payment.void.request": {
-    roles: ["cashier", "finance_manager", "admin"],
-    refusal: "طلب الإلغاء صلاحية الصراف أو المدير المالي",
-  },
-  "payment.void.execute": {
-    roles: ["finance_manager", "admin"],
-    refusal: "تنفيذ الإلغاء صلاحية المدير المالي — اطلب الإلغاء وسيصله إشعار",
-  },
-  "refund.request": {
-    roles: ["cashier", "finance_manager", "admin"],
-    refusal: "طلب الاسترجاع صلاحية الصراف أو المدير المالي",
-  },
-  "refund.approve": {
-    roles: ["finance_manager", "admin"],
-    refusal: "الموافقة على الاسترجاع صلاحية المدير المالي",
-  },
-  "refund.post": {
-    roles: ["finance_manager", "admin"],
-    refusal: "ترحيل الاسترجاع صلاحية المدير المالي",
-  },
-  "account.generate": {
-    roles: ["finance_manager", "admin"],
-    refusal: "توليد الحسابات صلاحية المدير المالي",
-  },
-  "account.adjust": {
-    roles: ["finance_manager", "admin"],
-    refusal: "قيد التسوية صلاحية المدير المالي",
-  },
-  "shift.open": { roles: ["cashier"], refusal: "الورديات تخص الصرافين" },
-  "shift.close": { roles: ["cashier"], refusal: "الورديات تخص الصرافين" },
-  "shift.approve": {
-    roles: ["finance_manager", "admin"],
-    // Not a permission error: it is the architecture. §09 asks it to be said
-    // that way, because "you lack permission" invites a request for permission.
-    refusal: "الصراف لا يعتمد درجه — الاعتماد صلاحية المدير المالي",
-  },
-  "student.register": {
-    roles: ["registrar", "admin"],
-    refusal: "تسجيل الطلبة صلاحية المسجّل",
-  },
-  "student.contact": {
-    roles: ["registrar", "academic_officer", "admin"],
-    refusal: "تعديل بيانات التواصل صلاحية المسجّل أو الموظف الأكاديمي",
-  },
-  "enrollment.write": {
-    roles: ["registrar", "academic_officer", "admin"],
-    refusal: "التسجيل في سنة صلاحية المسجّل أو الموظف الأكاديمي",
-  },
-  "enrollment.result": {
-    roles: ["academic_officer", "admin"],
-    refusal: "إدخال النتائج صلاحية الموظف الأكاديمي",
-  },
-  "discount.assign": {
-    roles: ["registrar", "academic_officer", "finance_manager", "admin"],
-    refusal: "منح الخصم صلاحية المسجّل أو المدير المالي",
-  },
-  "discount.confirm": {
-    roles: ["finance_manager", "admin"],
-    refusal: "تأكيد أهلية الخصم صلاحية المدير المالي — والمانح لا يوافق على منحه",
-  },
-  "config.write": {
-    roles: ["finance_manager", "admin"],
-    refusal: "الإعدادات المالية صلاحية المدير المالي",
-  },
-  "year.administer": {
-    roles: ["admin", "finance_manager"],
-    refusal: "إدارة السنة صلاحية المدير الإداري",
-  },
-  "import.run": { roles: ["registrar", "admin"], refusal: "الاستيراد صلاحية المسجّل" },
-  "reports.read": {
-    roles: ["finance_manager", "admin", "auditor", "report_viewer"],
-    refusal: "التقارير خارج نطاق دورك",
-  },
-  /**
-   * Wider than reports.read on purpose, and it mirrors the server exactly:
-   * GET /reports/students/:id/statement admits the registrar and the cashier
-   * as well, because a desk that cannot hand a student their own statement
-   * sends them to another office to be told the same figures.
-   */
-  "statement.export": {
-    roles: ["finance_manager", "admin", "auditor", "report_viewer", "registrar", "cashier"],
-    refusal: "تصدير الكشف خارج نطاق دورك",
-  },
-  "oversight.read": {
-    roles: ["finance_manager", "admin", "auditor"],
-    refusal: "الرقابة صلاحية المدقق والمدير المالي",
-  },
-  "operators.administer": {
-    roles: ["admin"],
-    refusal: "إدارة المستخدمين صلاحية المدير الإداري",
-  },
-  "backup.manage": {
-    roles: ["admin"],
-    refusal: "النسخ الاحتياطي والاسترجاع صلاحية المدير الإداري",
-  },
-  "sponsor.manage": {
-    roles: ["finance_manager", "admin"],
-    refusal: "إدارة الكفلاء واعتماد اتفاقياتهم صلاحية المدير المالي",
-  },
-  "sponsorship.create": {
-    roles: ["finance_manager", "admin", "registrar"],
-    refusal: "تسجيل الكفالة صلاحية المسجّل أو المدير المالي",
-  },
-  "settlement.read": {
-    roles: ["finance_manager", "admin", "auditor"],
-    refusal: "التسويات البنكية عمل مالي يقرؤه المدقق",
-  },
-  "settlement.write": {
-    roles: ["finance_manager", "admin"],
-    refusal: "استيراد الكشوف وحسم السطور صلاحية المدير المالي — المدقق يراقب ولا يعمل",
-  },
-  "hosting.write": {
-    roles: ["registrar", "admin"],
-    refusal: "اتفاقيات الاستضافة صلاحية المسجّل",
-  },
-  "identity.write": {
-    roles: ["registrar", "admin"],
-    refusal: "تغيير الهوية القانونية صلاحية المسجّل، بقرار محكمة موثّق",
-  },
-  "identity.read": {
-    roles: ["registrar", "admin", "auditor"],
-    refusal: "سجل الهوية القانونية للمسجّل والمدقق",
-  },
-  "plan.adjust": {
-    roles: ["finance_manager", "admin"],
-    refusal: "تعديل خطة الأقساط صلاحية المدير المالي",
-  },
-  "intent.create": {
-    roles: ["cashier", "finance_manager", "admin"],
-    refusal: "بدء دفعة إلكترونية صلاحية الصراف أو المدير المالي",
-  },
-};
 
 export interface Session {
   user: UserView | null;
@@ -212,11 +80,7 @@ export interface Session {
   /** The sentence to show on a control this operator may not use. */
   reason: (capability: Capability) => string | undefined;
   is: (role: Role) => boolean;
-  signIn: (credentials: {
-    username: string;
-    password: string;
-    cashier_desk_id?: string;
-  }) => Promise<TokenResponse>;
+  signIn: (credentials: { username: string; password: string }) => Promise<TokenResponse>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -267,22 +131,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const roles = useMemo<Role[]>(() => user?.roles ?? [], [user]);
 
-  const can = useCallback(
-    (capability: Capability): boolean => {
-      const grant = GRANTS[capability];
-      return roles.some((role) => grant.roles.includes(role));
-    },
-    [roles],
-  );
+  // Every signed-in operator may do everything; see the Capability comment.
+  // Kept as a function rather than inlined at the call sites so that a future
+  // second role has one place to change.
+  const can = useCallback((_capability: Capability): boolean => true, []);
 
-  const reason = useCallback(
-    (capability: Capability): string | undefined =>
-      can(capability) ? undefined : GRANTS[capability].refusal,
-    [can],
-  );
+  const reason = useCallback((_capability: Capability): string | undefined => undefined, []);
 
   const signIn = useCallback(
-    async (credentials: { username: string; password: string; cashier_desk_id?: string }) => {
+    async (credentials: { username: string; password: string }) => {
       const result = await api.post<TokenResponse>("/auth/login", credentials, {
         anonymous: true,
       });

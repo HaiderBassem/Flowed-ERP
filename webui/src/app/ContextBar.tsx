@@ -1,13 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 
-import { api } from "@/api/client";
-import type { CashierDeskView } from "@/api/types";
 import { Chip, StateChip } from "@/components/Chip";
-import { Money } from "@/components/Money";
 import { Kbd } from "@/components/primitives";
-import { duration } from "@/lib/dates";
 import { useSession } from "./session";
 import { useWorkingContext } from "./working-context";
 
@@ -56,7 +51,6 @@ export function ContextBar() {
         {is("cashier") && (
           <>
             <span className="ctx__sep" />
-            <ShiftPill />
           </>
         )}
 
@@ -167,62 +161,6 @@ function ScopeBadge() {
     >
       النطاق: {restricted ? "مقيّد بكليات" : "الجامعة كاملة"}
     </span>
-  );
-}
-
-function ShiftPill() {
-  const { shift } = useWorkingContext();
-  const [, tick] = useState(0);
-
-  // The desk's code, not its id. "D01" is what is printed on the receipts and
-  // what the cashier calls their window; a slice of a UUID means nothing to
-  // anyone standing at one.
-  const desks = useQuery({
-    queryKey: ["cashier-desks"],
-    queryFn: () => api.get<CashierDeskView[]>("/cashier-desks"),
-    staleTime: 600_000,
-  });
-  const deskCode = shift
-    ? (desks.data ?? []).find((d) => d.id === shift.cashier_desk_id)?.code
-    : undefined;
-
-  // The shift clock advances without a refetch: the elapsed time derives from
-  // opened_at, so a second's re-render is all it needs.
-  useEffect(() => {
-    if (!shift || shift.status !== "open") return;
-    const id = window.setInterval(() => tick((n) => n + 1), 1000);
-    return () => window.clearInterval(id);
-  }, [shift]);
-
-  if (!shift) {
-    return (
-      <Link to="/desk/session/open" className="ctx__pill ctx__pill--warn">
-        لا وردية مفتوحة — لا يمكن القبض
-      </Link>
-    );
-  }
-
-  return (
-    <Link to="/desk/sessions" className="ctx__pill">
-      الشبّاك <b className="ltr num">{deskCode ?? "…"}</b>
-      {shift.status === "open" ? (
-        <>
-          {" · وردية "}
-          <b className="num">{duration(shift.opened_at)}</b>
-        </>
-      ) : (
-        <>
-          {" · "}
-          <StateChip entity="shift" status={shift.status} />
-        </>
-      )}
-      {shift.expected_cash !== null && shift.expected_cash !== undefined && (
-        <>
-          {" · متوقع "}
-          <Money value={shift.expected_cash} tone="plain" />
-        </>
-      )}
-    </Link>
   );
 }
 

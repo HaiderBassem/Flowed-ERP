@@ -4,8 +4,6 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { SignInScreen } from "@/domains/auth/SignInScreen";
 import { ChangePasswordScreen } from "@/domains/auth/ChangePasswordScreen";
 import { DeskScreen } from "@/domains/desk/DeskScreen";
-import { OpenShiftScreen } from "@/domains/desk/OpenShiftScreen";
-import { ShiftScreen } from "@/domains/desk/ShiftScreen";
 import { StudentSearchScreen } from "@/domains/students/StudentSearchScreen";
 import { StudentScreen } from "@/domains/students/StudentScreen";
 import { RegisterStudentScreen } from "@/domains/students/RegisterStudentScreen";
@@ -30,6 +28,7 @@ import { ImportScreen } from "@/domains/imports/ImportScreen";
 import { OperatorsScreen } from "@/domains/admin/OperatorsScreen";
 import { OperatorScreen } from "@/domains/admin/OperatorScreen";
 import { BackupScreen } from "@/domains/admin/BackupScreen";
+import { DataScreen } from "@/domains/admin/DataScreen";
 import { ReportsScreen } from "@/domains/reports/ReportsScreen";
 import { KeyedReportScreen } from "@/domains/reports/ReportScreen";
 import { ReconciliationScreen } from "@/domains/oversight/ReconciliationScreen";
@@ -38,8 +37,6 @@ import { VoidLogScreen } from "@/domains/oversight/VoidLogScreen";
 import { YearsScreen } from "@/domains/years/YearsScreen";
 import { YearScreen } from "@/domains/years/YearScreen";
 import { NewYearScreen } from "@/domains/years/NewYearScreen";
-import { SponsorsScreen } from "@/domains/sponsors/SponsorsScreen";
-import { SettlementsScreen } from "@/domains/settlements/SettlementsScreen";
 import { HostingScreen } from "@/domains/hosting/HostingScreen";
 import { IdentityScreen } from "@/domains/students/IdentityScreen";
 import { StatementScreen } from "@/domains/students/StatementScreen";
@@ -98,8 +95,6 @@ export function App() {
 
             {/* Work */}
             <Route path="/desk" element={<DeskScreen />} />
-            <Route path="/desk/session/open" element={<OpenShiftScreen />} />
-            <Route path="/desk/sessions" element={<ShiftScreen />} />
             <Route path="/inbox/voids" element={<VoidInboxScreen />} />
             <Route path="/inbox/refunds" element={<RefundInboxScreen />} />
             <Route
@@ -141,9 +136,7 @@ export function App() {
             <Route path="/accounts/new" element={<GenerateAccountScreen />} />
             <Route path="/accounts/:id" element={<AccountScreen />} />
             <Route path="/payments/:id" element={<PaymentScreen />} />
-            <Route path="/sponsors" element={<SponsorsScreen />} />
             <Route path="/hosting" element={<HostingScreen />} />
-            <Route path="/settlements" element={<SettlementsScreen />} />
             <Route path="/me/sessions" element={<MySessionsScreen />} />
             <Route path="/years" element={<YearsScreen />} />
             <Route path="/years/new" element={<NewYearScreen />} />
@@ -177,6 +170,7 @@ export function App() {
             <Route path="/admin/operators" element={<OperatorsScreen />} />
             <Route path="/admin/operators/:id" element={<OperatorScreen />} />
             <Route path="/admin/backups" element={<BackupScreen />} />
+            <Route path="/admin/data" element={<DataScreen />} />
 
             <Route path="*" element={<NotBuiltScreen />} />
           </Routes>

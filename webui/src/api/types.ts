@@ -73,6 +73,19 @@ export interface StudentView {
   current_study_type_code?: string | null;
   current_stage?: number | null;
   current_academic_year_id?: UUID | null;
+  /**
+   * What the student owes and has paid, across every account of theirs that
+   * was not cancelled. Read-time, like current_* above — absent when the
+   * student has no account yet, which is not the same as having paid nothing.
+   */
+  effective_net?: RawAmount;
+  paid_total?: RawAmount;
+  outstanding?: RawAmount;
+  /** 0..100, floored. A student owing nothing is 100. */
+  paid_percent?: number;
+
+  /** The day the office registered them, which is not when the row was made. */
+  registered_on?: string;
 }
 
 /** The outcome of POST /students/intake — identity, placement, and pricing

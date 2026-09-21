@@ -23,7 +23,7 @@ import { ROLE_LABELS, useSession } from "./session";
  */
 export function HomeScreen() {
   const { user, can } = useSession();
-  const { shift, activeYear } = useWorkingContext();
+  const { activeYear } = useWorkingContext();
 
   const voids = useQuery({
     queryKey: ["voids", "pending"],
@@ -38,31 +38,21 @@ export function HomeScreen() {
 
   const pendingSignatures = (voids.data?.length ?? 0) + (refunds.data?.length ?? 0);
 
-  const start = can("payment.record")
-    ? {
-        to: shift?.status === "open" ? "/desk" : "/desk/session/open",
-        label: shift?.status === "open" ? "شبّاك القبض" : "افتح وردية أولاً",
-        why:
-          shift?.status === "open"
-            ? "الوردية مفتوحة. يومك يبدأ ببحث عن طالب."
-            : "لا يمكن القبض قبل فتح وردية على شبّاكك.",
-      }
-    : can("payment.void.execute")
+  // One account does everything, so the landing route is chosen by what is
+  // actually waiting rather than by what the operator is allowed to do. A
+  // pending document waits on a person; collecting waits on nobody.
+  const start =
+    pendingSignatures > 0
       ? {
           to: "/inbox/voids",
           label: "صندوق الوارد",
-          why:
-            pendingSignatures > 0
-              ? `${pendingSignatures} وثيقة تنتظر توقيعك. الوثيقة المعلّقة تنتظر شخصاً، لا نظاماً.`
-              : "لا شيء ينتظر توقيعك الآن.",
+          why: `${pendingSignatures} وثيقة تنتظر توقيعك. الوثيقة المعلّقة تنتظر شخصاً، لا نظاماً.`,
         }
-      : can("oversight.read")
-        ? {
-            to: "/oversight/reconciliation",
-            label: "المصالحة",
-            why: "ابدأ بالسؤال الذي يسبق كل الأسئلة: هل النظام سليم.",
-          }
-        : { to: "/students", label: "الطلبة", why: "ابدأ من الكائن." };
+      : {
+          to: "/desk",
+          label: "قبض الأجور",
+          why: "يومك يبدأ ببحث عن طالب.",
+        };
 
   return (
     <main className="screen">

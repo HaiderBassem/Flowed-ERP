@@ -20,7 +20,7 @@ export interface NavItem {
   icon: string;
   capability?: Capability;
   /** Which live counter, if any, belongs beside this item. */
-  counter?: "voids" | "refunds" | "settlement_exceptions";
+  counter?: "voids" | "refunds";
   /**
    * The specification asks for this screen but the API exposes no way to build
    * it. Shown, and honest about why, rather than quietly dropped — a missing
@@ -37,11 +37,17 @@ export interface NavPlane {
 
 export const PLANES: NavPlane[] = [
   {
-    title: "العمل",
-    caption: "ما يخصّني الآن",
+    title: "اليومي",
+    caption: "ما أعمله الآن",
     items: [
-      { label: "شبّاك القبض", to: "/desk", icon: "desk", capability: "payment.record" },
-      { label: "وردياتي", to: "/desk/sessions", icon: "shift", capability: "shift.open" },
+      { label: "قبض الأجور", to: "/desk", icon: "desk", capability: "payment.record" },
+      { label: "الطلبة", to: "/students", icon: "students" },
+      {
+        label: "تسجيل طالب جديد",
+        to: "/students/new",
+        icon: "enroll",
+        capability: "student.register",
+      },
       {
         label: "طلبات الإلغاء",
         to: "/inbox/voids",
@@ -56,70 +62,40 @@ export const PLANES: NavPlane[] = [
         capability: "refund.approve",
         counter: "refunds",
       },
-      {
-        label: "استثناءات التسوية",
-        to: "/settlements?tab=exceptions",
-        icon: "bank",
-        capability: "settlement.write",
-        counter: "settlement_exceptions",
-      },
-      {
-        label: "خصومات تنتظر تأكيداً",
-        to: "/inbox/discounts",
-        icon: "discount",
-        capability: "discount.confirm",
-        unavailable: "لا يوفّر الـ API قائمة بالتطبيقات المعلّقة",
-      },
-      {
-        label: "ورديات تنتظر اعتماداً",
-        to: "/inbox/shifts",
-        icon: "approve",
-        capability: "shift.approve",
-        unavailable: "لا يوفّر الـ API قائمة بالورديات المغلقة",
-      },
     ],
   },
   {
-    title: "السجلات",
-    caption: "أين الكائن",
+    title: "السنة الدراسية",
+    caption: "الفتح والترقية",
     items: [
-      { label: "الطلبة", to: "/students", icon: "students" },
+      { label: "السنوات الدراسية", to: "/years", icon: "years", capability: "year.administer" },
       {
         label: "تسجيل في سنة",
         to: "/enrollments/new",
         icon: "enroll",
         capability: "enrollment.write",
       },
-      { label: "السنوات الدراسية", to: "/years", icon: "years" },
-      { label: "الكفلاء", to: "/sponsors", icon: "sponsors", capability: "settlement.read" },
-      { label: "الاستضافة", to: "/hosting", icon: "identity", capability: "hosting.write" },
-      { label: "الاستيراد", to: "/imports", icon: "imports", capability: "import.run" },
-    ],
-  },
-  {
-    title: "الجماعي",
-    caption: "بمعاينة إلزامية",
-    items: [
+      {
+        label: "النجاح والرسوب والترقية",
+        to: "/bulk/promotions",
+        icon: "promote",
+        capability: "enrollment.result",
+      },
       {
         label: "توليد حسابات جماعي",
         to: "/bulk/accounts",
         icon: "bulk",
         capability: "account.generate",
       },
-      {
-        label: "الترقية الجماعية",
-        to: "/bulk/promotions",
-        icon: "promote",
-        capability: "enrollment.result",
-      },
+      { label: "الاستضافة", to: "/hosting", icon: "identity", capability: "hosting.write" },
     ],
   },
   {
-    title: "الإعدادات المالية",
+    title: "الأجور والخصومات",
     caption: "ما يتجمّد في الحسابات",
     items: [
       {
-        label: "سياسات الرسوم",
+        label: "أجور الدراسة والاستضافة",
         to: "/config/fee-policies",
         icon: "policy",
         capability: "config.write",
@@ -131,37 +107,55 @@ export const PLANES: NavPlane[] = [
         capability: "config.write",
       },
       {
-        label: "تعريفات الخصومات",
+        label: "أنواع الخصومات",
         to: "/config/discounts",
         icon: "discount",
         capability: "config.write",
       },
       {
-        label: "البيانات المرجعية",
+        label: "الكليات والأقسام وأنواع الطلبة",
         to: "/config/reference",
         icon: "reference",
-        capability: "operators.administer",
+        capability: "config.write",
       },
     ],
   },
   {
-    title: "الحوكمة",
-    caption: "هل النظام سليم",
+    title: "التقارير والبيانات",
+    caption: "الإخراج والإدخال",
     items: [
       { label: "التقارير", to: "/reports", icon: "reports", capability: "reports.read" },
+      { label: "استيراد طلبة من ملف", to: "/imports", icon: "imports", capability: "import.run" },
       {
-        label: "التسويات البنكية",
-        to: "/settlements",
-        icon: "bank",
-        capability: "settlement.read",
+        label: "تصدير واستيراد بيانات النظام",
+        to: "/admin/data",
+        icon: "backup",
+        capability: "data.transfer",
       },
+      {
+        label: "النسخ الاحتياطي",
+        to: "/admin/backups",
+        icon: "backup",
+        capability: "backup.manage",
+      },
+    ],
+  },
+  {
+    title: "السلامة",
+    caption: "هل الحسابات سليمة",
+    items: [
       {
         label: "المصالحة",
         to: "/oversight/reconciliation",
         icon: "scale",
         capability: "oversight.read",
       },
-      { label: "سلسلة التدقيق", to: "/oversight/audit", icon: "shield", capability: "oversight.read" },
+      {
+        label: "سلسلة التدقيق",
+        to: "/oversight/audit",
+        icon: "shield",
+        capability: "oversight.read",
+      },
       {
         label: "سجل الإلغاءات",
         to: "/oversight/voids",
@@ -173,12 +167,6 @@ export const PLANES: NavPlane[] = [
         to: "/admin/operators",
         icon: "operators",
         capability: "operators.administer",
-      },
-      {
-        label: "النسخ الاحتياطي",
-        to: "/admin/backups",
-        icon: "backup",
-        capability: "backup.manage",
       },
     ],
   },

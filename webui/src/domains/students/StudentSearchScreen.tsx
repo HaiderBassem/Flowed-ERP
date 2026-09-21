@@ -7,7 +7,8 @@ import { isRefusal } from "@/api/errors";
 import type { Page, StudentView } from "@/api/types";
 import { useStudyTypes } from "@/api/reference";
 import { RefusalPanel } from "@/components/RefusalPanel";
-import { StudyTypeChip } from "@/components/Chip";
+import { Chip, StudyTypeChip } from "@/components/Chip";
+import { Money } from "@/components/Money";
 import { EmptyState, Panel, Skeleton } from "@/components/primitives";
 import { useSession } from "@/app/session";
 import { useWorkingContext } from "@/app/working-context";
@@ -33,6 +34,8 @@ export function StudentSearchScreen() {
   const [academicYearId, setAcademicYearId] = useState(params.get("academic_year_id") ?? "");
   const [studyTypeId, setStudyTypeId] = useState(params.get("study_type_id") ?? "");
   const [stage, setStage] = useState(params.get("stage") ?? "");
+  const [paidMin, setPaidMin] = useState(params.get("paid_percent_min") ?? "");
+  const [paidMax, setPaidMax] = useState(params.get("paid_percent_max") ?? "");
   const debounced = useDebounced(term, 250);
 
   useEffect(() => {
@@ -45,14 +48,27 @@ export function StudentSearchScreen() {
     else next.delete("study_type_id");
     if (stage) next.set("stage", stage);
     else next.delete("stage");
+    if (paidMin) next.set("paid_percent_min", paidMin);
+    else next.delete("paid_percent_min");
+    if (paidMax) next.set("paid_percent_max", paidMax);
+    else next.delete("paid_percent_max");
     setParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced, academicYearId, studyTypeId, stage]);
+  }, [debounced, academicYearId, studyTypeId, stage, paidMin, paidMax]);
 
-  const filtersActive = Boolean(academicYearId || studyTypeId || stage);
+  const filtersActive = Boolean(academicYearId || studyTypeId || stage || paidMin || paidMax);
 
   const results = useQuery({
-    queryKey: ["students", "index", debounced, academicYearId, studyTypeId, stage],
+    queryKey: [
+      "students",
+      "index",
+      debounced,
+      academicYearId,
+      studyTypeId,
+      stage,
+      paidMin,
+      paidMax,
+    ],
     queryFn: () =>
       api.get<Page<StudentView>>("/students", {
         query: {
@@ -61,6 +77,8 @@ export function StudentSearchScreen() {
           ...(academicYearId ? { academic_year_id: academicYearId } : {}),
           ...(studyTypeId ? { study_type_id: studyTypeId } : {}),
           ...(stage ? { stage } : {}),
+          ...(paidMin ? { paid_percent_min: paidMin } : {}),
+          ...(paidMax ? { paid_percent_max: paidMax } : {}),
         },
       }),
     enabled: debounced.trim().length >= 2 || filtersActive,
@@ -132,6 +150,71 @@ export function StudentSearchScreen() {
             </select>
           </label>
         </div>
+        {/*
+          Searching by how much of the fees a student has paid. The office asks
+          this out loud — "who has paid half" — and it is not answerable by
+          filtering an amount, because half of one student's fees is another
+          student's whole year. The presets are the three questions actually
+          asked; the two boxes are there for everything else.
+        */}
+        <div className="cols cols--thirds" style={{ marginTop: 10 }}>
+          <label className="field">
+            <span className="field__label">نسبة الدفع من</span>
+            <input
+              className="input num"
+              type="number"
+              min={0}
+              max={100}
+              placeholder="٪"
+              value={paidMin}
+              onChange={(e) => setPaidMin(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span className="field__label">نسبة الدفع إلى</span>
+            <input
+              className="input num"
+              type="number"
+              min={0}
+              max={100}
+              placeholder="٪"
+              value={paidMax}
+              onChange={(e) => setPaidMax(e.target.value)}
+            />
+          </label>
+          <div className="field">
+            <span className="field__label">اختصارات</span>
+            <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+              {PAID_PRESETS.map((preset) => (
+                <button
+                  key={preset.label}
+                  type="button"
+                  className={
+                    paidMin === preset.min && paidMax === preset.max
+                      ? "btn btn--sm btn--primary"
+                      : "btn btn--sm"
+                  }
+                  onClick={() => {
+                    const already = paidMin === preset.min && paidMax === preset.max;
+                    setPaidMin(already ? "" : preset.min);
+                    setPaidMax(already ? "" : preset.max);
+                  }}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {(paidMin || paidMax) && (
+          <p className="note" style={{ marginTop: 6 }}>
+            النسبة تُحسب من مجموع المستحق على كل حسابات الطالب غير الملغاة. الطالب الذي لا
+            يستحق عليه شيء يُحتسب ١٠٠٪؛ والطالب الذي لم تُولَّد له حسابات بعد لا يظهر هنا
+            أصلاً، لأنه لم يُطالَب بشيء.
+          </p>
+        )}
+
         {debounced.trim().length >= 2 && fold(debounced) !== debounced.trim() && (
           <p className="note" style={{ marginTop: 6 }}>
             طُبِّع البحث إلى <span className="ltr">{fold(debounced)}</span> — النتائج تشمل الصيغتين
@@ -178,6 +261,8 @@ export function StudentSearchScreen() {
                   <th>الهاتف</th>
                   <th>نوع الدراسة</th>
                   <th>السنة الدراسية</th>
+                  <th className="num">المتبقّي</th>
+                  <th className="num">نسبة الدفع</th>
                   <th>الحالة</th>
                 </tr>
               </thead>
@@ -197,6 +282,16 @@ export function StudentSearchScreen() {
                     </td>
                     <td className="num">
                       {years.find((y) => y.id === student.current_academic_year_id)?.code ?? "—"}
+                    </td>
+                    <td className="num">
+                      {student.outstanding === undefined || student.outstanding === null ? (
+                        "—"
+                      ) : (
+                        <Money value={student.outstanding} tone="plain" />
+                      )}
+                    </td>
+                    <td className="num">
+                      <PaidPercent value={student.paid_percent} />
                     </td>
                     <td>{labelStudentStatus(student.status)}</td>
                   </tr>
@@ -223,4 +318,29 @@ function useDebounced<T>(value: T, ms: number): T {
     return () => window.clearTimeout(id);
   }, [value, ms]);
   return debounced;
+}
+
+/** The three questions the office actually asks about payment. */
+const PAID_PRESETS: { label: string; min: string; max: string }[] = [
+  { label: "لم يدفع شيئاً", min: "", max: "0" },
+  { label: "دفع جزءاً", min: "1", max: "99" },
+  { label: "مكتمل الدفع", min: "100", max: "" },
+];
+
+/**
+ * The paid percentage, shown as a bar as well as a number.
+ *
+ * A dash rather than a zero when there is nothing to report: a student with no
+ * account has not paid nothing, they have not been billed, and putting them at
+ * 0% would place every un-priced intake at the top of the chase list.
+ */
+function PaidPercent({ value }: { value?: number | null }) {
+  if (value === undefined || value === null) return <span className="muted">—</span>;
+
+  const tone = value >= 100 ? "live" : value === 0 ? "void" : "pending";
+  return (
+    <span className="row" style={{ gap: 6, justifyContent: "flex-end" }}>
+      <Chip tone={tone}>{value}٪</Chip>
+    </span>
+  );
 }

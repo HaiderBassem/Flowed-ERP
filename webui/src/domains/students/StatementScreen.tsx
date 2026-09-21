@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
 import { isRefusal, type Refusal } from "@/api/errors";
-import type { StatementVerificationView, StudentStatementView } from "@/api/types";
+import type { RawAmount } from "@/api/types";
 import { Chip, StateChip } from "@/components/Chip";
 import { Crumbs } from "@/components/Crumbs";
 import { Money } from "@/components/Money";
@@ -34,7 +34,7 @@ export function StatementScreen() {
 
   const statement = useQuery({
     queryKey: ["statement", id],
-    queryFn: () => api.get<StudentStatementView>(`/portal/students/${id}/statement`),
+    queryFn: () => api.get<StatementReport>(`/reports/students/${id}/statement`),
     enabled: Boolean(id),
   });
 
@@ -60,7 +60,7 @@ export function StatementScreen() {
     );
   }
 
-  const view = statement.data!;
+  const view = flatten(statement.data!);
 
   return (
     <main className="screen">
@@ -154,27 +154,6 @@ export function StatementScreen() {
               )}
             </div>
 
-            {/* Who is paying — the funding split, when a sponsor exists. */}
-            {account.funding && (
-              <div>
-                <span className="field__label">من يدفع</span>
-                <Row label="يغطيه كفيل">
-                  <Money value={account.funding.sponsor_covered} tone="plain" />
-                </Row>
-                <Row label="ذمة على الكفيل">
-                  <Money value={account.funding.sponsor_receivable} tone="plain" />
-                </Row>
-                <Row label="دفعه الكفيل">
-                  <Money value={account.funding.sponsor_paid} tone="positive" />
-                </Row>
-                <Row label="دفعه الطالب">
-                  <Money value={account.funding.student_paid} tone="positive" />
-                </Row>
-                <Row label="على الطالب">
-                  <Money value={account.funding.student_outstanding} />
-                </Row>
-              </div>
-            )}
           </div>
 
           {(account.payments ?? []).length > 0 && (
@@ -223,8 +202,6 @@ export function StatementScreen() {
           )}
         </Panel>
       ))}
-
-      <VerificationPanel studentId={view.student_id} />
     </main>
   );
 }
@@ -277,80 +254,95 @@ function StatementExport({ studentId }: { studentId: string }) {
   );
 }
 
-function VerificationPanel({ studentId }: { studentId: string }) {
-  const [days, setDays] = useState("30");
-  const [issued, setIssued] = useState<StatementVerificationView | null>(null);
-  const [refusal, setRefusal] = useState<Refusal | null>(null);
+export { Chip };
 
-  const issue = useMutation({
-    mutationFn: () =>
-      api.post<StatementVerificationView>(`/portal/students/${studentId}/statement/verification`, {
-        valid_for_days: Number(days) || 30,
-      }),
-    onSuccess: (result) => {
-      setIssued(result);
-      setRefusal(null);
-    },
-    onError: (error) => {
-      if (isRefusal(error)) setRefusal(error);
-    },
-  });
+/* ------------------------------------------------------------------ shape */
 
-  return (
-    <div style={{ marginTop: 12 }}>
-      <Panel
-        title="رمز تحقق للنسخة المطبوعة"
-        aside={<span className="label">يجعل الورقة قابلة للفحص من طرف ثالث</span>}
-      >
-        <p className="note" style={{ marginBottom: 10 }}>
-          دائرة تستلم الكشف تدخل الرمز على{" "}
-          <span className="k ltr">/verify/statement/&lt;code&gt;</span> بلا حساب، فتعلم أن هذه
-          الجامعة أصدرت هذه الأرقام لهذا الشخص — ولا شيء غير ذلك. الرمز ينتهي، لأن براءة ذمة
-          عمرها سنتان تُقدَّم على أنها حالية هي بالضبط ما تمنعه الصلاحية.
-        </p>
-
-        <div className="cluster no-print">
-          <label className="field" style={{ margin: 0, maxWidth: 160 }}>
-            <span className="field__label">صالح لأيام</span>
-            <input
-              className="input ltr"
-              inputMode="numeric"
-              value={days}
-              onChange={(e) => setDays(e.target.value)}
-            />
-          </label>
-          <Button variant="primary" busy={issue.isPending} onClick={() => issue.mutate()}>
-            إصدار رمز
-          </Button>
-        </div>
-
-        {refusal && (
-          <div style={{ marginTop: 10 }}>
-            <RefusalPanel refusal={refusal} />
-          </div>
-        )}
-
-        {issued && (
-          <div className="callout" style={{ marginTop: 10 }}>
-            <Row label="الرمز">
-              <b className="ltr num" style={{ fontSize: "1.2em" }}>
-                {issued.code}
-              </b>
-            </Row>
-            <Row label="ينتهي">
-              <span className="num">{formatDateTime(issued.expires_at)}</span>
-            </Row>
-            <Row label="المتبقي المُوثَّق">
-              <Money value={issued.outstanding} tone="plain" />
-            </Row>
-            <p className="note" style={{ marginTop: 6 }}>
-              اطبع الكشف بعد الإصدار ليخرج الرمز على الورقة.
-            </p>
-          </div>
-        )}
-      </Panel>
-    </div>
-  );
+/**
+ * The statement report, as the server sends it.
+ *
+ * Only the fields this screen reads are declared. The report carries a good
+ * deal more — fee components, discounts, adjustments — and declaring all of it
+ * here would be a second copy of the server's view struct to keep in step.
+ */
+interface StatementReport {
+  student: { id: string; student_no: string; full_name: string };
+  accounts: StatementAccount[];
+  totals: { effective_net: RawAmount; net_paid: RawAmount; remaining: RawAmount };
 }
 
-export { Chip };
+interface StatementAccount {
+  account_id: string;
+  academic_year_code: string;
+  account_status: string;
+  gross_total: RawAmount;
+  discount_total: RawAmount;
+  effective_net: RawAmount;
+  net_paid: RawAmount;
+  credit_balance: RawAmount;
+  remaining: RawAmount;
+  installments: { due_date: string; remaining: RawAmount; status: string }[];
+  payments: {
+    payment_id: string;
+    receipt_no: string | null;
+    amount: RawAmount;
+    method_code: string;
+    status: string;
+    paid_at: string;
+  }[];
+}
+
+/**
+ * flatten adapts the report to the shape this screen was written against.
+ *
+ * The portal computed a statement with its totals at the top level and called
+ * the fields "total_charged", "total_paid" and "outstanding"; the report nests
+ * them under "totals" and calls the last one "remaining". The screen is worth
+ * more than the names, so the names are translated once, here, rather than at
+ * forty call sites where the next renamed field becomes a silent zero.
+ *
+ * The next due date is derived rather than read: the report lists installments
+ * and the statement wants the earliest one still owing, which is a question
+ * about the list rather than a field on it.
+ */
+function flatten(report: StatementReport) {
+  const due = report.accounts
+    .flatMap((account) => account.installments)
+    .filter((installment) => installment.status !== "paid" && amount(installment.remaining) > 0n)
+    .sort((a, b) => a.due_date.localeCompare(b.due_date))[0];
+
+  return {
+    student_id: report.student.id,
+    student_no: report.student.student_no,
+    full_name: report.student.full_name,
+    // The report is computed per request, so "now" is when it was computed.
+    generated_at: new Date().toISOString(),
+    total_charged: report.totals.effective_net,
+    total_paid: report.totals.net_paid,
+    outstanding: report.totals.remaining,
+    next_due: due ? { due_date: due.due_date, remaining: due.remaining } : undefined,
+    accounts: report.accounts.map((account) => ({
+      account_id: account.account_id,
+      academic_year: account.academic_year_code,
+      status: account.account_status,
+      gross: account.gross_total,
+      discount: account.discount_total,
+      effective_net: account.effective_net,
+      paid: account.net_paid,
+      credit: account.credit_balance,
+      outstanding: account.remaining,
+      payments: account.payments.map((payment) => ({
+        payment_id: payment.payment_id,
+        receipt_no: payment.receipt_no,
+        amount: payment.amount,
+        method: payment.method_code,
+        status: payment.status,
+        paid_at: payment.paid_at,
+        // The report does not break a payment down by what was refunded from
+        // it. Shown as nothing rather than as zero, because zero would assert
+        // that none was returned.
+        refunded: 0 as RawAmount,
+      })),
+    })),
+  };
+}

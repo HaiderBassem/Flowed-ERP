@@ -1,9 +1,9 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 
 import { api } from "@/api/client";
-import type { CashierSessionView, YearView } from "@/api/types";
+import type { YearView } from "@/api/types";
 import { useSession } from "./session";
 
 /**
@@ -25,15 +25,13 @@ export interface WorkingContext {
   /** Years that still accept money — usually one, occasionally two. */
   postingYears: YearView[];
   setActiveYear: (code: string) => void;
-  shift: CashierSessionView | null;
-  shiftQuery: UseQueryResult<CashierSessionView | null>;
   loading: boolean;
 }
 
 const Context = createContext<WorkingContext | null>(null);
 
 export function WorkingContextProvider({ children }: { children: ReactNode }) {
-  const { user, is } = useSession();
+  const { user } = useSession();
   const [params, setParams] = useSearchParams();
 
   // A bare array. Only the endpoints that actually paginate — student search,
@@ -48,26 +46,6 @@ export function WorkingContextProvider({ children }: { children: ReactNode }) {
   });
 
   const years = useMemo(() => yearsQuery.data ?? [], [yearsQuery.data]);
-
-  /**
-   * The current shift.
-   *
-   * Answered 200 with {open, session} whether or not one is open — having none
-   * is a normal state at the start of the day, and the endpoint deliberately
-   * does not treat it as a 404. The envelope is unwrapped here so that every
-   * screen reads a session or null rather than repeating the check.
-   */
-  const shiftQuery = useQuery({
-    queryKey: ["cashier-session", "current"],
-    queryFn: async () => {
-      const result = await api.get<{ open: boolean; session: CashierSessionView | null }>(
-        "/cashier-sessions/current",
-      );
-      return result.session ?? null;
-    },
-    enabled: Boolean(user) && is("cashier"),
-    refetchInterval: 60_000,
-  });
 
   const requestedYear = params.get("year");
 
@@ -96,11 +74,9 @@ export function WorkingContextProvider({ children }: { children: ReactNode }) {
         next.set("year", code);
         setParams(next, { replace: false });
       },
-      shift: shiftQuery.data ?? null,
-      shiftQuery,
       loading: yearsQuery.isLoading,
     }),
-    [years, activeYear, params, setParams, shiftQuery, yearsQuery.isLoading],
+    [years, activeYear, params, setParams, yearsQuery.isLoading],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;
