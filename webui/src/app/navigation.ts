@@ -168,6 +168,12 @@ export const PLANES: NavPlane[] = [
         icon: "operators",
         capability: "operators.administer",
       },
+      {
+        label: "الإعدادات",
+        to: "/settings",
+        icon: "reference",
+        capability: "operators.administer",
+      },
     ],
   },
 ];

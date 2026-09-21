@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	"flowed/internal/adapter/pdf"
@@ -128,7 +129,7 @@ func (s *ReceiptService) PaymentReceipt(
 		}
 		data.CopyNumber = copyNumber
 		data.PrintedAt = nowOr(s.deps.Clock)
-		data.PrintedBy = actor.Username
+		data.PrintedBy = s.printedBy(ctx, actor)
 
 		rendered, err = s.render(data, format)
 		return err
@@ -168,7 +169,7 @@ func (s *ReceiptService) RefundReceipt(
 		}
 		data.CopyNumber = copyNumber
 		data.PrintedAt = nowOr(s.deps.Clock)
-		data.PrintedBy = actor.Username
+		data.PrintedBy = s.printedBy(ctx, actor)
 
 		rendered, err = s.render(data, format)
 		return err
@@ -287,7 +288,9 @@ func (s *ReceiptService) fillContext(ctx context.Context, data *receipt.Data, st
 	data.NetFees = account.EffectiveNet()
 	data.PaidToDate = account.NetPaid()
 	data.Remaining = account.Remaining()
-	data.StageLabel = "المرحلة " + strconv.Itoa(int(account.Stage))
+	// The number alone: the field is already labelled المرحلة, and "المرحلة
+	// المرحلة 1" is what printing the word twice produces.
+	data.StageLabel = strconv.Itoa(int(account.Stage))
 
 	if year, err := s.deps.Years.GetByID(ctx, account.AcademicYearID); err == nil {
 		data.AcademicYear = year.Code
@@ -398,4 +401,22 @@ func sanitiseFilename(s string) string {
 		return "document"
 	}
 	return string(out)
+}
+
+// printedBy is the name that goes on the printed slip.
+//
+// The operator's full name rather than their username: "بواسطة ahmed" tells a
+// student nothing, and the settings screen promises that the name typed there
+// is what appears here. Falls back to the username when the account cannot be
+// read, because a receipt with an imperfect footer still beats no receipt for
+// money already taken.
+func (s *ReceiptService) printedBy(ctx context.Context, actor shared.Actor) string {
+	if shared.IsNil(actor.UserID) {
+		return actor.Username
+	}
+	user, err := s.deps.Users.GetByID(ctx, actor.UserID)
+	if err != nil || user == nil || strings.TrimSpace(user.FullName) == "" {
+		return actor.Username
+	}
+	return user.FullName
 }

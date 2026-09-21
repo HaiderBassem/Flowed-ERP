@@ -29,6 +29,7 @@ import { OperatorsScreen } from "@/domains/admin/OperatorsScreen";
 import { OperatorScreen } from "@/domains/admin/OperatorScreen";
 import { BackupScreen } from "@/domains/admin/BackupScreen";
 import { DataScreen } from "@/domains/admin/DataScreen";
+import { SettingsScreen } from "@/domains/admin/SettingsScreen";
 import { ReportsScreen } from "@/domains/reports/ReportsScreen";
 import { KeyedReportScreen } from "@/domains/reports/ReportScreen";
 import { ReconciliationScreen } from "@/domains/oversight/ReconciliationScreen";
@@ -138,6 +139,14 @@ export function App() {
             <Route path="/payments/:id" element={<PaymentScreen />} />
             <Route path="/hosting" element={<HostingScreen />} />
             <Route path="/me/sessions" element={<MySessionsScreen />} />
+            {/*
+              Reachable on purpose, not only when the server forces it. The
+              screen was mounted solely behind must_change_password, so an
+              operator who wanted to change a password nobody had reset for
+              them had nowhere to go — which is how one credential ends up
+              serving an office for years.
+            */}
+            <Route path="/me/password" element={<ChangePasswordScreen />} />
             <Route path="/years" element={<YearsScreen />} />
             <Route path="/years/new" element={<NewYearScreen />} />
             <Route path="/years/:id" element={<YearScreen />} />
@@ -171,6 +180,7 @@ export function App() {
             <Route path="/admin/operators/:id" element={<OperatorScreen />} />
             <Route path="/admin/backups" element={<BackupScreen />} />
             <Route path="/admin/data" element={<DataScreen />} />
+            <Route path="/settings" element={<SettingsScreen />} />
 
             <Route path="*" element={<NotBuiltScreen />} />
           </Routes>

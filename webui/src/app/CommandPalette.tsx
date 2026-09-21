@@ -49,6 +49,7 @@ const COMMANDS: Command[] = [
   { id: "data", label: "تصدير واستيراد بيانات النظام", to: "/admin/data", capability: "data.transfer" },
   { id: "backups", label: "النسخ الاحتياطي", to: "/admin/backups", capability: "backup.manage" },
   { id: "operators", label: "المستخدمون والجلسات", to: "/admin/operators", capability: "operators.administer" },
+  { id: "settings", label: "الإعدادات — اسم الجامعة والشعار", to: "/settings" },
   { id: "my-sessions", label: "جلساتي", to: "/me/sessions" },
   { id: "reconciliation", label: "المصالحة", to: "/oversight/reconciliation", capability: "oversight.read" },
   { id: "audit-chain", label: "تحقق سلسلة التدقيق", to: "/oversight/audit", capability: "oversight.read" },
