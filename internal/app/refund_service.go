@@ -259,7 +259,7 @@ func (s *RefundService) PostRefund(ctx context.Context, actor shared.Actor, refu
 			allocations = append(allocations, *a)
 		}
 
-		creditAvailable, creditRows, err := s.lockCreditsFromPayment(ctx, account.StudentID, source.ID)
+		creditAvailable, creditRows, err := s.lockCreditsFromPayment(ctx, account.StudentID, source.ID, account.ID)
 		if err != nil {
 			return err
 		}
@@ -406,14 +406,34 @@ func (s *RefundService) PostRefund(ctx context.Context, actor shared.Actor, refu
 	return refund, nil
 }
 
-// lockCreditsFromPayment locks the credit entries a specific payment created
-// and reports how much of them is still available.
+// lockCreditsFromPayment locks the credit this refund may hand back and reports
+// how much of it is still available.
 //
 // Locking is what stops the same credit being spent twice. Carrying it forward
 // onto next year's account and refunding it in cash are different code paths
 // locking different accounts; without a lock on the credit row itself, both
 // would read the same balance and both would pay it out.
-func (s *RefundService) lockCreditsFromPayment(ctx context.Context, studentID, paymentID shared.ID) (money.Amount, []*billing.CreditEntry, error) {
+//
+// Two kinds of credit qualify, and the second is here because its absence paid
+// the same dinar out twice.
+//
+//  1. Credit this payment itself raised — an overpayment. Scoped to the payment
+//     because unwinding another payment's credit would let a refund of A strip
+//     the funding B provided.
+//  2. Credit raised by waiving this account's obligation. A withdrawal treated
+//     as waive_all reverses what is owed and turns everything already collected
+//     into credit, but the paid installments and their allocations stay exactly
+//     as they were — so the same money is represented twice, once as
+//     allocations and once as credit. A refund that could not see the waiver
+//     credit unwound the allocations instead and left the credit open: the
+//     student took the cash and the university still owed it, and every
+//     reconciliation check read clean because the refund never exceeded the
+//     payment. Consuming it first collapses the two representations back into
+//     one. Scoped to this payment's own account, so a waiver raised on another
+//     enrollment stays out of reach.
+func (s *RefundService) lockCreditsFromPayment(
+	ctx context.Context, studentID, paymentID, accountID shared.ID,
+) (money.Amount, []*billing.CreditEntry, error) {
 	credits, err := s.deps.Accounts.ListOpenCredits(ctx, studentID)
 	if err != nil {
 		return 0, nil, err
@@ -422,7 +442,9 @@ func (s *RefundService) lockCreditsFromPayment(ctx context.Context, studentID, p
 	var available money.Amount
 	locked := make([]*billing.CreditEntry, 0, len(credits))
 	for _, credit := range credits {
-		if credit.SourceReference == nil || *credit.SourceReference != paymentID {
+		fromThisPayment := credit.SourceReference != nil && *credit.SourceReference == paymentID
+		waiverOnThisAccount := credit.Source == billing.CreditFromWaiver && credit.AccountID == accountID
+		if !fromThisPayment && !waiverOnThisAccount {
 			continue
 		}
 		row, err := s.deps.Accounts.GetCreditForUpdate(ctx, credit.ID)
