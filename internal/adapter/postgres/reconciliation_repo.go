@@ -420,8 +420,13 @@ func (r *ReconciliationRepository) CheckAuditChain(ctx context.Context, limit in
 
 	// The checkpoint's own entry must still hash to what was recorded. This is
 	// the one row that makes resuming safe rather than merely cheap.
+	//
+	// A checkpoint at sequence zero is exempt: it is what a pass over an empty
+	// trail leaves behind, and it points at no entry. Probing audit_log for it
+	// would find nothing — sequence numbers start at one — and report the trail
+	// as rewritten on a database where nothing has happened yet.
 	var found []port.ObservedFinding
-	if fromHash != nil {
+	if from > 0 && fromHash != nil {
 		var stillThere bool
 		if err := q.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM audit_log WHERE sequence_no = $1 AND entry_hash = $2)`,

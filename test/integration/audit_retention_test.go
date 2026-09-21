@@ -20,6 +20,11 @@ func TestChainVerificationResumesFromItsCheckpoint(t *testing.T) {
 	db := shipTestDB(t)
 	store := postgres.NewReconciliationRepository(db)
 
+	// Entries first: a checkpoint names the entry it stopped at, so a pass over
+	// an empty trail has nothing to point at and leaves a zero. The suite must
+	// not depend on another test having written the trail before this one ran.
+	appendAuditEntries(t, db, "retention-"+shared.NewID().String(), 2)
+
 	// A first pass establishes a checkpoint.
 	if _, _, err := store.CheckAuditChain(ctx, 100); err != nil {
 		t.Fatalf("first pass: %v", err)

@@ -47,7 +47,7 @@ func TestEveryRouteIsInTheSpec(t *testing.T) {
 		if strings.HasPrefix(route.Path, "/app/") {
 			continue
 		}
-		item, ok := spec.Paths[route.Path]
+		item, ok := spec.Paths[templatePath(route.Path)]
 		if !ok {
 			t.Errorf("%s %s is served but absent from the specification", route.Method, route.Path)
 			continue
@@ -130,7 +130,7 @@ func TestIdempotentOperationsDocumentTheHeader(t *testing.T) {
 
 	for _, key := range []string{"POST /api/v1/payments", "POST /api/v1/accounts"} {
 		parts := strings.SplitN(key, " ", 2)
-		operation, ok := spec.Paths[parts[1]][strings.ToLower(parts[0])]
+		operation, ok := spec.Paths[templatePath(parts[1])][strings.ToLower(parts[0])]
 		if !ok {
 			t.Errorf("%s is not in the specification", key)
 			continue
