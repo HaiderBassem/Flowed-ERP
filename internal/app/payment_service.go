@@ -663,3 +663,38 @@ func receiptPrefix(kind payment.SeriesKind, yearCode string) string {
 	}
 	return letter + "-" + yearCode + "-"
 }
+
+// VoidPayment raises and executes a void in one command.
+//
+// The two-step shape was a separation of duties: a cashier could ask for a
+// void and only a finance manager could carry it out. With one operator
+// account there is nobody on the other side, and what remained was a request
+// state that existed only to be passed through — and a payment left in it is
+// worse than one never voided, because the student has been told the receipt
+// is cancelled while the ledger still counts the money.
+//
+// Both steps still run, and in order, because the guard that matters lives in
+// the second one: a void is refused while any refund has been posted against
+// the payment. Refunding 400,000 of a million and then voiding the whole
+// receipt would pay out 1,400,000 against a million received, and that check
+// is made again under the account lock, where it cannot be raced.
+func (s *PaymentService) VoidPayment(
+	ctx context.Context, actor shared.Actor, paymentID shared.ID, reason string,
+) (*payment.Payment, error) {
+	request, err := s.RequestVoid(ctx, actor, paymentID, reason)
+	if err != nil {
+		return nil, err
+	}
+	voided, err := s.ExecuteVoid(ctx, actor, request.ID)
+	if err != nil {
+		if domainErr, ok := shared.AsDomain(err); ok {
+			// The request survives a failed execution and must be findable:
+			// an operator who cannot see it raises a second one, and the
+			// payment then carries two open void requests.
+			return nil, domainErr.WithDetail("void_request_id", request.ID.String()).
+				WithDetail("remedy", "this void was requested but not executed; finish or reject it")
+		}
+		return nil, err
+	}
+	return voided, nil
+}

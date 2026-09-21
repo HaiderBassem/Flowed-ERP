@@ -160,10 +160,11 @@ func (s *DiscountService) resolveScopeYears(ctx context.Context, a *discount.Ass
 
 // ApproveDiscountAssignment accepts a grant.
 //
-// The approver may not be the requester. A discount is money the university
-// chooses not to collect, and one person should not be able to decide that
-// alone — which is why the rule is enforced in the domain, here, and by a
-// database constraint rather than trusted to any single layer.
+// The approver may be the requester. A discount is money the university chooses
+// not to collect, and the four-eyes rule that once guarded it needed a second
+// operator to stand behind it; there is one account. What is left is the audit
+// entry naming who granted it and an application row nothing can afterwards
+// edit.
 func (s *DiscountService) ApproveDiscountAssignment(ctx context.Context, actor shared.Actor, assignmentID shared.ID) (*discount.Assignment, error) {
 	var assignment *discount.Assignment
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
@@ -496,4 +497,36 @@ func (s *DiscountService) loadApplication(ctx context.Context, applicationID sha
 		return nil, nil, err
 	}
 	return application, account, nil
+}
+
+// GrantDiscount assigns and approves a discount in one command.
+//
+// Two steps existed so that the person who proposed a discount was not the
+// person who agreed to it. With one account they always are, and a grant left
+// submitted-but-unapproved is a discount the student has been promised and the
+// account does not carry.
+//
+// What happens to money already collected is unchanged and is the point of the
+// flow: the reduction posts as a signed adjustment rather than rewriting the
+// frozen net, and if the student has by then paid more than the new total the
+// excess becomes credit on the account. It is not pushed back out of the
+// drawer here — see handleOverpayment — because returning cash is a decision
+// with a person standing at the counter, and RefundService.IssueRefund is
+// where that decision is made.
+func (s *DiscountService) GrantDiscount(
+	ctx context.Context, actor shared.Actor, in AssignDiscountInput,
+) (*discount.Assignment, error) {
+	assignment, err := s.AssignDiscount(ctx, actor, in)
+	if err != nil {
+		return nil, err
+	}
+	approved, err := s.ApproveDiscountAssignment(ctx, actor, assignment.ID)
+	if err != nil {
+		if domainErr, ok := shared.AsDomain(err); ok {
+			return nil, domainErr.WithDetail("assignment_id", assignment.ID.String()).
+				WithDetail("remedy", "this grant was assigned but not approved; approve or revoke it")
+		}
+		return nil, err
+	}
+	return approved, nil
 }

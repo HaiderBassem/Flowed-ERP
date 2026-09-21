@@ -461,3 +461,52 @@ func (s *RefundService) nextRefundNumber(
 	}
 	return s.deps.Series.NextNumber(ctx, payment.SeriesRefund, year.ID)
 }
+
+// IssueRefund raises, approves and pays out a refund in one command.
+//
+// The three-step shape — request, approve, post — was a separation of duties
+// between a cashier who asks and a finance manager who agrees. With one
+// operator account there is nobody on the other side of it, and what was left
+// was three buttons the same person pressed in a row, with two intermediate
+// states that existed only to be passed through. A refund abandoned between
+// step one and step three is worse than no refund: the student is told the
+// money is coming and the record says it was never paid.
+//
+// The steps themselves are unchanged and still run in order, because each one
+// holds a check the next relies on — that the payment is posted, that nothing
+// has been refunded past it, that the account is not superseded. They run in
+// separate transactions, as they always did: RequestRefund takes the account
+// lock and releases it, and wrapping all three in one outer transaction would
+// hold that lock across three commands for no benefit.
+func (s *RefundService) IssueRefund(
+	ctx context.Context, actor shared.Actor, in RequestRefundInput,
+) (*payment.Refund, error) {
+	requested, err := s.RequestRefund(ctx, actor, in)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.ApproveRefund(ctx, actor, requested.ID); err != nil {
+		// Reported with the refund's own identifier, so an operator who sees
+		// this can finish or reject the request by hand rather than raise a
+		// second one against the same payment.
+		return nil, withRefundID(err, requested.ID)
+	}
+	posted, err := s.PostRefund(ctx, actor, requested.ID)
+	if err != nil {
+		return nil, withRefundID(err, requested.ID)
+	}
+	return posted, nil
+}
+
+// withRefundID names the half-finished refund on an error from a later step.
+//
+// Without it an operator sees "this account is closed" and has no way to find
+// the requested-but-unpaid refund the first step left behind, so they raise a
+// second one against the same payment.
+func withRefundID(err error, refundID shared.ID) error {
+	if domainErr, ok := shared.AsDomain(err); ok {
+		return domainErr.WithDetail("refund_id", refundID.String()).
+			WithDetail("remedy", "this refund was raised but not paid out; finish or reject it")
+	}
+	return err
+}

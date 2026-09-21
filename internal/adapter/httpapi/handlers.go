@@ -968,7 +968,132 @@ func (h *Handlers) AssignDiscount(c *gin.Context) {
 	httpx.Created(c, toAssignmentView(assignment))
 }
 
-// ApproveDiscount accepts a grant. The approver may not be the requester.
+// GrantDiscount assigns and approves a discount in one call.
+//
+// The two-step route is still mounted and still works. This is what the screen
+// uses, because a grant left submitted-but-unapproved is a discount the
+// student was promised and the account does not carry.
+func (h *Handlers) GrantDiscount(c *gin.Context) {
+	var req AssignDiscountRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	in, ok := buildAssignDiscountInput(c, req)
+	if !ok {
+		return
+	}
+
+	assignment, err := h.Discounts.GrantDiscount(requestContext(c), httpx.MustActor(c), in)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	httpx.Created(c, toAssignmentView(assignment))
+}
+
+// buildAssignDiscountInput parses a grant request. Shared by the two-step and
+// the one-call routes, so the two cannot drift into accepting different fields.
+func buildAssignDiscountInput(c *gin.Context, req AssignDiscountRequest) (app.AssignDiscountInput, bool) {
+	var in app.AssignDiscountInput
+
+	studentID, err := shared.ParseID(req.StudentID)
+	if err != nil {
+		httpx.Respond(c, err)
+		return in, false
+	}
+	definitionID, err := shared.ParseID(req.DefinitionID)
+	if err != nil {
+		httpx.Respond(c, err)
+		return in, false
+	}
+
+	in = app.AssignDiscountInput{
+		StudentID:     studentID,
+		DefinitionID:  definitionID,
+		Scope:         discount.ScopeType(req.Scope),
+		Justification: req.Justification,
+		DocumentRefs:  req.DocumentRefs,
+	}
+	if req.YearFromID != nil {
+		from, err := shared.ParseID(*req.YearFromID)
+		if err != nil {
+			httpx.Respond(c, err)
+			return in, false
+		}
+		in.YearFromID = &from
+	}
+	if req.YearToID != nil {
+		to, err := shared.ParseID(*req.YearToID)
+		if err != nil {
+			httpx.Respond(c, err)
+			return in, false
+		}
+		in.YearToID = &to
+	}
+	return in, true
+}
+
+// VoidPayment raises and executes a void in one call.
+//
+// A payment left requested-but-not-executed is worse than one never voided:
+// the student has been told the receipt is cancelled and the ledger still
+// counts the money. The two-step route remains for a void that must be left
+// pending deliberately.
+func (h *Handlers) VoidPayment(c *gin.Context) {
+	var req VoidRequestBody
+	if !bindJSON(c, &req) {
+		return
+	}
+	paymentID, err := shared.ParseID(req.PaymentID)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+
+	voided, err := h.Payments.VoidPayment(requestContext(c), httpx.MustActor(c), paymentID, req.Reason)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	httpx.OK(c, toPaymentView(voided))
+}
+
+// IssueRefund raises, approves and pays out a refund in one call.
+//
+// This is the route behind "return the money" on the account screen, including
+// the case the office asked about: a discount granted after the student had
+// already paid leaves credit on the account, and this is how that credit
+// leaves the drawer.
+func (h *Handlers) IssueRefund(c *gin.Context) {
+	var req RefundRequestBody
+	if !bindJSON(c, &req) {
+		return
+	}
+	paymentID, err := shared.ParseID(req.PaymentID)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	methodID, err := shared.ParseID(req.PaymentMethodID)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+
+	refund, err := h.Refunds.IssueRefund(requestContext(c), httpx.MustActor(c), app.RequestRefundInput{
+		PaymentID:       paymentID,
+		Amount:          money.FromInt64(req.Amount),
+		PaymentMethodID: methodID,
+		Reason:          req.Reason,
+	})
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	httpx.Created(c, toRefundView(refund))
+}
+
+// ApproveDiscount accepts a grant.
 func (h *Handlers) ApproveDiscount(c *gin.Context) {
 	id, ok := pathID(c, "id")
 	if !ok {

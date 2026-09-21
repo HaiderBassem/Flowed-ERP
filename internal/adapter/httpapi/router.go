@@ -457,13 +457,20 @@ func registerPayments(g *gin.RouterGroup, h *Handlers, idem port.IdempotencyRepo
 		httpx.Idempotency(idem, "RecordPayment"),
 		h.RecordPayment)
 
-	// Voiding is split in two on purpose. A cashier raises the request; a
-	// finance manager executes it. The two signatures leave a document behind,
-	// which is what the void register reads from — the single most useful
-	// fraud-detection report in the system.
+	// Voiding was split in two so a cashier raised the request and a finance
+	// manager executed it. With one account the split leaves a pending state
+	// nobody is waiting on, so POST /voids/execute does both — and the void
+	// request row is still written, which is what the void register reads
+	// from, the most useful fraud-detection report in the system.
+	//
+	// The two-step routes stay mounted for a void that must be left pending on
+	// purpose, and because the register's document is the same row either way.
 	voids := g.Group("/voids")
 	voids.GET("/pending",
 		h.ListPendingVoids)
+	voids.POST("/execute",
+		httpx.Idempotency(idem, "VoidPayment"),
+		h.VoidPayment)
 	voids.POST("",
 		h.RequestVoid)
 	voids.POST("/:id/execute",
@@ -476,6 +483,13 @@ func registerRefunds(g *gin.RouterGroup, h *Handlers, idem port.IdempotencyRepos
 
 	refunds.GET("/pending",
 		h.ListPendingRefunds)
+
+	// One call raises, approves and pays out. See RefundService.IssueRefund —
+	// a refund abandoned between the request and the payout tells the student
+	// their money is coming and records that it never was.
+	refunds.POST("/issue",
+		httpx.Idempotency(idem, "IssueRefund"),
+		h.IssueRefund)
 
 	refunds.POST("",
 		h.RequestRefund)
@@ -491,11 +505,15 @@ func registerRefunds(g *gin.RouterGroup, h *Handlers, idem port.IdempotencyRepos
 func registerDiscounts(g *gin.RouterGroup, h *Handlers) {
 	discounts := g.Group("/discounts")
 
+	// One call assigns and approves. Where money has already been collected
+	// the excess becomes credit on the account, which POST /refunds/issue is
+	// what turns back into cash.
+	discounts.POST("/grants",
+		h.GrantDiscount)
+
 	discounts.POST("/assignments",
 		h.AssignDiscount)
 
-	// Approving a discount is deciding not to collect money, so it sits with
-	// finance — and the domain refuses it from whoever requested the grant.
 	discounts.POST("/assignments/:id/approve",
 		h.ApproveDiscount)
 	discounts.POST("/assignments/:id/revoke",
