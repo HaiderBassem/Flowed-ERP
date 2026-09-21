@@ -66,3 +66,6 @@ webui/dist/*
 .vscode/
 *.swp
 *~
+
+# The manual is rendered from manual.html by build.sh; the PDF is its output.
+docs/manual/*.pdf
