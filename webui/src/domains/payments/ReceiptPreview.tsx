@@ -47,12 +47,6 @@ export function ReceiptPreview({
   // The official receipt is the server's PDF, opened in the browser's own
   // viewer. It carries the embedded font, the shaped Arabic and the A5 page
   // the paper actually needs, so it prints the same from any desk. The earlier
-  // version wrote the server's HTML into a popup and left the operator to find
-  // Ctrl+P — and what came out then depended on that window's margins and the
-  // browser's headers, which is the drift this screen exists to avoid.
-  const openA5 = () =>
-    api.openDocument(`/${kind}/${id}/receipt`, { format: "pdf" });
-
   const printText = () => {
     // The thermal roll is printed from the page rather than as a PDF, because
     // its content is the server's 42-column text and a PDF would impose a page
@@ -83,7 +77,7 @@ export function ReceiptPreview({
           style={{ border: 0, background: "transparent", cursor: "pointer" }}
           onClick={() => setFormat("text")}
         >
-          حراري 80mm
+          معاينة حرارية
         </button>
         <button
           type="button"
@@ -92,18 +86,25 @@ export function ReceiptPreview({
           style={{ border: 0, background: "transparent", cursor: "pointer" }}
           onClick={() => setFormat("html")}
         >
-          رسمي A5
+          معاينة رسمية
         </button>
         <span className="grow" />
-        {format === "text" ? (
-          <Button variant="primary" onClick={printText}>
-            طباعة
-          </Button>
-        ) : (
-          <Button variant="primary" onClick={() => void openA5()}>
-            فتح وطباعة A5
-          </Button>
-        )}
+        {/*
+          Two documents, two buttons. The formal one is A4 and in colour — the
+          copy that is signed, filed and presented; the thermal one is 80mm of
+          roll, black on white, cut where the content ends. Both are PDFs, so
+          they print the same from any machine, which is the whole reason they
+          stopped being browser pages.
+        */}
+        <Button onClick={() => void api.download(`/${kind}/${id}/receipt`, { format: "thermal" })}>
+          وصل حراري 80mm
+        </Button>
+        <Button
+          variant="primary"
+          onClick={() => void api.download(`/${kind}/${id}/receipt`, { format: "pdf" })}
+        >
+          وصل رسمي A4
+        </Button>
       </div>
 
       {format === "text" ? (

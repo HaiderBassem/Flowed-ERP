@@ -3,6 +3,7 @@ package preview_test
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,11 +27,14 @@ func TestRenderSamples(t *testing.T) {
 	data := receipt.Data{
 		Kind: receipt.KindPayment,
 		Institution: receipt.Institution{
-			UniversityNameAr: "جامعة بغداد",
-			CollegeNameAr:    "كلية الهندسة",
-			Address:          "بغداد — الجادرية",
-			Phone:            "07701234567",
+			// The real installation's values: a long name and a 16:9 logo,
+			// which is what put the crest on top of the text.
+			UniversityNameAr: "الجامعة التكنولوجية - العراق",
+			CollegeNameAr:    "كلية هندسة الحاسوب",
+			Address:          "بغداد - حي الوحدة",
+			Phone:            "07709099732",
 			FooterAr:         "يُرجى الاحتفاظ بهذا السند لمراجعة الحسابات",
+			LogoDataURI:      testLogo(),
 		},
 		Number: "R-2025-2026-000008", IssuedAt: time.Now(),
 		StudentName: "علي محمد حسن الجبوري", StudentNumber: "2026-0001",
@@ -48,6 +52,15 @@ func TestRenderSamples(t *testing.T) {
 		CashierName: "مدير النظام", Notes: "دفعة أولى عن الفصل الأول.",
 		PrintedAt: time.Now(), PrintedBy: "admin",
 	}
+
+	thermal, err := pdf.ThermalReceipt(data, loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(out+"/thermal.pdf", thermal, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("wrote %s/thermal.pdf (%d bytes)", out, len(thermal))
 
 	rendered, err := pdf.Receipt(data, loc)
 	if err != nil {
@@ -102,4 +115,17 @@ func TestRenderSamples(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("wrote %s/report.pdf (%d bytes)", out, len(report))
+}
+
+// testLogo reads the crest the running installation uses, when it is there.
+//
+// A logo changes the letterhead's whole geometry — it is what the text has to
+// be kept clear of — so a preview without one proves nothing about the case
+// that was broken.
+func testLogo() string {
+	raw, err := os.ReadFile(os.Getenv("FLOWED_PDF_OUT") + "/logo.txt")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
 }

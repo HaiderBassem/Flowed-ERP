@@ -40,38 +40,67 @@ type Field struct {
 	LTR bool
 }
 
-// Fields draws label/value pairs on a grid.
+// Fields draws label/value pairs on a grid with the labels in a column.
 //
-// Laid out on a grid rather than as free text. Two pairs to a line with the
-// labels aligned is the difference between a form and a paragraph, and it is
-// the single biggest thing separating a document that looks typed from one that
-// looks assembled.
+// The labels are right-aligned against a fixed gutter and the values all start
+// at the same place, so the eye runs down one line instead of hunting. The
+// earlier version measured each label and placed its value beside it, which put
+// every value at a different x — a page of that reads as text going up and down
+// even though every baseline is level.
+//
+// A value too wide for its cell is shortened rather than allowed to run into
+// the column beside it. Overflow is what actually produces overlapping text,
+// and a long department name is not rare enough to leave to chance.
 func (d *Document) Fields(fields []Field, columns int) {
+	if len(fields) == 0 {
+		return
+	}
 	if columns < 1 {
 		columns = 1
 	}
-	const rowHeight = 19
+
+	const (
+		rowHeight = 20
+		gutter    = 8
+	)
 
 	cell := d.ContentWidth() / float64(columns)
+
+	// One label column width for the whole block, from the widest label in it.
+	// Sizing each row to its own label is what made the values ragged.
+	labelStyle := TextStyle{Size: 8.5, Color: muted}
+	labelWidth := 0.0
+	for _, field := range fields {
+		if w := d.TextWidth(field.Label+":", labelStyle); w > labelWidth {
+			labelWidth = w
+		}
+	}
+	// Never more than half the cell: a long label must not squeeze its value
+	// into nothing.
+	if max := cell * 0.45; labelWidth > max {
+		labelWidth = max
+	}
+
 	for i := 0; i < len(fields); i += columns {
 		d.EnsureRoom(rowHeight)
-		baseline := d.y + 12
+		baseline := d.y + 13
 
 		for c := 0; c < columns && i+c < len(fields); c++ {
 			field := fields[i+c]
 			// Right to left: the first column is the rightmost one.
 			right := d.Right() - float64(c)*cell
-			left := right - cell + 8
+			left := right - cell + gutter
 
-			labelStyle := TextStyle{Size: 8, Color: muted}
-			labelWidth := d.TextWidth(field.Label+":", labelStyle)
-			d.TextAt(field.Label+":", right-labelWidth, right, baseline, labelStyle)
+			d.TextAt(d.Ellipsise(field.Label+":", labelWidth, labelStyle),
+				right-labelWidth, right, baseline, labelStyle)
 
+			valueRight := right - labelWidth - gutter
 			valueStyle := TextStyle{Size: 10, Bold: field.Strong, Color: ink}
 			if field.LTR {
 				valueStyle.Align = AlignLeft
 			}
-			d.TextAt(field.Value, left, right-labelWidth-6, baseline, valueStyle)
+			d.TextAt(d.Ellipsise(field.Value, valueRight-left, valueStyle),
+				left, valueRight, baseline, valueStyle)
 		}
 		d.y += rowHeight
 	}
@@ -211,10 +240,21 @@ func (d *Document) TotalBar(label, value string) {
 	d.Box(d.Left(), d.y, d.ContentWidth(), height, accent)
 	baseline := d.y + 20
 
+	// The value takes the width it needs and the label takes what is left.
+	// Drawing both across the full band let a long label run under the figure,
+	// which on the one line of a receipt anybody actually reads is the worst
+	// place on the page for text to collide.
 	white := gopdf.RGBColor{R: 255, G: 255, B: 255}
-	d.TextAt(label, d.Left()+10, d.Right()-10, baseline, TextStyle{Size: 10, Color: white})
-	d.TextAt(value, d.Left()+10, d.Right()-10, baseline,
-		TextStyle{Size: 13, Bold: true, Color: white, Align: AlignLeft})
+	valueStyle := TextStyle{Size: 13, Bold: true, Color: white, Align: AlignLeft}
+	valueWidth := d.TextWidth(value, valueStyle)
+
+	d.TextAt(value, d.Left()+10, d.Right()-10, baseline, valueStyle)
+
+	labelStyle := TextStyle{Size: 10, Color: white}
+	labelRight := d.Right() - 10
+	labelLeft := d.Left() + 10 + valueWidth + 12
+	d.TextAt(d.Ellipsise(label, labelRight-labelLeft, labelStyle),
+		labelLeft, labelRight, baseline, labelStyle)
 
 	d.y += height + 6
 }

@@ -101,26 +101,50 @@ func reportColumns(in []ReportColumn) []Column {
 // Compact, and on one line where it fits: a report's first page should be
 // mostly report. The receipt's letterhead is three centred lines because a
 // receipt is a document in its own right; a report is a working paper.
+//
+// The crest takes a reserved box on the right and the text takes what is left,
+// for the same reason as on a receipt — drawn across each other, a long
+// university name and a wide logo print one on top of the other.
 func reportHead(d *Document, doc ReportDoc) {
+	const (
+		// Smaller than a receipt's: this is redrawn on every page of a report
+		// and a working paper should be mostly working paper.
+		logoHeight = 40
+		logoWidth  = logoHeight * 3 / 2
+		gap        = 12
+	)
+
 	top := d.Y()
+	textRight := d.Right()
 
 	if logo := decodeDataURI(doc.Letterhead.LogoDataURI); logo != nil {
-		d.Image(logo, d.Right()-34, top, 34, 34)
+		if used := d.Image(logo, d.Right()-logoWidth, top, logoWidth, logoHeight); used > 0 {
+			textRight = d.Right() - used - gap
+		}
 	}
 
 	d.SetY(top + 2)
+
 	name := doc.Letterhead.UniversityNameAr
 	if doc.Letterhead.CollegeNameAr != "" {
 		name += " — " + doc.Letterhead.CollegeNameAr
 	}
-	d.Text(name, TextStyle{Size: 11, Bold: true, Color: Accent()})
+	nameStyle := TextStyle{Size: 11, Bold: true, Color: Accent()}
+	d.TextAt(d.Ellipsise(name, textRight-d.Left(), nameStyle),
+		d.Left(), textRight, d.Y()+nameStyle.Size, nameStyle)
+	d.Space(nameStyle.Size * 1.5)
 
 	if contact := joinNonEmpty(" · ", doc.Letterhead.Address, doc.Letterhead.Phone); contact != "" {
-		d.Space(-8)
-		d.Text(contact, TextStyle{Size: 7.5, Color: Muted()})
+		contactStyle := TextStyle{Size: 7.5, Color: Muted()}
+		d.TextAt(d.Ellipsise(contact, textRight-d.Left(), contactStyle),
+			d.Left(), textRight, d.Y()+contactStyle.Size, contactStyle)
+		d.Space(contactStyle.Size * 1.5)
 	}
 
-	d.Space(-2)
+	if bottom := top + logoHeight; d.Y() < bottom {
+		d.SetY(bottom)
+	}
+	d.Space(3)
 	d.Rule(Hairline(), 0.5)
 }
 

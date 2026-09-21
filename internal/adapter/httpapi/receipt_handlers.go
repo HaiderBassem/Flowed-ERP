@@ -33,9 +33,10 @@ func (h *ReceiptHandlers) Register(g *gin.RouterGroup) {
 
 // PaymentReceipt renders the receipt for a collection.
 //
-//	GET /payments/:id/receipt?format=pdf|html|text&download=true
+//	GET /payments/:id/receipt?format=pdf|thermal|html|text&download=true
 //
-// The default is PDF. `format=html` returns a page for a browser tab, and
+// The default is PDF — the formal A4 document. `format=thermal` returns the
+// 80mm counter slip as a PDF, `format=html` a page for a browser tab, and
 // `format=text` returns
 // the 80mm thermal rendering that most cashier desks actually feed to their
 // roll printer.
@@ -82,7 +83,9 @@ func (h *ReceiptHandlers) RefundReceipt(c *gin.Context) {
 // 80mm thermal roll most counters actually print to.
 func receiptFormat(c *gin.Context) app.Format {
 	switch c.Query("format") {
-	case "text", "txt", "thermal":
+	case "thermal", "pos", "roll":
+		return app.FormatThermal
+	case "text", "txt":
 		return app.FormatText
 	case "html":
 		return app.FormatHTML

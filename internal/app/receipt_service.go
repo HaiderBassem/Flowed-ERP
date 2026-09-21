@@ -75,9 +75,13 @@ type Format string
 const (
 	// FormatHTML is an A5 page for a browser or an office printer.
 	FormatHTML Format = "html"
-	// FormatPDF is the document a student files and a ministry accepts: the
-	// same page on every machine, with the Arabic font travelling inside it.
+	// FormatPDF is the formal document — A4, in colour, signed and filed, and
+	// the one a ministry accepts.
 	FormatPDF Format = "pdf"
+	// FormatThermal is the counter slip: 80mm of roll, one column, black on
+	// white, cut where the content ends. A different document from the A4
+	// receipt rather than the same one shrunk — see pdf.ThermalReceipt.
+	FormatThermal Format = "thermal"
 	// FormatText is an 80mm thermal roll, which is what most cashier desks
 	// actually print to.
 	FormatText Format = "text"
@@ -361,6 +365,17 @@ func (s *ReceiptService) render(data receipt.Data, format Format) (*Rendered, er
 			Filename:    name + ".pdf",
 			CopyNumber:  data.CopyNumber,
 		}, nil
+	case FormatThermal:
+		body, err := pdf.ThermalReceipt(data, s.location)
+		if err != nil {
+			return nil, err
+		}
+		return &Rendered{
+			Body:        body,
+			ContentType: "application/pdf",
+			Filename:    name + "-thermal.pdf",
+			CopyNumber:  data.CopyNumber,
+		}, nil
 	case FormatText:
 		return &Rendered{
 			Body:        receipt.RenderText(data, s.location),
@@ -381,7 +396,7 @@ func (s *ReceiptService) render(data receipt.Data, format Format) (*Rendered, er
 		}, nil
 	default:
 		return nil, shared.Validation("receipt.unknown_format",
-			"%q is not a supported receipt format; use pdf, html or text", format)
+			"%q is not a supported receipt format; use pdf, thermal, html or text", format)
 	}
 }
 

@@ -138,30 +138,61 @@ func Receipt(data receipt.Data, loc *time.Location) ([]byte, error) {
 	return doc.Bytes()
 }
 
-// receiptHead draws the letterhead: the crest, the university, the college.
+// receiptHead draws the letterhead: the crest on the right, the institution
+// beside it, a rule under both.
+//
+// The crest gets a reserved box and the text gets what is left. Both used to be
+// drawn across the full width — the crest from the right edge, the text centred
+// over the whole line — so a university with a long name and a wide logo got
+// one printed on top of the other.
+//
+// The box is 4:3 rather than square. A crest is usually square and a
+// letterhead image is usually not; 4:3 holds a square one at full height and a
+// 16:9 one at full width, and Image keeps the proportions of whatever arrives.
 func receiptHead(d *Document, data receipt.Data) {
+	const (
+		// Generous, because a crest that cannot be made out is worse than no
+		// crest: it reads as a printing fault. A university logo is usually a
+		// small mark on a wide canvas, so the box has to be big enough for the
+		// mark rather than for the file.
+		logoHeight = 62
+		logoWidth  = logoHeight * 3 / 2
+		gap        = 14
+	)
+
 	top := d.Y()
+	textRight := d.Right()
 
 	if logo := decodeDataURI(data.Institution.LogoDataURI); logo != nil {
-		// Placed on the right, where a right-to-left reader's eye starts.
-		d.Image(logo, d.Right()-46, top, 46, 46)
+		used := d.Image(logo, d.Right()-logoWidth, top, logoWidth, logoHeight)
+		if used > 0 {
+			textRight = d.Right() - used - gap
+		}
+	}
+
+	// Centred in the space that is left, not in the page. Centring over the
+	// full width would push the name under the crest.
+	block := func(text string, style TextStyle) {
+		if text == "" {
+			return
+		}
+		style.Align = AlignCenter
+		d.TextAt(text, d.Left(), textRight, d.Y()+style.Size, style)
+		d.Space(style.Size * 1.5)
 	}
 
 	d.SetY(top + 2)
-	d.Text(data.Institution.UniversityNameAr,
-		TextStyle{Size: 13, Bold: true, Align: AlignCenter, Color: Accent()})
+	block(data.Institution.UniversityNameAr,
+		TextStyle{Size: 13, Bold: true, Color: Accent()})
+	block(data.Institution.CollegeNameAr, TextStyle{Size: 10, Color: Ink()})
+	block(joinNonEmpty(" · ", data.Institution.Address, data.Institution.Phone),
+		TextStyle{Size: 7.5, Color: Muted()})
 
-	if data.Institution.CollegeNameAr != "" {
-		d.Space(-6)
-		d.Text(data.Institution.CollegeNameAr, TextStyle{Size: 10, Align: AlignCenter, Color: Ink()})
+	// The rule clears the crest as well as the text, whichever is taller.
+	if bottom := top + logoHeight; d.Y() < bottom {
+		d.SetY(bottom)
 	}
-
-	if contact := joinNonEmpty(" · ", data.Institution.Address, data.Institution.Phone); contact != "" {
-		d.Space(-6)
-		d.Text(contact, TextStyle{Size: 7.5, Align: AlignCenter, Color: Muted()})
-	}
-
-	d.Space(2)
+	d.Space(4)
 	d.Rule(Hairline(), 0.5)
 }
 

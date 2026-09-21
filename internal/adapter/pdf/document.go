@@ -16,7 +16,9 @@ package pdf
 import (
 	"bytes"
 	_ "embed"
+	"encoding/binary"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/signintech/gopdf"
@@ -89,6 +91,9 @@ type Document struct {
 	// differs from its right looks wrong to a reader who cannot say why, and on
 	// a right-to-left page the asymmetry is twice as visible.
 	margin float64
+	// size is the geometry the document was created with. Kept so TrimHeight
+	// can refuse to shorten a sheet, which is a roll-only operation.
+	size Size
 	// y is the current baseline, measured down from the top of the page.
 	y float64
 	// header redraws the letterhead when content spills onto a new page, so
@@ -131,17 +136,64 @@ const (
 	// only when a table genuinely has more columns than portrait can hold —
 	// turning every report sideways to save one would be worse.
 	A4Landscape
+	// POS is an 80mm thermal roll: the printer that actually sits on a
+	// counter. 80mm of paper is 72mm of printable width once the feed margins
+	// are taken off, which is 204 points — narrow enough that everything has
+	// to be one column, and that is the point. A receipt is read once, in a
+	// queue, standing up.
+	POS
 )
+
+// Roll geometry, in points. The height is a starting length, not a page: a
+// thermal roll is continuous, and the driver cuts where the content ends.
+const (
+	posWidth  = 204
+	posHeight = 1400
+)
+
+// NewRoll starts an 80mm document of a given length.
+//
+// gopdf fixes the page size when the document is created and offers no way to
+// change it afterwards, so a receipt that should end where its content ends has
+// to be measured before it is drawn. ThermalReceipt renders once to find the
+// length and once to keep — cheap, because the expensive part is embedding the
+// font and the measuring pass throws its output away.
+//
+// Without this every slip is followed by a hand's length of blank paper, which
+// on a busy counter is most of a roll by the end of the day.
+func NewRoll(height float64) (*Document, error) {
+	doc, err := New(POS)
+	if err != nil {
+		return nil, err
+	}
+	if height > 0 {
+		doc.height = height
+		doc.pdf = &gopdf.GoPdf{}
+		doc.pdf.Start(gopdf.Config{
+			PageSize: gopdf.Rect{W: doc.width, H: height},
+			Unit:     gopdf.UnitPT,
+		})
+		if err := doc.loadFonts(); err != nil {
+			return nil, err
+		}
+	}
+	return doc, nil
+}
 
 // New starts a document.
 func New(size Size) (*Document, error) {
-	doc := &Document{margin: 36}
+	doc := &Document{margin: 36, size: size}
 	switch size {
 	case A5:
 		doc.width, doc.height = a5Width, a5Height
 		doc.margin = 28
 	case A4Landscape:
 		doc.width, doc.height = a4Height, a4Width
+	case POS:
+		doc.width, doc.height = posWidth, posHeight
+		// Four points of margin, because a thermal printer has no hardware
+		// margin worth the name and every point of an 80mm roll is wanted.
+		doc.margin = 8
 	default:
 		doc.width, doc.height = a4Width, a4Height
 	}
@@ -152,27 +204,34 @@ func New(size Size) (*Document, error) {
 		Unit:     gopdf.UnitPT,
 	})
 
-	// Every glyph the font cannot supply is recorded.
-	//
-	// gopdf's default is to substitute a space and carry on, which is how a
-	// receipt loses a letter without anything anywhere saying so — the exact
-	// failure this hook exists to make impossible. A document that dropped a
-	// character is refused in Bytes rather than handed over looking almost
-	// right.
-	option := gopdf.TtfOption{
-		OnGlyphNotFound: func(r rune) { doc.noteMissingGlyph(r) },
+	if err := doc.loadFonts(); err != nil {
+		return nil, err
 	}
-	if err := doc.pdf.AddTTFFontDataWithOption(regular, fontRegular, option); err != nil {
-		return nil, shared.Internal("pdf.font", err, "loading the regular font")
+	return doc, nil
+}
+
+// loadFonts embeds both weights and wires the missing-glyph hook.
+//
+// Every glyph the font cannot supply is recorded. gopdf's default is to
+// substitute a space and carry on, which is how a receipt loses a letter
+// without anything anywhere saying so — the exact failure this hook exists to
+// make impossible. A document that dropped a character is refused in Bytes
+// rather than handed over looking almost right.
+func (d *Document) loadFonts() error {
+	option := gopdf.TtfOption{
+		OnGlyphNotFound: func(r rune) { d.noteMissingGlyph(r) },
+	}
+	if err := d.pdf.AddTTFFontDataWithOption(regular, fontRegular, option); err != nil {
+		return shared.Internal("pdf.font", err, "loading the regular font")
 	}
 	// No Style flag on the bold face. gopdf keys a font by family *and* style,
 	// so registering it as Bold would mean SetFont(bold, "", size) finds
 	// nothing — and the nil font it then measures against is a segfault, not a
 	// refusal. The family names already tell the two apart.
-	if err := doc.pdf.AddTTFFontDataWithOption(bold, fontBold, option); err != nil {
-		return nil, shared.Internal("pdf.font", err, "loading the bold font")
+	if err := d.pdf.AddTTFFontDataWithOption(bold, fontBold, option); err != nil {
+		return shared.Internal("pdf.font", err, "loading the bold font")
 	}
-	return doc, nil
+	return nil
 }
 
 // WithHeader sets the letterhead, redrawn at the top of every page.
@@ -273,8 +332,17 @@ const footerReserve = 26
 
 // Room reports whether the given height fits before the bottom margin, leaving
 // space for the footer.
+//
+// A roll has no footer and no second page: it is cut where the content ends, so
+// reserving a strip at the bottom only pushed the last few lines onto a page
+// that should not exist. That is what produced a two-page thermal receipt with
+// the total on the second.
 func (d *Document) Room(height float64) bool {
-	return d.y+height <= d.height-d.margin-footerReserve
+	reserve := footerReserve
+	if d.size == POS {
+		reserve = 0
+	}
+	return d.y+height <= d.height-d.margin-float64(reserve)
 }
 
 // EnsureRoom starts a new page if the given height would not fit.
@@ -343,7 +411,16 @@ func (d *Document) TextAt(text string, left, right, baseline float64, style Text
 		x = left + (right-left-width)/2
 	}
 
-	d.pdf.SetXY(x, baseline-style.Size)
+	// The y gopdf is given *is* the baseline: cacheContentText.calY returns
+	// pageHeight - y for text, and PDF's Td places the baseline there.
+	//
+	// This subtracted the font size first, which drew every string one size
+	// too high — and by a different amount per size, so a 8pt label and a 10pt
+	// value sharing a baseline sat two points apart. A page of that is text
+	// visibly rising and falling along each line, and it is what put the total
+	// band's figure half outside the band and ran a rule through the line
+	// under it.
+	d.pdf.SetXY(x, baseline)
 	if err := d.pdf.Text(shaped); err != nil {
 		d.fail(err, "drawing text")
 	}
@@ -435,17 +512,82 @@ func (d *Document) Box(x, y, w, h float64, fill gopdf.RGBColor) {
 	}
 }
 
-// Image places an inline image, scaled into a box.
+// Image places an inline image inside a box, keeping its proportions, and
+// returns the width it actually used.
 //
-// A broken logo must not stop a receipt: the rest of the letterhead still
-// identifies the university, and a student waiting at the counter is worse
-// served by an error page than by one with no crest on it.
-func (d *Document) Image(data []byte, x, y, maxW, maxH float64) {
+// The proportions are the point. gopdf stretches an image to whatever rectangle
+// it is given, so a 1920×1080 crest handed a square box comes out squashed to
+// half its width — and the caller, having reserved a square, then draws text
+// across the part of the box the image did not fill. Returning the true width
+// is what lets a letterhead keep its text clear of the crest.
+//
+// A broken image must not stop a receipt: the letterhead still identifies the
+// university, and a student waiting at a counter is worse served by an error
+// than by a page with no crest on it. Zero is returned, and the caller lays out
+// as though there were no image.
+func (d *Document) Image(data []byte, x, y, maxW, maxH float64) float64 {
 	holder, err := gopdf.ImageHolderByBytes(data)
 	if err != nil {
-		return
+		return 0
 	}
-	_ = d.pdf.ImageByHolder(holder, x, y, &gopdf.Rect{W: maxW, H: maxH})
+
+	width, height := maxW, maxH
+	if w, h, ok := imageSize(data); ok && w > 0 && h > 0 {
+		scale := math.Min(maxW/float64(w), maxH/float64(h))
+		width, height = float64(w)*scale, float64(h)*scale
+	}
+
+	// Right-aligned within the box and vertically centred, because the box is
+	// reserved from the right edge of a right-to-left page.
+	offsetX := x + (maxW - width)
+	offsetY := y + (maxH-height)/2
+
+	if err := d.pdf.ImageByHolder(holder, offsetX, offsetY, &gopdf.Rect{W: width, H: height}); err != nil {
+		return 0
+	}
+	return width
+}
+
+// imageSize reads the pixel dimensions of a PNG or JPEG.
+//
+// Only the header is parsed. Decoding the whole image to learn its shape would
+// cost a megabyte of allocation per receipt to answer a question the first
+// twenty bytes contain.
+func imageSize(data []byte) (width, height int, ok bool) {
+	// PNG: an 8-byte signature, then an IHDR chunk whose first eight bytes of
+	// payload are the dimensions.
+	if len(data) >= 24 && bytes.HasPrefix(data, []byte{0x89, 'P', 'N', 'G'}) {
+		w := binary.BigEndian.Uint32(data[16:20])
+		h := binary.BigEndian.Uint32(data[20:24])
+		return int(w), int(h), true
+	}
+
+	// JPEG: walk the segment markers to the start-of-frame, which carries the
+	// dimensions. Anything else is skipped by its own declared length.
+	if len(data) >= 4 && data[0] == 0xFF && data[1] == 0xD8 {
+		for i := 2; i+9 < len(data); {
+			if data[i] != 0xFF {
+				i++
+				continue
+			}
+			marker := data[i+1]
+			switch {
+			case marker == 0xD8 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7):
+				i += 2
+				continue
+			case marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC:
+				h := binary.BigEndian.Uint16(data[i+5 : i+7])
+				w := binary.BigEndian.Uint16(data[i+7 : i+9])
+				return int(w), int(h), true
+			}
+			length := int(binary.BigEndian.Uint16(data[i+2 : i+4]))
+			if length < 2 {
+				return 0, 0, false
+			}
+			i += 2 + length
+		}
+	}
+	return 0, 0, false
 }
 
 // setFont selects the weight, size and colour for the next draw.
