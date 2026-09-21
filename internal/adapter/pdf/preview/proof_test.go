@@ -30,7 +30,7 @@ func TestProofSheet(t *testing.T) {
 
 	// Every letter, isolated and joined both ways. A letter that only breaks in
 	// the middle of a word looks right in a heading and wrong in a name.
-	letters := []rune("ابتثجحخدذرزسشصضطظعغفقكلمنهوي")
+	const letters = "ابتثجحخدذرزسشصضطظعغفقكلمنهوي"
 	doc.SectionTitle("الحروف في كل موضع")
 
 	rows := [][]string{}

@@ -16,6 +16,8 @@ package pdf
 import (
 	"bytes"
 	_ "embed"
+	"fmt"
+	"strings"
 
 	"github.com/signintech/gopdf"
 
@@ -62,11 +64,14 @@ const (
 // to say six things ends up saying none of them — and because most of these
 // print on a laser printer that renders every one of them as grey anyway.
 var (
-	ink       = gopdf.RGBColor{R: 24, G: 24, B: 27}
-	muted     = gopdf.RGBColor{R: 113, G: 113, B: 122}
-	hairline  = gopdf.RGBColor{R: 212, G: 212, B: 216}
-	zebra     = gopdf.RGBColor{R: 246, G: 246, B: 247}
-	accent    = gopdf.RGBColor{R: 13, G: 94, B: 74}
+	ink      = gopdf.RGBColor{R: 24, G: 24, B: 27}
+	muted    = gopdf.RGBColor{R: 113, G: 113, B: 122}
+	hairline = gopdf.RGBColor{R: 212, G: 212, B: 216}
+	zebra    = gopdf.RGBColor{R: 246, G: 246, B: 247}
+	accent   = gopdf.RGBColor{R: 13, G: 94, B: 74}
+	// paper is the page itself. See NewPage for why it is painted rather than
+	// left to the viewer.
+	paper     = gopdf.RGBColor{R: 255, G: 255, B: 255}
 	accentPal = gopdf.RGBColor{R: 233, G: 243, B: 240}
 )
 
@@ -93,7 +98,26 @@ type Document struct {
 	footer func(d *Document, page int)
 	pageNo int
 	err    error
+	// missing collects every rune the font could not supply, in the order
+	// first seen. See the OnGlyphNotFound hook in New.
+	missing     []rune
+	missingSeen map[rune]bool
 }
+
+// noteMissingGlyph records a character the font has no glyph for.
+func (d *Document) noteMissingGlyph(r rune) {
+	if d.missingSeen == nil {
+		d.missingSeen = map[rune]bool{}
+	}
+	if d.missingSeen[r] {
+		return
+	}
+	d.missingSeen[r] = true
+	d.missing = append(d.missing, r)
+}
+
+// MissingGlyphs lists the characters the font could not draw.
+func (d *Document) MissingGlyphs() []rune { return d.missing }
 
 // Size selects the page geometry.
 type Size int
@@ -128,10 +152,24 @@ func New(size Size) (*Document, error) {
 		Unit:     gopdf.UnitPT,
 	})
 
-	if err := doc.pdf.AddTTFFontData(regular, fontRegular); err != nil {
+	// Every glyph the font cannot supply is recorded.
+	//
+	// gopdf's default is to substitute a space and carry on, which is how a
+	// receipt loses a letter without anything anywhere saying so — the exact
+	// failure this hook exists to make impossible. A document that dropped a
+	// character is refused in Bytes rather than handed over looking almost
+	// right.
+	option := gopdf.TtfOption{
+		OnGlyphNotFound: func(r rune) { doc.noteMissingGlyph(r) },
+	}
+	if err := doc.pdf.AddTTFFontDataWithOption(regular, fontRegular, option); err != nil {
 		return nil, shared.Internal("pdf.font", err, "loading the regular font")
 	}
-	if err := doc.pdf.AddTTFFontData(bold, fontBold); err != nil {
+	// No Style flag on the bold face. gopdf keys a font by family *and* style,
+	// so registering it as Bold would mean SetFont(bold, "", size) finds
+	// nothing — and the nil font it then measures against is a segfault, not a
+	// refusal. The family names already tell the two apart.
+	if err := doc.pdf.AddTTFFontDataWithOption(bold, fontBold, option); err != nil {
 		return nil, shared.Internal("pdf.font", err, "loading the bold font")
 	}
 	return doc, nil
@@ -156,6 +194,20 @@ func (d *Document) NewPage() {
 	}
 	d.pdf.AddPage()
 	d.pageNo++
+
+	// Paint the sheet white before anything else.
+	//
+	// A PDF page has no background of its own. Most viewers paint one, and the
+	// ones that do not — some print pipelines, some preview panes, anything
+	// compositing onto a dark surface — render the page transparent, so every
+	// unbanded row of a table comes out black with black text on it. The
+	// document then looks like letters are missing, because they are: they are
+	// there, drawn in ink on ink.
+	//
+	// One rectangle per page is the cheapest possible insurance against a
+	// class of failure that is invisible on the machine that generated it.
+	d.Box(0, 0, d.width, d.height, paper)
+
 	d.y = d.margin
 	if d.header != nil {
 		d.header(d)
@@ -169,6 +221,18 @@ func (d *Document) Pages() int { return d.pageNo }
 func (d *Document) Bytes() ([]byte, error) {
 	if d.err != nil {
 		return nil, d.err
+	}
+	// A document that lost a character is refused rather than handed over.
+	//
+	// gopdf substitutes a space for a glyph it cannot find, so the failure
+	// arrives as a receipt with a gap where a letter should be — and a student
+	// holding it has no way to know, and neither does the office. Naming the
+	// characters is the whole point: "the font has no glyph for ٱ" is fixable,
+	// "the printout looks wrong" is not.
+	if len(d.missing) > 0 {
+		return nil, shared.Internal("pdf.missing_glyphs", nil,
+			"the embedded font has no glyph for %s; the document would print with "+
+				"gaps where those characters belong", describeRunes(d.missing))
 	}
 	if d.pageNo > 0 && d.footer != nil {
 		d.footer(d, d.pageNo)
@@ -424,3 +488,17 @@ func Hairline() gopdf.RGBColor   { return hairline }
 func Zebra() gopdf.RGBColor      { return zebra }
 func Accent() gopdf.RGBColor     { return accent }
 func AccentPale() gopdf.RGBColor { return accentPal }
+
+// describeRunes names the characters a font could not draw, for an error a
+// person can act on.
+func describeRunes(runes []rune) string {
+	parts := make([]string, 0, len(runes))
+	for i, r := range runes {
+		if i == 8 {
+			parts = append(parts, fmt.Sprintf("and %d more", len(runes)-i))
+			break
+		}
+		parts = append(parts, fmt.Sprintf("%q (U+%04X)", r, r))
+	}
+	return strings.Join(parts, ", ")
+}

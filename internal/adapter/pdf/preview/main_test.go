@@ -1,6 +1,7 @@
 package preview_test
 
 import (
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -56,4 +57,49 @@ func TestRenderSamples(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("wrote %s/receipt.pdf (%d bytes)", out, len(rendered))
+
+	// A report long enough to spill, because page two is where a generated
+	// document goes wrong: the letterhead vanishes, the column headings do
+	// not repeat, and a wall of unlabelled figures is what somebody files.
+	rows := make([][]string, 0, 60)
+	names := []string{
+		"علي محمد حسن الجبوري", "زينب عبد الله كريم", "مصطفى وليد الساعدي",
+		"نور عماد شاكر", "فاطمة أحمد كاظم الحسيني", "عبد الله ماجد حميد",
+	}
+	depts := []string{"هندسة الحاسوب", "الهندسة المدنية", "الهندسة الكهربائية"}
+	for i := 0; i < 60; i++ {
+		rows = append(rows, []string{
+			fmt.Sprintf("CPE-2025-%03d", i+1),
+			names[i%len(names)],
+			"زينب عبد الله",
+			"2025-2026",
+			depts[i%len(depts)],
+			fmt.Sprintf("%d", i%4+1),
+			money.FormatWesternDigits(money.Amount(3_100_000)),
+			money.FormatWesternDigits(money.Amount(int64(i%5) * 400_000)),
+			money.FormatWesternDigits(money.Amount(3_100_000 - int64(i%5)*400_000)),
+		})
+	}
+
+	report, err := pdf.Report(pdf.ReportDoc{
+		Title:    "تقرير الديون",
+		Subtitle: "السنة 2025-2026 · الكلية كلية الهندسة",
+		Columns: []pdf.ReportColumn{
+			{Header: "الرقم الجامعي"}, {Header: "الطالب"}, {Header: "اسم الأم"},
+			{Header: "السنة"}, {Header: "القسم"}, {Header: "المرحلة", Numeric: true},
+			{Header: "المفروض", Numeric: true}, {Header: "المدفوع", Numeric: true},
+			{Header: "المتبقّي", Numeric: true},
+		},
+		Rows:        rows,
+		Letterhead:  data.Institution,
+		GeneratedAt: time.Now(),
+		GeneratedBy: "مدير الحسابات",
+	}, loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(out+"/report.pdf", report, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("wrote %s/report.pdf (%d bytes)", out, len(report))
 }

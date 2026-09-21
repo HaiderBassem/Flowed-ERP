@@ -290,9 +290,19 @@ func isDiacritic(r rune) bool {
 
 // isLeftToRight reports whether a rune belongs to a run that must keep its
 // original order: digits, Latin letters, and the signs that travel with them.
+//
+// Arabic-Indic digits count. They are written right-to-left as *glyphs* but
+// left-to-right as a *number* — ٢٠٢٦ is two thousand and twenty-six, not six
+// thousand two hundred and two — so reversing them with the surrounding Arabic
+// turns ٠١٢٣ into ٣٢١٠. This system prints Western digits by policy, but a
+// student's name or an office's note can carry either.
 func isLeftToRight(r rune) bool {
 	switch {
 	case r >= '0' && r <= '9':
+		return true
+	case r >= 0x0660 && r <= 0x0669: // Arabic-Indic ٠..٩
+		return true
+	case r >= 0x06F0 && r <= 0x06F9: // Extended Arabic-Indic, used in Persian
 		return true
 	case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z':
 		return true

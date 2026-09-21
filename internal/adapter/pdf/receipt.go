@@ -12,19 +12,23 @@ import (
 	"flowed/internal/domain/money"
 )
 
-// Receipt renders a payment or refund receipt as an A5 PDF.
+// Receipt renders a payment or refund receipt as an A4 PDF.
 //
-// A5 rather than A4: half a sheet is what an office guillotine produces from
-// stock it already buys, and a receipt on a full page wastes three quarters of
-// it. One column, top to bottom, because a receipt is read once at a counter
-// and then filed — the reader wants the amount and the number, and everything
-// else is there so they can find it again in a year.
+// A4, not A5. A5 is the right size for a receipt and the wrong size for an
+// office: it needs a guillotine, or a printer tray nobody has loaded, and the
+// result is somebody printing an A5 page onto A4 and getting a receipt in the
+// corner of a mostly empty sheet. A4 prints correctly from every machine
+// without anybody choosing anything, which is worth more than the paper.
+//
+// One column, top to bottom, because a receipt is read once at a counter and
+// then filed — the reader wants the amount and the number, and everything else
+// is there so they can find it again in a year.
 func Receipt(data receipt.Data, loc *time.Location) ([]byte, error) {
 	if loc == nil {
 		loc = time.UTC
 	}
 
-	doc, err := New(A5)
+	doc, err := New(A4)
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +121,18 @@ func Receipt(data receipt.Data, loc *time.Location) ([]byte, error) {
 		doc.Paragraph(data.Notes, TextStyle{Size: 9, Color: Ink()})
 	}
 
+	// The signatures sit at the foot of the page rather than under the last
+	// line of content. A receipt whose content ends a third of the way down an
+	// A4 sheet looks unfinished with the signature lines floating in the
+	// middle of it; anchored to the bottom, the empty space reads as margin.
+	//
+	// Only when there is room: a receipt with thirty installments has none,
+	// and pushing the signatures onto a second page to reach a fixed position
+	// would be worse than letting them follow the content.
+	const signatureBlock = 62
+	if bottom := doc.Height() - doc.Margin() - footerReserve - signatureBlock; bottom > doc.Y() {
+		doc.SetY(bottom)
+	}
 	doc.SignatureLine(signatures...)
 
 	return doc.Bytes()
