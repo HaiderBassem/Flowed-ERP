@@ -323,15 +323,49 @@ tell the operator what to do instead (`WithDetail("remedy", ...)`).
 
 ## Status and known gaps
 
-Complete and running: 23 migrations, 103 documented HTTP paths, 368 test
+Complete and running: 32 migrations, 104 documented HTTP paths, 357 test
 functions across unit, integration and end-to-end, all green under the race
 detector. Reports and exports, configuration administration, bulk promotion and
-import, cashier sessions, sponsors and settlement, electronic payment
-providers, the student portal, notifications, the background scheduler,
-printable Arabic receipts, Prometheus metrics with OTLP tracing, a
-cross-replica rate limiter, the off-host audit archive and tracked
-reconciliation are all in. Alert rules are in `deploy/alerts.yml`; deployment is
-in `deploy/` and `docs/operations/deployment.md`.
+import, the background scheduler, printable Arabic receipts, Prometheus metrics
+with OTLP tracing, a cross-replica rate limiter, the off-host audit archive and
+tracked reconciliation are all in. Alert rules are in `deploy/alerts.yml`;
+deployment is in `deploy/` and `docs/operations/deployment.md`.
+
+### One operator, and what that removed
+
+The system was built for a university with a separation-of-duties matrix and a
+cash window per college. It is run by one office with one person in it. These
+were removed rather than left switched off, because a control nobody can satisfy
+is not a weaker control — it is a refusal:
+
+- **Roles.** One role, `admin`, and every account holds it. `RequireAnyRole` and
+  the `RequireRoles` middleware are gone; authority is recorded in the audit
+  trail rather than checked at the edge.
+- **Shifts and the cash drawer.** Cash no longer needs an open session. Receipt
+  series are keyed by year alone, so a number reads `R-2025-2026-000008`.
+- **Four eyes** on refunds, voids and discount grants, in Go and in the schema.
+  With one account it stopped a refund being issued at all. `POST
+  /refunds/issue`, `POST /voids/execute` and `POST /discounts/grants` each do in
+  one call what took three, and each still runs the steps in order — the checks
+  that matter live inside them.
+- **Sponsors, settlement, electronic payment providers, the student portal and
+  notifications**, in full: schema, services, handlers and screens.
+
+What stays, because it holds with one operator and is the reason a correction is
+still a new row rather than an edit: append-only rows, the hash-chained audit
+trail, the frozen net, the snapshot, and the lock order.
+
+Added in the same pass: the university number is issued by `next_student_no()`
+inside the registering transaction, so a rollback returns it; `registered_on`
+records the day the office registered somebody, which is not the day the row was
+written; hosting is priced through `student_category`, so `HOSTED_EXTERNAL` and
+`HOSTED_EVENING_TO_MORNING` resolve against fee policy like any other category;
+student search bounds `paid_percent_min`/`max`, which is the question the office
+asks out loud and no amount filter can answer; and `GET /data/export` / `POST
+/data/import` move the whole database as a ZIP of CSV files. That import needed
+deferrable foreign keys (migration 000032), because `payment` and `void_request`
+point at each other, and one `TRUNCATE` rather than ordered deletes, because
+`ON DELETE RESTRICT` is checked immediately whatever the transaction asked for.
 
 Measured rather than assumed, and the numbers are in `docs/operations/`:
 a cashier's lookups are 1–4 ms uncontended and 5–28 ms while reports run; the

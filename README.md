@@ -55,7 +55,7 @@ internal/domain  pure business rules — no database, no HTTP, no framework
   academic         academic year, enrollment, hosting, reference data
   billing          fee policy, account, installment plan, allocation engine
   discount         definitions, grants, and the stacking engine
-  payment          payments, refunds, voids, cashier sessions
+  payment          payments, refunds, voids
 
 internal/port    repository and transaction interfaces — the domain's view of storage
 internal/app     one method per domain command, each its own transaction
@@ -276,8 +276,7 @@ names where.
 
 - **Partial unique indexes** state business rules directly. One live enrollment
   per student per year; one live account per enrollment, so a cancelled one can
-  be regenerated; one open cashier session per user; one reversal per
-  allocation. Elsewhere these need a nullable flag column and a convention
+  be regenerated; one reversal per allocation. Elsewhere these need a nullable flag column and a convention
   nobody can see in the schema.
 - **`NULLS NOT DISTINCT`** makes fee-policy scope uniqueness actually bite.
   Without it, two rows both meaning "2025-2026, engineering, any department"
@@ -348,10 +347,10 @@ readiness probe that needs a token cannot report that authentication is broken.
 | Enrollments | `POST /enrollments`, `GET /enrollments/:id`, `POST /enrollments/:id/{supersede,result,status}` |
 | Accounts | `POST /accounts` (with `dry_run`), `GET /accounts/:id`, `POST /accounts/adjustments` |
 | Payments | `POST /payments`, `GET /payments/:id` |
-| Voids | `POST /voids`, `POST /voids/:id/execute`, `GET /voids/pending` |
-| Refunds | `POST /refunds`, `POST /refunds/:id/{approve,reject,post}`, `GET /refunds/pending` |
-| Discounts | `POST /discounts/assignments`, `POST /discounts/assignments/:id/{approve,revoke}`, `POST /discounts/applications/:id/confirm` |
-| Cashier | `POST /cashier-sessions`, `GET /cashier-sessions/current`, `POST /cashier-sessions/:id/{close,approve}`, `GET /cashier-sessions/:id`, `GET /cashier-desks` |
+| Voids | `POST /voids/execute` (one call), `POST /voids`, `POST /voids/:id/execute`, `GET /voids/pending` |
+| Refunds | `POST /refunds/issue` (one call), `POST /refunds`, `POST /refunds/:id/{approve,reject,post}`, `GET /refunds/pending` |
+| Discounts | `POST /discounts/grants` (one call), `POST /discounts/assignments`, `POST /discounts/assignments/:id/{approve,revoke}`, `POST /discounts/applications/:id/confirm` |
+| Data | `GET /data/export`, `POST /data/import` — the whole database as a ZIP of CSV files |
 | Years | `GET/POST /academic-years`, `POST /academic-years/:id/{open,close-financially,close,reopen}` |
 | Configuration | `POST/GET /fee-policies`, `POST /fee-policies/:id/publish`, `POST /fee-policies/preview-resolution`, `POST/GET /installment-templates` (+ `/:id/publish`), `POST/GET /discounts/definitions` (+ `/:id/versions`, `/versions/:id/publish`), `POST /{colleges,departments,study-types}` |
 | Bulk | `POST /bulk/promotions`, `POST /bulk/accounts` (both `dry_run` first) |
@@ -459,9 +458,8 @@ Every scenario the design was written for is in there to look at:
 | Any repeating student | A quarter more tuition than a first-attempt student in the same seat, from a policy row rather than a branch in code |
 
 The years are left in all three lifecycle states at once: 2023-2024 and
-2024-2025 financially closed, 2025-2026 open. Sign in as `admin`, `registrar`,
-`officer`, `finance`, `cashier`, `auditor` or `viewer` — the password is
-printed when the demo finishes, and the cashier must sign in at desk `D01`.
+2024-2025 financially closed, 2025-2026 open. Sign in as `admin`; the password
+is printed when the demo finishes.
 
 After it loads, these four queries should all return zero, and the demo is only
 considered good if they do:
@@ -675,18 +673,22 @@ configuration.
 
 ## Status
 
-Complete and running end to end. Schema (23 migrations), migration engine,
-domain layer, application services, PostgreSQL adapter, 103 documented HTTP
+Complete and running end to end. Schema (32 migrations), migration engine,
+domain layer, application services, PostgreSQL adapter, 104 documented HTTP
 paths, authentication with key rotation and session revocation, organisational
-scope, reports and exports, configuration administration, bulk promotion and
-account generation, staged import, cashier sessions, sponsors and settlement,
-electronic payment providers, the student portal, notifications, the background
-scheduler, printable Arabic receipts, metrics and tracing, the cross-replica
-rate limiter, the off-host audit archive, tracked reconciliation, and the
-operational commands. Build, vet, staticcheck, gofmt and the full test suite —
-368 test functions across unit, integration and end-to-end — are clean under
-the race detector, and the demo dataset loads through the real commands with
-all four integrity checks at zero.
+scope, reports and exports, CSV export and import of the whole database,
+configuration administration, bulk promotion and account generation, staged
+import, the background scheduler, printable Arabic receipts, metrics and
+tracing, the cross-replica rate limiter, the off-host audit archive, tracked
+reconciliation, and the operational commands. Build, vet, staticcheck, gofmt
+and the full test suite — 357 test functions across unit, integration and
+end-to-end — are clean under the race detector, and the demo dataset loads
+through the real commands with all four integrity checks at zero.
+
+It is run from a single account. Roles, shifts, the cash drawer, the four-eyes
+rule, sponsors, settlement, electronic payment providers, the student portal
+and notifications were removed rather than switched off — see the section of
+the same name in `CLAUDE.md` for what went and what was kept.
 
 Alert rules now exist for the instruments, in `deploy/alerts.yml`: an
 unexplained invariant violation, voids climbing against collection, an
