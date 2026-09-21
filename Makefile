@@ -9,6 +9,7 @@ PKG            := ./...
 # to the literal string "dev" meant a mis-built production binary was
 # indistinguishable from a laptop build. The commit and build time are stamped
 # beside it so a running process can be traced to an exact tree.
+HTTP_PORT      ?= 8080
 VERSION        ?= $(shell cat VERSION 2>/dev/null || echo unknown)
 GIT_COMMIT     ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 BUILD_TIME     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -179,13 +180,32 @@ docker-up:
 	@until docker compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
 	@echo "ready"
 
+## docker-run: bring the whole stack up in docker — database, migrations, API
+##
+## HTTP_PORT moves only the published side; the container still listens on 8080,
+## so `make docker-run HTTP_PORT=8090` is the answer when a development machine
+## already has something on 8080.
+##
+## The stamp is exported rather than passed with --build-arg because compose
+## reads the build arguments from the environment. Without this the image
+## reports version "unknown", and a container that cannot say what it is
+## is the one nobody can match to a commit when it misbehaves.
+docker-run:
+	VERSION=$(VERSION) GIT_COMMIT=$(GIT_COMMIT) \
+	BUILD_TIME=$(BUILD_TIME) TREE_STATE=$(TREE_STATE) \
+	HTTP_PORT=$(HTTP_PORT) \
+	docker compose --profile full up -d --build
+	@echo "waiting for the api..."
+	@until curl -fsS http://localhost:$(HTTP_PORT)/health >/dev/null 2>&1; do sleep 1; done
+	@echo "up on http://localhost:$(HTTP_PORT)/app/"
+
 ## docker-down: stop the docker stack
 docker-down:
-	docker compose down
+	docker compose --profile full down
 
 ## docker-clean: stop the stack and delete its volumes
 docker-clean:
-	docker compose down -v
+	docker compose --profile full down -v
 
 ## docker-build: build the deployable image, stamped like a local build
 ##
