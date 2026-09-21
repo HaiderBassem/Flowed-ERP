@@ -163,9 +163,13 @@ fresh-start: db-drop db-create migrate-up seed
 	@echo ""
 	@echo "$(DB_NAME) is ready. Sign in as the administrator above, then:"
 	@echo "  1. change the password, from the account menu"
-	@echo "  2. set the university's name, under الإعدادات"
-	@echo "  3. open an academic year, under السنوات الدراسية"
-	@echo "  4. price it, under أجور الدراسة والاستضافة"
+	@echo "  2. set the university's name and crest, under الإعدادات"
+	@echo "  3. add your colleges and departments, under البيانات المرجعية"
+	@echo "  4. open an academic year, under السنوات الدراسية"
+	@echo "  5. set its fees, under أجور الدراسة والاستضافة"
+	@echo ""
+	@echo "Study types, student categories and payment methods are already"
+	@echo "there. Colleges and departments are not, because they are yours."
 	@echo ""
 
 ## docker-up: start PostgreSQL in docker
