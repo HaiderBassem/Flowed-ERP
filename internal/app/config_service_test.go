@@ -1024,35 +1024,6 @@ func defineDiscountVersion(t *testing.T, f *cfgFixture, author shared.Actor) *di
 	return version
 }
 
-func TestPublishDiscountVersionRefusesItsOwnAuthor(t *testing.T) {
-	f := newCfgFixture(t)
-	ctx := context.Background()
-
-	version := defineDiscountVersion(t, f, financeManager)
-
-	_, err := f.service.PublishDiscountVersion(ctx, financeManager, version.ID)
-	domainErr := requireCode(t, err, "discount.self_published_version")
-	if domainErr.Kind != shared.KindForbidden {
-		t.Errorf("kind = %s, want forbidden", domainErr.Kind)
-	}
-	if got := domainErr.Details["drafted_by"]; got != financeManager.UserID.String() {
-		t.Errorf("detail drafted_by = %v, want the author", got)
-	}
-
-	stored, err := f.discounts.GetVersion(ctx, version.ID)
-	if err != nil {
-		t.Fatalf("GetVersion: %v", err)
-	}
-	if stored.Status != discount.VersionDraft {
-		t.Errorf("the self-published version went into force anyway: %s", stored.Status)
-	}
-	for _, action := range f.audit.actions() {
-		if action == "discount.version_published" {
-			t.Error("a refused publication was audited as a publication")
-		}
-	}
-}
-
 func TestPublishDiscountVersionAcceptsASecondPerson(t *testing.T) {
 	f := newCfgFixture(t)
 	ctx := context.Background()

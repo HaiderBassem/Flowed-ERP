@@ -1613,17 +1613,15 @@ func (s *ConfigService) PublishDiscountVersion(ctx context.Context, actor shared
 		}
 		before := snapshotOf(version)
 
-		// A version with no recorded author cannot be checked — a seeded or
-		// migrated row, not a self-publication — and refusing it would leave
-		// the catalogue unpublishable. The comparison is made whenever there
-		// is somebody to compare against.
-		if version.CreatedBy != nil && *version.CreatedBy == actor.UserID {
-			return shared.Forbidden("discount.self_published_version",
-				"a discount version cannot be published by the person who drafted it; ask a second "+
-					"finance manager to review the value and publish it").
-				WithDetail("version_id", version.ID.String()).
-				WithDetail("drafted_by", version.CreatedBy.String())
-		}
+		// The four-eyes rule that stood here went with the second operator it
+		// depended on. It refused to publish a version drafted by the same
+		// person, which with one account is every version — so a discount type
+		// could be created and then never made usable, and the office had a
+		// catalogue of discounts that silently granted nothing.
+		//
+		// What remains is the audit entry naming who published it and the
+		// version row, which cannot afterwards be edited: a published value is
+		// superseded by a new version, never overwritten.
 
 		if err := version.Publish(actor.UserID, now); err != nil {
 			return err
