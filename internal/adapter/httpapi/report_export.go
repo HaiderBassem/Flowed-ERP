@@ -5,6 +5,7 @@ import (
 	"flowed/internal/app"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -163,8 +164,14 @@ func writeExport(c *gin.Context, table export.Table) {
 	if format == export.FormatPDF {
 		disposition = "inline"
 	}
-	c.Header("Content-Disposition",
-		fmt.Sprintf("%s; filename=%q", disposition, table.Filename(format)))
+	// Both forms, per RFC 6266: filename= carries an ASCII fallback because the
+	// parameter cannot safely hold anything else, and filename*= carries the
+	// real Arabic title percent-encoded. Sending only the first is what made
+	// every Arabic-titled report download under the same name.
+	c.Header("Content-Disposition", fmt.Sprintf("%s; filename=%q; filename*=UTF-8''%s",
+		disposition,
+		table.ASCIIFilename(format),
+		url.PathEscape(table.Filename(format))))
 
 	c.Status(http.StatusOK)
 	if err := table.Write(c.Writer, format); err != nil {

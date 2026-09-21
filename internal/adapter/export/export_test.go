@@ -221,6 +221,62 @@ func TestFilenameCarriesTheDate(t *testing.T) {
 	}
 }
 
+// Every report title in this system is Arabic. A filename rule that keeps only
+// ASCII therefore names them all the same thing, and an officer who exports
+// three registers cannot tell the files apart without opening each. The test
+// that existed asserted only that the date was present, which "--2026-03-15"
+// satisfies — so it passed throughout.
+func TestArabicTitlesProduceDistinctFilenames(t *testing.T) {
+	at := time.Date(2026, 3, 15, 9, 0, 0, 0, time.UTC)
+	titles := []string{"تقرير الديون", "سجل الإلغاءات", "أعمار الذمم"}
+
+	seen := make(map[string]string, len(titles))
+	for _, title := range titles {
+		name := export.Table{Title: title, GeneratedAt: at}.Filename(export.FormatCSV)
+
+		if !strings.Contains(name, title) {
+			t.Errorf("filename for %q is %q; the title should survive into the name", title, name)
+		}
+		if earlier, clash := seen[name]; clash {
+			t.Errorf("%q and %q both download as %q", earlier, title, name)
+		}
+		seen[name] = title
+	}
+}
+
+// The ASCII fallback rides in filename=, which cannot carry anything else. It
+// may collapse to a constant for Arabic titles — filename*= is what
+// distinguishes them — but it must never be empty or a bare run of hyphens,
+// because that is what a client reading only this parameter would save.
+func TestASCIIFallbackIsAlwaysUsable(t *testing.T) {
+	at := time.Date(2026, 3, 15, 9, 0, 0, 0, time.UTC)
+	for _, title := range []string{"تقرير الديون", "   ", "///", "Year summary"} {
+		name := export.Table{Title: title, GeneratedAt: at}.ASCIIFilename(export.FormatCSV)
+		if strings.HasPrefix(name, "-") || strings.HasPrefix(name, ".") {
+			t.Errorf("ASCII fallback for %q is %q", title, name)
+		}
+		if !strings.HasSuffix(name, ".csv") {
+			t.Errorf("ASCII fallback for %q lost its extension: %q", title, name)
+		}
+	}
+}
+
+// A title is data and a filename is a header value: a separator or a newline
+// in one must not become part of a path or a second header line.
+func TestFilenameStripsWhatAPathCannotCarry(t *testing.T) {
+	at := time.Date(2026, 3, 15, 9, 0, 0, 0, time.UTC)
+	name := export.Table{
+		Title:       "تقرير/الديون\nSet-Cookie: x",
+		GeneratedAt: at,
+	}.Filename(export.FormatCSV)
+
+	for _, forbidden := range []string{"/", "\n", "\r"} {
+		if strings.Contains(name, forbidden) {
+			t.Errorf("filename %q still contains %q", name, forbidden)
+		}
+	}
+}
+
 func readZipEntry(t *testing.T, data []byte, name string) string {
 	t.Helper()
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))

@@ -153,8 +153,46 @@ func (t Table) Write(w io.Writer, format Format) error {
 	}
 }
 
-// Filename suggests a name for the download.
+// Filename suggests a name for the download, in the language of the title.
+//
+// The earlier version kept only a-z and 0-9 and turned spaces into hyphens.
+// Every report title here is Arabic, so every export arrived as "--2026-09-22"
+// — an officer who downloaded the debt report, the void register and the
+// ageing report got three files with one name and no way to tell them apart
+// without opening each. The slug survived only for the two titles still in
+// English, which is why it looked like it worked.
+//
+// So the title is kept as written, and only what a filesystem cannot carry is
+// removed. Served alongside ASCIIFilename as the RFC 6266 pair, so a client
+// that cannot read the encoded form still gets something usable.
 func (t Table) Filename(format Format) string {
+	name := strings.Map(func(r rune) rune {
+		switch {
+		// Reserved by Windows, POSIX, or both. A path separator in a download
+		// name is the one that matters.
+		case r == '/', r == '\\', r == ':', r == '*', r == '?',
+			r == '"', r == '<', r == '>', r == '|':
+			return '-'
+		// Control characters, including the newline that would otherwise let a
+		// title write a second header line.
+		case r < 0x20, r == 0x7f:
+			return -1
+		default:
+			return r
+		}
+	}, t.Title)
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "report"
+	}
+	return fmt.Sprintf("%s-%s.%s", name, t.GeneratedAt.Format("2006-01-02"), format.Extension())
+}
+
+// ASCIIFilename is the fallback for the plain filename= parameter, which can
+// only safely carry ASCII. It keeps the date and the extension, so files
+// remain distinguishable even for a client that reads nothing else.
+func (t Table) ASCIIFilename(format Format) string {
 	slug := strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
@@ -167,6 +205,7 @@ func (t Table) Filename(format Format) string {
 			return -1
 		}
 	}, t.Title)
+	slug = strings.Trim(slug, "-")
 	if slug == "" {
 		slug = "report"
 	}
