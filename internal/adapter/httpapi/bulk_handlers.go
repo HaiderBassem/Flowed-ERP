@@ -483,9 +483,14 @@ func parseImportCSV(header *multipart.FileHeader) ([]map[string]any, error) {
 	for _, name := range columns {
 		present[name] = true
 	}
+	// student_no is not required. The system issues university numbers, so a
+	// spreadsheet of new students has no numbers to carry yet — demanding the
+	// column would make the office invent them, which is the collision the
+	// generated sequence exists to prevent. The column is still read when it
+	// is present, for a student who already has a number on a document.
 	var missing []string
 	for _, required := range []string{
-		app.ColStudentNo, app.ColFullName, app.ColMotherName,
+		app.ColFullName, app.ColMotherName,
 		app.ColDepartmentCode, app.ColStudyTypeCode, app.ColStage,
 	} {
 		if !present[required] {

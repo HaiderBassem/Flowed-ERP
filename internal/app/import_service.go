@@ -56,8 +56,10 @@ const (
 	ColFullName       = "full_name"
 	ColMotherName     = "mother_name"
 	ColPhone          = "phone"
+	ColEmail          = "email"
 	ColBirthDate      = "birth_date"
 	ColGender         = "gender"
+	ColRegisteredOn   = "registered_on"
 	ColDepartmentCode = "department_code"
 	ColStudyTypeCode  = "study_type_code"
 	ColStage          = "stage"
@@ -66,8 +68,9 @@ const (
 // StudentImportColumns is the expected header of a student spreadsheet, in
 // order.
 var StudentImportColumns = []string{
-	ColStudentNo, ColFullName, ColMotherName, ColPhone,
-	ColBirthDate, ColGender, ColDepartmentCode, ColStudyTypeCode, ColStage,
+	ColStudentNo, ColFullName, ColMotherName, ColPhone, ColEmail,
+	ColBirthDate, ColGender, ColRegisteredOn,
+	ColDepartmentCode, ColStudyTypeCode, ColStage,
 }
 
 // Validation finding codes. They are stable strings because a review screen
@@ -375,8 +378,14 @@ func (s *ImportService) validateRow(
 	fullName := collapseSpaces(rowText(row.RawData, ColFullName))
 	motherName := collapseSpaces(rowText(row.RawData, ColMotherName))
 
-	if studentNo == "" {
-		addError(row, ColStudentNo, FindingMissingField, "the university number is required")
+	// An empty university number is legitimate on a students batch: the system
+	// issues one. It is still required on an enrollments batch, where the
+	// number is how the row finds the person it is meant to enroll — and a
+	// blank there would silently create a second record for somebody already
+	// on file, which is the duplicate this whole validation exists to prevent.
+	if studentNo == "" && batch.BatchType == port.BatchTypeEnrollments {
+		addError(row, ColStudentNo, FindingMissingField,
+			"the university number is required to match an existing student")
 	}
 	if fullName == "" {
 		addError(row, ColFullName, FindingMissingField, "the student's full name is required")
@@ -449,10 +458,16 @@ func (s *ImportService) matchExistingPerson(
 	department *academic.Department,
 	stage int16,
 ) {
-	existing, err := s.deps.Students.GetByStudentNo(ctx, studentNo)
-	if err != nil && !missingRecord(err) {
-		addError(row, ColStudentNo, "lookup_failed", err.Error())
-		return
+	// A blank number matches nobody by construction, and asking the database
+	// for one returns whichever row happens to hold the empty string.
+	var existing *student.Student
+	if studentNo != "" {
+		found, err := s.deps.Students.GetByStudentNo(ctx, studentNo)
+		if err != nil && !missingRecord(err) {
+			addError(row, ColStudentNo, "lookup_failed", err.Error())
+			return
+		}
+		existing = found
 	}
 
 	if existing == nil {
@@ -1017,9 +1032,13 @@ func (s *ImportService) applyRow(
 	}
 
 	studentNo := rowText(row.RawData, ColStudentNo)
-	person, err := s.deps.Students.GetByStudentNo(ctx, studentNo)
-	if err != nil && !missingRecord(err) {
-		return err
+	var person *student.Student
+	if studentNo != "" {
+		found, err := s.deps.Students.GetByStudentNo(ctx, studentNo)
+		if err != nil && !missingRecord(err) {
+			return err
+		}
+		person = found
 	}
 
 	if person == nil {
@@ -1027,10 +1046,11 @@ func (s *ImportService) applyRow(
 			return shared.Conflict("import.matched_student_vanished",
 				"row %d was reviewed as an update but student %s no longer exists", row.RowNo, studentNo)
 		}
-		person, err = s.createPerson(ctx, actor, row, studentNo)
+		created, err := s.createPerson(ctx, actor, row, studentNo)
 		if err != nil {
 			return err
 		}
+		person = created
 	}
 	row.MatchedEntityID = &person.ID
 
@@ -1074,6 +1094,7 @@ func (s *ImportService) createPerson(
 		// the database's generated columns, so touching it here would only
 		// risk corrupting what the registrar entered.
 		Phone:                 nullableText(rowText(row.RawData, ColPhone)),
+		Email:                 nullableText(rowText(row.RawData, ColEmail)),
 		AcknowledgeDuplicates: true,
 	}
 	if raw := rowText(row.RawData, ColBirthDate); raw != "" {
@@ -1086,6 +1107,16 @@ func (s *ImportService) createPerson(
 	if raw := rowText(row.RawData, ColGender); raw != "" {
 		gender := student.Gender(strings.ToLower(raw))
 		in.Gender = &gender
+	}
+	// Left unset when the column is blank, so the service defaults it to today
+	// rather than to the zero date — a spreadsheet of this morning's intake
+	// usually has no reason to carry the column at all.
+	if raw := rowText(row.RawData, ColRegisteredOn); raw != "" {
+		registeredOn, err := shared.ParseDate(raw)
+		if err != nil {
+			return nil, err
+		}
+		in.RegisteredOn = &registeredOn
 	}
 
 	created, err := s.students.RegisterStudent(ctx, actor, in)
