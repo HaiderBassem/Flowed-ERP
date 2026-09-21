@@ -24,6 +24,7 @@ coverage.html
 *.dump
 *.sql.gz
 backups/
+audit-archive/
 /tmp/
 
 # What a deployment creates beside the compose file: the signing secret and the

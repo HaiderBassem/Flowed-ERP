@@ -186,6 +186,7 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	authenticated.GET("/auth/me", deps.Auth.Me)
 	authenticated.POST("/auth/logout", deps.Auth.Logout)
 	authenticated.POST("/auth/change-password", deps.Auth.ChangePassword)
+	authenticated.PATCH("/auth/me", deps.Auth.UpdateProfile)
 	authenticated.GET("/auth/sessions", deps.Auth.MySessions)
 	authenticated.POST("/auth/sessions/revoke-others", deps.Auth.RevokeMyOtherSessions)
 

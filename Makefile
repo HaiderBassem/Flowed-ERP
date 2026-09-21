@@ -153,6 +153,21 @@ demo:
 ## demo-reset: rebuild the database and load the demo dataset
 demo-reset: db-drop db-create migrate-up demo
 
+## fresh-start: an empty system with one administrator and nothing else
+##
+## What a university actually starts from: the reference data the migrations
+## seed — colleges, departments, study types, student categories, payment
+## methods — one administrator, and not a single student. `demo-reset` is for
+## exploring the system; this is for using it.
+fresh-start: db-drop db-create migrate-up seed
+	@echo ""
+	@echo "$(DB_NAME) is ready. Sign in as the administrator above, then:"
+	@echo "  1. change the password, from the account menu"
+	@echo "  2. set the university's name, under الإعدادات"
+	@echo "  3. open an academic year, under السنوات الدراسية"
+	@echo "  4. price it, under أجور الدراسة والاستضافة"
+	@echo ""
+
 ## docker-up: start PostgreSQL in docker
 docker-up:
 	docker compose up -d postgres

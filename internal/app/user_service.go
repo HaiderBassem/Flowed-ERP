@@ -780,3 +780,89 @@ type LockoutPolicy struct {
 func DefaultLockoutPolicy() LockoutPolicy {
 	return LockoutPolicy{MaxFailures: 8, Window: 15 * time.Minute, LockFor: 15 * time.Minute}
 }
+
+// UpdateOwnProfileInput changes the caller's own name or username.
+type UpdateOwnProfileInput struct {
+	// FullName is what appears on a receipt beside "بواسطة" and in the audit
+	// trail. Empty means leave it alone.
+	FullName string
+	// Username is what they sign in with. Empty means leave it alone.
+	Username string
+	// Email is optional and may be cleared by sending a single space, which is
+	// distinguishable from "not supplied" in a way an empty string is not.
+	Email *string
+}
+
+// UpdateOwnProfile lets an operator rename themselves.
+//
+// The name matters because it is printed: every receipt carries "بواسطة
+// <name>", and an installation whose only account is called "System
+// Administrator" hands the student a slip signed by nobody.
+//
+// Changing the username is allowed and is not cosmetic either — the first
+// account is created by a script, and an office that has to keep signing in as
+// "admin" because the system will not let them rename it is an office that
+// shares one credential forever. Existing sessions survive: the token carries
+// the user's identifier, not their name.
+func (s *UserService) UpdateOwnProfile(
+	ctx context.Context, actor shared.Actor, in UpdateOwnProfileInput,
+) (*port.User, error) {
+	if shared.IsNil(actor.UserID) {
+		return nil, shared.Unauthorized("user.unauthenticated",
+			"this command requires a signed-in operator")
+	}
+
+	var updated *port.User
+	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
+		user, err := s.users.GetByID(ctx, actor.UserID)
+		if err != nil {
+			return err
+		}
+		before := snapshotOf(user)
+
+		if name := strings.TrimSpace(in.FullName); name != "" {
+			user.FullName = name
+		}
+		if username := strings.ToLower(strings.TrimSpace(in.Username)); username != "" &&
+			username != user.Username {
+			if err := validateUsername(username); err != nil {
+				return err
+			}
+			// Checked here as well as by the unique index, so the refusal
+			// names the problem instead of arriving as a constraint violation
+			// somebody has to decode.
+			if existing, err := s.users.GetByUsername(ctx, username); err == nil && existing != nil {
+				return shared.Conflict("user.username_taken",
+					"another account already uses the username %q", username)
+			}
+			user.Username = username
+		}
+		if in.Email != nil {
+			email := strings.TrimSpace(*in.Email)
+			if email == "" {
+				user.Email = nil
+			} else {
+				user.Email = &email
+			}
+		}
+
+		if err := s.users.Update(ctx, user); err != nil {
+			return err
+		}
+		updated = user
+
+		return s.record(ctx, port.AuditEntry{
+			EntityType: "app_user",
+			EntityID:   &user.ID,
+			Action:     "user.profile_updated",
+			Actor:      actor,
+			Before:     before,
+			After:      snapshotOf(user),
+			OccurredAt: nowOr(s.deps.Clock),
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}

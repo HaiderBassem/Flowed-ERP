@@ -109,6 +109,37 @@ func (h *AuthHandlers) Me(c *gin.Context) {
 	httpx.OK(c, view)
 }
 
+// UpdateProfileRequest changes the caller's own name or username.
+type UpdateProfileRequest struct {
+	FullName string  `json:"full_name"`
+	Username string  `json:"username"`
+	Email    *string `json:"email"`
+}
+
+// UpdateProfile lets an operator rename themselves.
+//
+// Mounted beside change-password rather than under /users, because it is the
+// same kind of act: something you do to your own account, not something an
+// administrator does to somebody else's.
+func (h *AuthHandlers) UpdateProfile(c *gin.Context) {
+	var req UpdateProfileRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+
+	user, err := h.Users.UpdateOwnProfile(requestContext(c), httpx.MustActor(c),
+		app.UpdateOwnProfileInput{
+			FullName: req.FullName,
+			Username: req.Username,
+			Email:    req.Email,
+		})
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	httpx.OK(c, toUserView(user))
+}
+
 // ChangePassword lets an operator replace their own password.
 //
 // Mounted outside the password-change gate: an account holding a credential

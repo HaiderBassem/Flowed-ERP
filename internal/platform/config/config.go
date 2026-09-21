@@ -437,7 +437,22 @@ func Load() (*Config, error) {
 			SMSTimeout: envDuration("NOTIFY_SMS_TIMEOUT", 15*time.Second),
 		},
 		AuditArchive: AuditArchive{
-			Dir:      env("AUDIT_ARCHIVE_DIR", ""),
+			// Defaulted rather than left empty.
+			//
+			// The archive is the only check in the system that can see a
+			// *deleted* audit entry: the hash chain walks what is present, so
+			// a removed tail leaves an intact chain behind it. Off by default
+			// meant every installation ran without that check and saw a
+			// warning at every start-up telling them to set a variable — and a
+			// warning nobody can act on from inside the application is a
+			// warning everybody learns to ignore.
+			//
+			// A directory beside the backups is weaker than the mount on
+			// another machine this wants, and it is much stronger than
+			// nothing: a deletion through psql still shows up, because the
+			// copy is not in the database. An installation that has somewhere
+			// better points AUDIT_ARCHIVE_DIR at it.
+			Dir:      env("AUDIT_ARCHIVE_DIR", "./audit-archive"),
 			Endpoint: env("AUDIT_ARCHIVE_URL", ""),
 			Secret:   env("AUDIT_ARCHIVE_SECRET", ""),
 			Batch:    envInt("AUDIT_ARCHIVE_BATCH", 500),
