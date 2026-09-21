@@ -103,6 +103,14 @@ func buildRegisterStudentInput(c *gin.Context, req RegisterStudentRequest) (app.
 		gender := student.Gender(*req.Gender)
 		in.Gender = &gender
 	}
+	if req.RegisteredOn != nil {
+		registeredOn, err := shared.ParseDate(*req.RegisteredOn)
+		if err != nil {
+			httpx.Respond(c, err)
+			return in, false
+		}
+		in.RegisteredOn = &registeredOn
+	}
 	return in, true
 }
 
@@ -215,6 +223,24 @@ func (h *Handlers) SearchStudents(c *gin.Context) {
 	if stage, ok := optionalQueryInt16(c, "stage"); ok {
 		q.Stage = stage
 	}
+	if id, ok := optionalQueryID(c, "student_category_id"); ok {
+		q.StudentCategoryID = id
+	}
+	// "Who has paid half" is the question the office asks out loud, and it is
+	// not answerable by filtering an amount: half of one student's fees is
+	// another student's whole year.
+	if pct, ok := optionalQueryPercent(c, "paid_percent_min"); ok {
+		q.PaidPercentMin = pct
+	}
+	if pct, ok := optionalQueryPercent(c, "paid_percent_max"); ok {
+		q.PaidPercentMax = pct
+	}
+	if d, ok := optionalQueryDate(c, "registered_from"); ok {
+		q.RegisteredFrom = d
+	}
+	if d, ok := optionalQueryDate(c, "registered_to"); ok {
+		q.RegisteredTo = d
+	}
 
 	found, total, err := h.StudentRepo.Search(requestContext(c), q)
 	if err != nil {
@@ -230,11 +256,19 @@ func (h *Handlers) SearchStudents(c *gin.Context) {
 		httpx.Respond(c, err)
 		return
 	}
+	money, err := h.StudentRepo.MoneySummaries(requestContext(c), ids)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
 	views := make([]StudentView, 0, len(found))
 	for _, s := range found {
 		view := toStudentView(s)
 		if summary, ok := summaries[s.ID]; ok {
 			applyCurrentEnrollment(&view, summary)
+		}
+		if summary, ok := money[s.ID]; ok {
+			applyMoneySummary(&view, summary)
 		}
 		views = append(views, view)
 	}

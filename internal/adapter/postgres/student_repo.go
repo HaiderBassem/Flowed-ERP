@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"flowed/internal/domain/money"
 	"flowed/internal/domain/shared"
 	"flowed/internal/domain/student"
 	"flowed/internal/platform/pg"
@@ -24,7 +25,7 @@ var _ port.StudentRepository = (*StudentRepository)(nil)
 const studentColumns = `
 	id, student_no, full_name, mother_name, birth_date, gender,
 	phone, phone_alt, email, address, guardian_name, guardian_phone,
-	first_admission_year, status, merged_into_id, notes,
+	first_admission_year, status, merged_into_id, notes, registered_on,
 	created_at, updated_at, created_by`
 
 // scanStudent reads one student row. Extra destinations are appended for the
@@ -32,14 +33,15 @@ const studentColumns = `
 // order lives in exactly one place.
 func scanStudent(row pgx.Row, extra ...any) (*student.Student, error) {
 	var (
-		s         student.Student
-		birthDate *time.Time
-		gender    *string
+		s            student.Student
+		birthDate    *time.Time
+		gender       *string
+		registeredOn time.Time
 	)
 	dest := []any{
 		&s.ID, &s.StudentNo, &s.FullName, &s.MotherName, &birthDate, &gender,
 		&s.Phone, &s.PhoneAlt, &s.Email, &s.Address, &s.GuardianName, &s.GuardianPhone,
-		&s.FirstAdmissionYear, &s.Status, &s.MergedIntoID, &s.Notes,
+		&s.FirstAdmissionYear, &s.Status, &s.MergedIntoID, &s.Notes, &registeredOn,
 		&s.CreatedAt, &s.UpdatedAt, &s.CreatedBy,
 	}
 	if err := row.Scan(append(dest, extra...)...); err != nil {
@@ -47,6 +49,7 @@ func scanStudent(row pgx.Row, extra ...any) (*student.Student, error) {
 	}
 	s.BirthDate = dateOrNil(birthDate)
 	s.Gender = enumPtr[student.Gender](gender)
+	s.RegisteredOn = shared.DateFromTime(registeredOn)
 	return &s, nil
 }
 
@@ -56,24 +59,30 @@ func (r *StudentRepository) Create(ctx context.Context, s *student.Student) erro
 	if err := r.db.RequireTx(ctx, "student.Create"); err != nil {
 		return err
 	}
+	// An empty student_no is filled by the series for the registration year,
+	// inside this statement rather than by a read-then-write in Go: two
+	// registrations racing on a read would both see the same number and the
+	// second would be refused by the unique index, at the counter.
 	const query = `
 		INSERT INTO student (
 			id, student_no, full_name, mother_name, birth_date, gender,
 			phone, phone_alt, email, address, guardian_name, guardian_phone,
-			first_admission_year, status, merged_into_id, notes, created_by
+			first_admission_year, status, merged_into_id, notes, registered_on, created_by
 		) VALUES (
-			$1, $2, $3, $4, $5, $6,
+			$1, coalesce(nullif($2, ''), next_student_no(extract(YEAR FROM $17::date)::int)),
+			$3, $4, $5, $6,
 			$7, $8, $9, $10, $11, $12,
-			$13, $14, $15, $16, $17
+			$13, $14, $15, $16, $17, $18
 		)
-		RETURNING created_at, updated_at`
+		RETURNING student_no, created_at, updated_at`
 
 	q := r.db.Conn(ctx)
 	err := q.QueryRow(ctx, query,
 		s.ID, s.StudentNo, s.FullName, s.MotherName, timeOrNil(s.BirthDate), enumValue(s.Gender),
 		s.Phone, s.PhoneAlt, s.Email, s.Address, s.GuardianName, s.GuardianPhone,
-		s.FirstAdmissionYear, s.Status, s.MergedIntoID, s.Notes, s.CreatedBy,
-	).Scan(&s.CreatedAt, &s.UpdatedAt)
+		s.FirstAdmissionYear, s.Status, s.MergedIntoID, s.Notes,
+		s.RegisteredOn.Time(), s.CreatedBy,
+	).Scan(&s.StudentNo, &s.CreatedAt, &s.UpdatedAt)
 	return pg.WrapQuery("student.Create", err)
 }
 
@@ -100,7 +109,8 @@ func (r *StudentRepository) Update(ctx context.Context, s *student.Student) erro
 			first_admission_year = $13,
 			status               = $14,
 			merged_into_id       = $15,
-			notes                = $16
+			notes                = $16,
+			registered_on        = $17
 		WHERE id = $1
 		RETURNING updated_at`
 
@@ -108,7 +118,7 @@ func (r *StudentRepository) Update(ctx context.Context, s *student.Student) erro
 	err := q.QueryRow(ctx, query,
 		s.ID, s.StudentNo, s.FullName, s.MotherName, timeOrNil(s.BirthDate), enumValue(s.Gender),
 		s.Phone, s.PhoneAlt, s.Email, s.Address, s.GuardianName, s.GuardianPhone,
-		s.FirstAdmissionYear, s.Status, s.MergedIntoID, s.Notes,
+		s.FirstAdmissionYear, s.Status, s.MergedIntoID, s.Notes, s.RegisteredOn.Time(),
 	).Scan(&s.UpdatedAt)
 	return pg.WrapQuery("student.Update", err)
 }
@@ -276,6 +286,9 @@ func (r *StudentRepository) searchPredicates(s port.StudentSearch, args *argList
 	if s.Stage != nil {
 		seat = append(seat, "e.stage = "+args.next(*s.Stage))
 	}
+	if s.StudentCategoryID != nil {
+		seat = append(seat, "e.student_category_id = "+args.next(*s.StudentCategoryID))
+	}
 	if len(seat) > 0 {
 		where = append(where, `EXISTS (
 		        SELECT 1 FROM enrollment e
@@ -305,7 +318,64 @@ func (r *StudentRepository) searchPredicates(s port.StudentSearch, args *argList
 		  )`)
 	}
 
+	if s.RegisteredFrom != nil {
+		where = append(where, "s.registered_on >= "+args.next(s.RegisteredFrom.Time()))
+	}
+	if s.RegisteredTo != nil {
+		where = append(where, "s.registered_on <= "+args.next(s.RegisteredTo.Time()))
+	}
+
+	if s.PaidPercentMin != nil || s.PaidPercentMax != nil {
+		where = append(where, paidPercentPredicate(s, args))
+	}
+
 	return where, prefixMatch
+}
+
+// paidPercentPredicate bounds how much of what a student owes they have paid.
+//
+// Money comes from every non-cancelled account, which is the rule the reporting
+// views already encode: a superseded enrollment's account still holds the cash
+// the student handed over, and dropping it here would report a student who paid
+// in full as having paid nothing.
+//
+// The totals are summed before the division rather than averaged after it. A
+// student with a 1,000,000 account paid in full and a 100,000 account untouched
+// has paid 91%, not 50% — averaging the two ratios would weight a small account
+// exactly as heavily as the year's tuition.
+//
+// Owing nothing is 100%: an exempt student, or one whose fees a discount covered
+// entirely, has nothing outstanding and is not an unpaid case. Calling them 0%
+// would put them at the top of every list the office opens to chase money.
+//
+// Having no account at all is different and matches no bound. A student
+// registered but not yet priced owes nothing because nothing was billed, not
+// because they paid — and counting them as 100% is how an un-priced intake
+// disappears from the one list that would have caught it. The row shows no
+// percentage for the same reason, so the list and the filter agree.
+func paidPercentPredicate(s port.StudentSearch, args *argList) string {
+	var bounds []string
+	if s.PaidPercentMin != nil {
+		bounds = append(bounds, "pct >= "+args.next(*s.PaidPercentMin))
+	}
+	if s.PaidPercentMax != nil {
+		bounds = append(bounds, "pct <= "+args.next(*s.PaidPercentMax))
+	}
+	return `EXISTS (
+		        SELECT 1 FROM (
+		            SELECT count(*) AS accounts,
+		                   CASE
+		                       WHEN coalesce(sum(fa.net_total + fa.adjustment_total), 0) <= 0 THEN 100
+		                       ELSE floor(
+		                           100.0 * coalesce(sum(fa.paid_total - fa.refunded_total), 0)
+		                           / sum(fa.net_total + fa.adjustment_total))
+		                   END AS pct
+		            FROM financial_account fa
+		            WHERE fa.student_id = s.id
+		              AND fa.status <> 'cancelled'
+		        ) paid
+		        WHERE paid.accounts > 0 AND ` + strings.Join(bounds, " AND ") + `
+		  )`
 }
 
 // AppendIdentityVersion records a documented identity change. The rows are
@@ -385,6 +455,68 @@ func (r *StudentRepository) IdentityHistory(ctx context.Context, studentID share
 // CurrentEnrollmentSummaries batches port.CurrentEnrollmentSummary lookups for
 // a page of students into one query: DISTINCT ON picks, per student, the
 // non-superseded enrollment whose academic year started most recently.
+// MoneySummaries totals what each student owes and has paid.
+//
+// One query for a whole page. The percentage is computed here rather than in Go
+// so that it is the same expression the search filter bounds — a list that says
+// 50% and a filter that asks for 50% then agree by construction.
+func (r *StudentRepository) MoneySummaries(
+	ctx context.Context, studentIDs []shared.ID,
+) (map[shared.ID]port.StudentMoneySummary, error) {
+	result := make(map[shared.ID]port.StudentMoneySummary, len(studentIDs))
+	if len(studentIDs) == 0 {
+		return result, nil
+	}
+
+	const query = `
+		SELECT fa.student_id,
+		       sum(fa.net_total + fa.adjustment_total)::bigint       AS effective_net,
+		       sum(fa.paid_total - fa.refunded_total)::bigint        AS paid,
+		       CASE
+		           WHEN sum(fa.net_total + fa.adjustment_total) <= 0 THEN 100
+		           ELSE floor(100.0 * sum(fa.paid_total - fa.refunded_total)
+		                      / sum(fa.net_total + fa.adjustment_total))
+		       END::int                                              AS paid_percent
+		FROM financial_account fa
+		WHERE fa.student_id = ANY($1) AND fa.status <> 'cancelled'
+		GROUP BY fa.student_id`
+
+	q := r.db.Conn(ctx)
+	rows, err := q.Query(ctx, query, studentIDs)
+	if err != nil {
+		return nil, pg.WrapQuery("student.MoneySummaries", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			studentID          shared.ID
+			effectiveNet, paid int64
+			percent            int
+		)
+		if err := rows.Scan(&studentID, &effectiveNet, &paid, &percent); err != nil {
+			return nil, pg.WrapQuery("student.MoneySummaries", err)
+		}
+		outstanding := effectiveNet - paid
+		if outstanding < 0 {
+			// An overpayment is credit, not negative debt. Reporting it as a
+			// negative outstanding would net it off against another student's
+			// arrears the moment somebody summed the column.
+			outstanding = 0
+		}
+		result[studentID] = port.StudentMoneySummary{
+			EffectiveNet: money.FromInt64(effectiveNet),
+			Paid:         money.FromInt64(paid),
+			Outstanding:  money.FromInt64(outstanding),
+			PaidPercent:  percent,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, pg.WrapQuery("student.MoneySummaries", err)
+	}
+	return result, nil
+}
+
 func (r *StudentRepository) CurrentEnrollmentSummaries(
 	ctx context.Context, studentIDs []shared.ID,
 ) (map[shared.ID]port.CurrentEnrollmentSummary, error) {

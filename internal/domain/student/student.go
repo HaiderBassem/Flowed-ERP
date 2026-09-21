@@ -134,6 +134,12 @@ type Student struct {
 	MergedIntoID       *shared.ID
 	Notes              *string
 
+	// RegisteredOn is the day the office registered the student, which is not
+	// CreatedAt: paper intake taken on Sunday is typed in on Tuesday, and a
+	// report of "who registered this week" built on the row timestamp answers
+	// the wrong question.
+	RegisteredOn shared.Date
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	CreatedBy *shared.ID
@@ -141,13 +147,19 @@ type Student struct {
 
 // NewParams carries what is needed to register a person.
 type NewParams struct {
-	StudentNo  string
-	FullName   string
-	MotherName string
-	BirthDate  *shared.Date
-	Gender     *Gender
-	Phone      *string
-	CreatedBy  *shared.ID
+	// StudentNo may be empty, and normally is: the repository asks the
+	// database for the next number in the registration year's series. A
+	// caller supplying one is importing a student who already has a number
+	// printed on a document somewhere.
+	StudentNo    string
+	FullName     string
+	MotherName   string
+	BirthDate    *shared.Date
+	Gender       *Gender
+	Phone        *string
+	Email        *string
+	RegisteredOn shared.Date
+	CreatedBy    *shared.ID
 }
 
 // New builds a student after validating the identity fields.
@@ -157,11 +169,12 @@ type NewParams struct {
 // is the discriminator every registrar uses. A system that treats it as a
 // nice-to-have cannot tell two people apart at the cashier's window.
 func New(p NewParams) (*Student, error) {
+	// An empty number is legitimate and is the ordinary case: the repository
+	// takes the next one from the year's series inside the same transaction.
+	// It is validated when it is supplied, because a number typed in by hand
+	// is exactly the one worth checking.
 	studentNo := strings.TrimSpace(p.StudentNo)
-	if studentNo == "" {
-		return nil, shared.Validation("student.number_required", "a university number is required")
-	}
-	if !studentNoPattern.MatchString(studentNo) {
+	if studentNo != "" && !studentNoPattern.MatchString(studentNo) {
 		return nil, shared.Validation("student.invalid_number",
 			"the university number %q contains characters that are not allowed", studentNo)
 	}
@@ -183,16 +196,23 @@ func New(p NewParams) (*Student, error) {
 		return nil, err
 	}
 
+	registeredOn := p.RegisteredOn
+	if registeredOn.IsZero() {
+		registeredOn = shared.DateFromTime(time.Now().UTC())
+	}
+
 	return &Student{
-		ID:         shared.NewID(),
-		StudentNo:  studentNo,
-		FullName:   fullName,
-		MotherName: motherName,
-		BirthDate:  p.BirthDate,
-		Gender:     p.Gender,
-		Phone:      phone,
-		Status:     StatusActive,
-		CreatedBy:  p.CreatedBy,
+		ID:           shared.NewID(),
+		StudentNo:    studentNo,
+		FullName:     fullName,
+		MotherName:   motherName,
+		BirthDate:    p.BirthDate,
+		Gender:       p.Gender,
+		Phone:        phone,
+		Email:        p.Email,
+		RegisteredOn: registeredOn,
+		Status:       StatusActive,
+		CreatedBy:    p.CreatedBy,
 	}, nil
 }
 

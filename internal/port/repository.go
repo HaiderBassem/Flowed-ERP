@@ -48,15 +48,30 @@ type TxManager interface {
 type StudentSearch struct {
 	// Query is matched against the student number, the folded name, the folded
 	// mother's name, and the normalised phone.
-	Query          string
-	AcademicYearID *shared.ID
-	DepartmentID   *shared.ID
-	CollegeID      *shared.ID
-	StudyTypeID    *shared.ID
-	Stage          *int16
-	Status         *student.Status
+	Query             string
+	AcademicYearID    *shared.ID
+	DepartmentID      *shared.ID
+	CollegeID         *shared.ID
+	StudyTypeID       *shared.ID
+	Stage             *int16
+	StudentCategoryID *shared.ID
+	Status            *student.Status
 	// OnlyWithDebt narrows to students with an outstanding balance.
 	OnlyWithDebt bool
+	// PaidPercentMin and PaidPercentMax bound how much of what a student owes
+	// they have actually paid, as a whole percentage of the effective net
+	// across every account of theirs that was not cancelled.
+	//
+	// This is the question the office actually asks — "who has paid half" —
+	// and it cannot be answered by filtering an amount, because half of one
+	// student's fees is another student's whole year. A student who owes
+	// nothing counts as 100: they are not an unpaid case, and leaving them at
+	// 0 would put every exempt student at the top of the chase list.
+	PaidPercentMin *int
+	PaidPercentMax *int
+	// RegisteredFrom and RegisteredTo bound student.registered_on.
+	RegisteredFrom *shared.Date
+	RegisteredTo   *shared.Date
 	// Scope restricts the result to the colleges and departments the caller may
 	// see. Applied in the query rather than by filtering afterwards: the point
 	// of a scope is not to read the other colleges' rows at all.
@@ -78,6 +93,22 @@ type CurrentEnrollmentSummary struct {
 	AcademicYearID shared.ID
 }
 
+// StudentMoneySummary is what a student owes and has paid, totalled across
+// every account of theirs that was not cancelled.
+//
+// Counts come from v_enrollment_effective and money comes from all
+// non-cancelled accounts — the rule the reporting views already encode, and the
+// reason a superseded enrollment's cash is not lost here. PaidPercent is the
+// same arithmetic the search filter bounds, so a list that says 50% and a
+// filter that asks for 50% agree by construction rather than by coincidence.
+type StudentMoneySummary struct {
+	EffectiveNet money.Amount
+	Paid         money.Amount
+	Outstanding  money.Amount
+	// PaidPercent is 0..100, floored. A student owing nothing is 100.
+	PaidPercent int
+}
+
 // StudentRepository stores student identity.
 type StudentRepository interface {
 	Create(ctx context.Context, s *student.Student) error
@@ -91,6 +122,10 @@ type StudentRepository interface {
 	Search(ctx context.Context, q StudentSearch) ([]*student.Student, int, error)
 	AppendIdentityVersion(ctx context.Context, v *student.IdentityVersion) error
 	IdentityHistory(ctx context.Context, studentID shared.ID) ([]*student.IdentityVersion, error)
+	// MoneySummaries batches what each student owes and has paid over a page of
+	// results, so a list showing a paid percentage costs one query rather than
+	// one per row.
+	MoneySummaries(ctx context.Context, studentIDs []shared.ID) (map[shared.ID]StudentMoneySummary, error)
 	// CurrentEnrollmentSummaries batches the read above over several students at
 	// once, so a page of search results costs one query rather than one per row.
 	// A student with no non-superseded enrollment simply has no entry in the map.

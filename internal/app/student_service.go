@@ -39,14 +39,18 @@ func (s *StudentService) WithPlacement(enrollments *EnrollmentService, accounts 
 
 // RegisterStudentInput creates a person record.
 type RegisterStudentInput struct {
-	StudentNo  string
-	FullName   string
-	MotherName string
-	BirthDate  *shared.Date
-	Gender     *student.Gender
-	Phone      *string
-	Email      *string
-	Address    *string
+	// StudentNo is optional and normally left empty: the system issues the
+	// next number in the registration year's series. Supplying one is for a
+	// student who already has a number printed on a document.
+	StudentNo    string
+	FullName     string
+	MotherName   string
+	BirthDate    *shared.Date
+	Gender       *student.Gender
+	Phone        *string
+	Email        *string
+	Address      *string
+	RegisteredOn *shared.Date
 	// AcknowledgeDuplicates proceeds despite a probable match, recording the
 	// override so a wrongly created duplicate can be traced to a decision.
 	AcknowledgeDuplicates bool
@@ -91,19 +95,25 @@ func (s *StudentService) RegisterStudent(ctx context.Context, actor shared.Actor
 				WithDetail("remedy", "resubmit with acknowledge_duplicates set to true, or enroll the existing student")
 		}
 
+		registeredOn := shared.DateFromTime(nowOr(s.deps.Clock))
+		if in.RegisteredOn != nil {
+			registeredOn = *in.RegisteredOn
+		}
+
 		person, err := student.New(student.NewParams{
-			StudentNo:  in.StudentNo,
-			FullName:   in.FullName,
-			MotherName: in.MotherName,
-			BirthDate:  in.BirthDate,
-			Gender:     in.Gender,
-			Phone:      in.Phone,
-			CreatedBy:  &actor.UserID,
+			StudentNo:    in.StudentNo,
+			FullName:     in.FullName,
+			MotherName:   in.MotherName,
+			BirthDate:    in.BirthDate,
+			Gender:       in.Gender,
+			Phone:        in.Phone,
+			Email:        in.Email,
+			RegisteredOn: registeredOn,
+			CreatedBy:    &actor.UserID,
 		})
 		if err != nil {
 			return err
 		}
-		person.Email = in.Email
 		person.Address = in.Address
 
 		if err := s.deps.Students.Create(ctx, person); err != nil {

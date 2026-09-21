@@ -37,7 +37,10 @@ type RefreshRequest struct {
 
 // RegisterStudentRequest creates a student identity.
 type RegisterStudentRequest struct {
-	StudentNo  string  `json:"student_no" binding:"required"`
+	// StudentNo is optional. Left out — which is the ordinary case — the
+	// system issues the next number in the registration year's series. Send
+	// one only for a student who already has a number on a document.
+	StudentNo  string  `json:"student_no"`
 	FullName   string  `json:"full_name" binding:"required"`
 	MotherName string  `json:"mother_name" binding:"required"`
 	BirthDate  *string `json:"birth_date"`
@@ -45,6 +48,9 @@ type RegisterStudentRequest struct {
 	Phone      *string `json:"phone"`
 	Email      *string `json:"email" binding:"omitempty,email"`
 	Address    *string `json:"address"`
+	// RegisteredOn defaults to today. It is settable because paper intake is
+	// typed in days after the student stood at the counter.
+	RegisteredOn *string `json:"registered_on"`
 	// AcknowledgeDuplicates proceeds past a probable-duplicate match. The
 	// override is recorded, so a wrongly created second record for one person
 	// can be traced to the decision that made it.
@@ -288,6 +294,7 @@ type StudentView struct {
 	Address       *string `json:"address,omitempty"`
 	GuardianName  *string `json:"guardian_name,omitempty"`
 	GuardianPhone *string `json:"guardian_phone,omitempty"`
+	RegisteredOn  string  `json:"registered_on"`
 	Status        string  `json:"status"`
 
 	// Current* is a read-time convenience from the student's most recent
@@ -298,6 +305,24 @@ type StudentView struct {
 	CurrentStudyTypeCode  *string `json:"current_study_type_code,omitempty"`
 	CurrentStage          *int16  `json:"current_stage,omitempty"`
 	CurrentAcademicYearID *string `json:"current_academic_year_id,omitempty"`
+
+	// What the student owes and has paid, across every account of theirs that
+	// was not cancelled. Read-time, like Current* above. PaidPercent is the
+	// same expression the ?paid_percent_min filter bounds, so the number shown
+	// in a row and the number the filter matched are one calculation.
+	EffectiveNet *int64 `json:"effective_net,omitempty"`
+	PaidTotal    *int64 `json:"paid_total,omitempty"`
+	Outstanding  *int64 `json:"outstanding,omitempty"`
+	PaidPercent  *int   `json:"paid_percent,omitempty"`
+}
+
+// applyMoneySummary attaches the read-time money totals to a student view.
+func applyMoneySummary(v *StudentView, summary port.StudentMoneySummary) {
+	net := summary.EffectiveNet.Int64()
+	paid := summary.Paid.Int64()
+	outstanding := summary.Outstanding.Int64()
+	percent := summary.PaidPercent
+	v.EffectiveNet, v.PaidTotal, v.Outstanding, v.PaidPercent = &net, &paid, &outstanding, &percent
 }
 
 // RegisterStudentWithPlacementView is the outcome of combined student intake:
@@ -501,6 +526,7 @@ func toStudentView(s *student.Student) StudentView {
 		Address:       s.Address,
 		GuardianName:  s.GuardianName,
 		GuardianPhone: s.GuardianPhone,
+		RegisteredOn:  s.RegisteredOn.String(),
 		Status:        string(s.Status),
 	}
 	if s.BirthDate != nil {

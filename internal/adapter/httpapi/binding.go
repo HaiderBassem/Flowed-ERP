@@ -76,6 +76,34 @@ func optionalQueryInt16(c *gin.Context, name string) (*int16, bool) {
 	return &value, true
 }
 
+// optionalQueryPercent reads a whole percentage, refusing anything outside
+// 0..100 rather than silently clamping it: a client asking for 150% has a bug,
+// and answering it with the 100% page hides the bug in a plausible result.
+func optionalQueryPercent(c *gin.Context, name string) (*int, bool) {
+	raw := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(c.Query(name)), "%"))
+	if raw == "" {
+		return nil, false
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed < 0 || parsed > 100 {
+		return nil, false
+	}
+	return &parsed, true
+}
+
+// optionalQueryDate reads a YYYY-MM-DD query parameter.
+func optionalQueryDate(c *gin.Context, name string) (*shared.Date, bool) {
+	raw := strings.TrimSpace(c.Query(name))
+	if raw == "" {
+		return nil, false
+	}
+	parsed, err := shared.ParseDate(raw)
+	if err != nil {
+		return nil, false
+	}
+	return &parsed, true
+}
+
 // pagination reads limit and offset, clamped so one request cannot ask for the
 // whole table.
 func pagination(c *gin.Context) (limit, offset int) {

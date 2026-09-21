@@ -26,6 +26,19 @@ func contextWithTx(ctx context.Context, tx pgx.Tx) context.Context {
 	return context.WithValue(ctx, txKey, tx)
 }
 
+// TxFrom returns the transaction a context is running in.
+//
+// Conn is what ordinary code wants: it hands back an Executor and hides whether
+// there is a transaction at all. This exists for the one thing an Executor
+// cannot express — the COPY protocol, which is driven from the connection
+// rather than issued as a statement — and a bulk load must run on the same
+// connection as the transaction that cleared the tables, or it commits into a
+// database somebody else is still deleting from.
+func TxFrom(ctx context.Context) (pgx.Tx, bool) {
+	tx := txFromContext(ctx)
+	return tx, tx != nil
+}
+
 // TxOptions tunes a transaction.
 type TxOptions struct {
 	// Isolation defaults to ReadCommitted. Every money-mutating command in

@@ -48,6 +48,10 @@ type RouterDeps struct {
 	// Reconciliation is the invariant queue: what the nightly checks found and
 	// what was done about it.
 	Reconciliation *ReconciliationHandlers
+	// Data is the one-button CSV export and import of the whole system, next
+	// to but not the same as Backups: a dump rebuilds a broken database, this
+	// is what the office opens in Excel and carries to another machine.
+	Data *DataHandlers
 	// Backups serves the Backup & Restore screen: creating, listing,
 	// restoring, exporting, importing and scheduling backups.
 	Backups *BackupHandlers
@@ -214,6 +218,9 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	}
 	if deps.Backups != nil {
 		deps.Backups.Register(secured)
+	}
+	if deps.Data != nil {
+		deps.Data.Register(secured)
 	}
 
 	return engine

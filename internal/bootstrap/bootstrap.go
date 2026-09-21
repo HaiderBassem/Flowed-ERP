@@ -183,6 +183,8 @@ func BuildEngine(
 
 	scheduler := app.NewScheduler(deps, db, idempotency, rateLimiter, schedulerCfg)
 
+	dataService := app.NewDataExportService(deps, db, maintenance)
+
 	engine := httpapi.NewRouter(httpapi.RouterDeps{
 		Config:         cfg,
 		Log:            log,
@@ -200,6 +202,7 @@ func BuildEngine(
 		AuditArchive:   httpapi.NewAuditArchiveHandlers(auditShipper),
 		Reconciliation: httpapi.NewReconciliationHandlers(reconciliation),
 		Backups:        httpapi.NewBackupHandlers(backupService),
+		Data:           httpapi.NewDataHandlers(dataService),
 		Maintenance:    maintenance,
 		Receipts:       httpapi.NewReceiptHandlers(receiptService),
 		Tokens:         tokens,
