@@ -1,0 +1,94 @@
+/* ===== دليل استخدام Flowed — قالب الطباعة ===== */
+@page {
+  size: A4;
+  margin: 20mm 18mm 18mm 18mm;
+}
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body {
+  font-family: "Geeza Pro", "Arial Unicode MS", "Noto Naskh Arabic", sans-serif;
+  direction: rtl; text-align: right;
+  font-size: 10.5pt; line-height: 1.85; color: #1a1a1a; margin: 0;
+}
+/* ---------- الغلاف ---------- */
+.cover { height: 247mm; display: flex; flex-direction: column;
+  justify-content: center; align-items: center; text-align: center;
+  page-break-after: always; }
+.cover .mark { font-size: 40pt; font-weight: 700; color: #0f4c5c; letter-spacing: -1px; }
+.cover h1 { font-size: 30pt; margin: 6mm 0 2mm; color: #0f172a; font-weight: 700; }
+.cover .sub { font-size: 13pt; color: #475569; margin-bottom: 14mm; }
+.cover .rule { width: 55mm; height: 3px; background: #0f4c5c; margin: 0 0 12mm; }
+.cover .meta { font-size: 9.5pt; color: #64748b; line-height: 2.1; }
+/* ---------- الفهرس ---------- */
+.toc { page-break-after: always; }
+.toc h2 { border: 0; margin-top: 0; }
+.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: sec; }
+.toc > ol > li { counter-increment: sec; padding: 2.2mm 0;
+  border-bottom: 1px dotted #cbd5e1; font-size: 11pt; font-weight: 600; color: #0f172a; }
+.toc > ol > li::before { content: counter(sec) "."; color: #0f4c5c;
+  font-weight: 700; margin-left: 3mm; }
+.toc ul { list-style: none; padding: 0 7mm 0 0; margin: 1.5mm 0 0; }
+.toc ul li { font-weight: 400; font-size: 9.5pt; color: #475569;
+  padding: 0.8mm 0; border: 0; }
+.toc ul li::before { content: "—"; color: #94a3b8; margin-left: 2mm; }
+/* ---------- العناوين ---------- */
+h2 { font-size: 17pt; color: #0f172a; margin: 0 0 5mm;
+  padding-bottom: 2.5mm; border-bottom: 2.5px solid #0f4c5c;
+  page-break-after: avoid; page-break-before: always; }
+h2:first-of-type { page-break-before: avoid; }
+h3 { font-size: 12.5pt; color: #0f4c5c; margin: 7mm 0 2.5mm; page-break-after: avoid; }
+h4 { font-size: 10.5pt; color: #334155; margin: 5mm 0 2mm; page-break-after: avoid; }
+p { margin: 0 0 3mm; }
+/* ---------- الجداول ---------- */
+table { width: 100%; border-collapse: collapse; margin: 3.5mm 0 5mm;
+  font-size: 9pt; page-break-inside: avoid; }
+th { background: #0f4c5c; color: #fff; font-weight: 600;
+  padding: 2.2mm 2.5mm; text-align: right; border: 1px solid #0f4c5c; }
+td { padding: 2mm 2.5mm; border: 1px solid #d5dde3; vertical-align: top; }
+tbody tr:nth-child(even) { background: #f6f9fa; }
+td code, th code { font-size: 8.2pt; }
+/* ---------- خطوات مرقّمة ---------- */
+ol.steps { counter-reset: st; list-style: none; padding: 0; margin: 3mm 0 5mm; }
+ol.steps > li { counter-increment: st; position: relative;
+  padding: 0 9mm 3mm 0; margin-bottom: 2mm; }
+ol.steps > li::before { content: counter(st); position: absolute; right: 0; top: 0;
+  width: 6mm; height: 6mm; background: #0f4c5c; color: #fff; border-radius: 50%;
+  font-size: 8.5pt; font-weight: 700; display: flex;
+  align-items: center; justify-content: center; }
+ul.plain { padding-right: 5mm; margin: 2mm 0 4mm; }
+ul.plain li { margin-bottom: 1.5mm; }
+/* ---------- صناديق التنبيه ---------- */
+.box { padding: 3mm 4mm; margin: 4mm 0; border-right: 3.5px solid;
+  font-size: 9.5pt; page-break-inside: avoid; border-radius: 0 3px 3px 0; }
+.box p:last-child { margin-bottom: 0; }
+.box .lbl { font-weight: 700; display: block; margin-bottom: 1.2mm; font-size: 9.5pt; }
+.warn   { background: #fef6f6; border-color: #c0392b; }
+.warn   .lbl { color: #a5281b; }
+.note   { background: #f2f8fa; border-color: #0f4c5c; }
+.note   .lbl { color: #0f4c5c; }
+.tip    { background: #f4faf4; border-color: #2e7d32; }
+.tip    .lbl { color: #24652a; }
+.gap    { background: #fffaf0; border-color: #d68910; }
+.gap    .lbl { color: #9c6410; }
+/* ---------- عناصر مضمّنة ---------- */
+code { font-family: "SF Mono", Menlo, monospace; background: #eef2f4;
+  padding: 0.5mm 1.4mm; border-radius: 2px; font-size: 8.6pt;
+  color: #0b3d4a; direction: ltr; display: inline-block; }
+.path { font-family: "SF Mono", Menlo, monospace; direction: ltr;
+  display: inline-block; background: #0f172a; color: #e2e8f0;
+  padding: 0.5mm 2mm; border-radius: 2px; font-size: 8.4pt; }
+.ui { background: #e7eef1; border: 1px solid #b8ccd4; border-radius: 2.5px;
+  padding: 0.3mm 1.8mm; font-size: 9pt; font-weight: 600; color: #0f172a; }
+.money { font-variant-numeric: tabular-nums; font-weight: 600; direction: ltr;
+  display: inline-block; }
+/* ---------- مفاتيح ---------- */
+.kv { display: grid; grid-template-columns: 32mm 1fr; gap: 1.2mm 4mm;
+  margin: 3mm 0 4mm; font-size: 9.2pt; align-items: baseline; }
+.kv dt { font-weight: 700; color: #0f4c5c; }
+.kv dd { margin: 0; text-align: right; }
+/* ---------- فاصل ---------- */
+.pagebreak { page-break-before: always; }
+hr.soft { border: 0; border-top: 1px solid #e2e8f0; margin: 6mm 0; }
+
+/* رقم القسم وحدة واحدة: النقطة محايدة الاتجاه وتنزلق بدونها */
+.secno { direction: ltr; display: inline-block; unicode-bidi: isolate; }
