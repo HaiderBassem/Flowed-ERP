@@ -4,7 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
 import { isRefusal, type Refusal } from "@/api/errors";
-import { departmentsOf, useColleges, useDepartments, useStudyTypes } from "@/api/reference";
+import {
+  departmentsOf,
+  useColleges,
+  useDepartments,
+  useStudyTypes,
+} from "@/api/reference";
 import type { YearView } from "@/api/types";
 import { Money } from "@/components/Money";
 import { Crumbs } from "@/components/Crumbs";
@@ -77,7 +82,8 @@ export function ReportScreen() {
 
   const spec = REPORTS.find((r) => r.id === reportId);
 
-  const path = spec?.id === "year" ? `/reports/years/${activeYear?.id}` : spec?.path;
+  const path =
+    spec?.id === "year" ? `/reports/years/${activeYear?.id}` : spec?.path;
 
   // The statement is one student's document and is reached from their file;
   // there is no whole-university version of it to run from here.
@@ -92,10 +98,14 @@ export function ReportScreen() {
   // the same reason: they are what bounds the scan. Sending the request
   // without them buys a refusal the operator has to read to learn what the
   // form could have told them.
-  const datesGiven = !spec?.datesRequired || Boolean(filters.from && filters.to);
+  const datesGiven =
+    !spec?.datesRequired || Boolean(filters.from && filters.to);
 
   const enabled =
-    Boolean(spec) && !perStudent && (!spec!.yearRequired || Boolean(activeYear)) && datesGiven;
+    Boolean(spec) &&
+    !perStudent &&
+    (!spec!.yearRequired || Boolean(activeYear)) &&
+    datesGiven;
 
   const data = useQuery({
     // The filters are part of the key. Without them the cache answers a
@@ -116,7 +126,9 @@ export function ReportScreen() {
 
   return (
     <main className="screen">
-      <Crumbs items={[{ label: "التقارير", to: "/reports" }, { label: spec.label }]} />
+      <Crumbs
+        items={[{ label: "التقارير", to: "/reports" }, { label: spec.label }]}
+      />
       <div className="screen__head">
         <h1 className="screen__title">{spec.label}</h1>
         <span className="grow" />
@@ -124,7 +136,7 @@ export function ReportScreen() {
           كل التقارير
         </Link>
         {enabled && <ExportButtons path={path!} query={query} />}
-        <Button onClick={() => window.print()}>طباعة</Button>
+        {enabled && <PrintButton path={path!} query={query} />}
       </div>
 
       {perStudent && (
@@ -135,7 +147,9 @@ export function ReportScreen() {
         />
       )}
 
-      {!perStudent && <FilterBar spec={spec} filters={filters} onChange={setFilters} />}
+      {!perStudent && (
+        <FilterBar spec={spec} filters={filters} onChange={setFilters} />
+      )}
 
       {/* Printed and exported with the report, always. */}
       <dl className="report-context">
@@ -145,14 +159,26 @@ export function ReportScreen() {
         </div>
         <div>
           <dt>النطاق:</dt>
-          <dd>{user?.scope_mode && user.scope_mode !== "all" ? user.scope_mode : "الجامعة كاملة"}</dd>
+          <dd>
+            {user?.scope_mode && user.scope_mode !== "all"
+              ? user.scope_mode
+              : "الجامعة كاملة"}
+          </dd>
         </div>
         {/* The narrowing is part of the context, not part of the controls: a
             printed page whose filters live only in the form above it is a page
             that will be read as the whole university's figures. */}
         <div>
           <dt>التضييق:</dt>
-          <dd>{narrowingText(spec, filters, colleges.data, departments.data, studyTypes.data)}</dd>
+          <dd>
+            {narrowingText(
+              spec,
+              filters,
+              colleges.data,
+              departments.data,
+              studyTypes.data,
+            )}
+          </dd>
         </div>
         <div>
           <dt>لحظة القراءة:</dt>
@@ -185,7 +211,10 @@ export function ReportScreen() {
 
       {data.isError &&
         (isRefusal(data.error) ? (
-          <RefusalPanel refusal={data.error} onRetry={() => void data.refetch()} />
+          <RefusalPanel
+            refusal={data.error}
+            onRetry={() => void data.refetch()}
+          />
         ) : (
           <EmptyState kind="no-results" title="تعذّر تشغيل التقرير" />
         ))}
@@ -238,7 +267,9 @@ function ReportTable({
         <table className="grid">
           <thead>
             <tr>
-              {nested.length > 0 && <th aria-label="فتح" style={{ width: 32 }} />}
+              {nested.length > 0 && (
+                <th aria-label="فتح" style={{ width: 32 }} />
+              )}
               {columns.map((column) => (
                 <th
                   key={column}
@@ -267,9 +298,10 @@ function ReportTable({
 
       {spec.mixesCountAndMoney && (
         <p className="note" style={{ marginTop: 8, maxWidth: "72ch" }}>
-          <b>حاشية دائمة:</b> أعمدة العدد تأتي من التسجيلات الفعّالة، وأعمدة المال من كل
-          الحسابات غير الملغاة — مجتمعا بيانات مختلفان عمداً. الفرق بينهما حسابات استبدال تحمل
-          نقداً حقيقياً، ولذلك <b>قسمة المال على العدد لا تعطي متوسطاً ذا معنى</b>.
+          <b>حاشية دائمة:</b> أعمدة العدد تأتي من التسجيلات الفعّالة، وأعمدة
+          المال من كل الحسابات غير الملغاة — مجتمعا بيانات مختلفان عمداً. الفرق
+          بينهما حسابات استبدال تحمل نقداً حقيقياً، ولذلك{" "}
+          <b>قسمة المال على العدد لا تعطي متوسطاً ذا معنى</b>.
         </p>
       )}
     </>
@@ -291,7 +323,9 @@ function ReportRow({
   firstMoney: string | undefined;
 }) {
   const [open, setOpen] = useState(false);
-  const children = nested.flatMap((key) => (row[key] as Record<string, unknown>[]) ?? []);
+  const children = nested.flatMap(
+    (key) => (row[key] as Record<string, unknown>[]) ?? [],
+  );
 
   return (
     <>
@@ -321,7 +355,10 @@ function ReportRow({
       </tr>
       {open && children.length > 0 && (
         <tr>
-          <td colSpan={columns.length + 1} style={{ padding: 0, background: "var(--surface-2)" }}>
+          <td
+            colSpan={columns.length + 1}
+            style={{ padding: 0, background: "var(--surface-2)" }}
+          >
             <ReportTable payload={children} spec={{}} />
           </td>
         </tr>
@@ -352,7 +389,9 @@ function ReportCell({
     // A rate is not money and is not a count; it keeps its decimals and its
     // sign-free rendering so it cannot be mistaken for either.
     const isRate = /_pct$|_rate$/.test(column);
-    return <td className="n">{isRate ? value.toFixed(2) : formatCount(value)}</td>;
+    return (
+      <td className="n">{isRate ? value.toFixed(2) : formatCount(value)}</td>
+    );
   }
   if (typeof value === "boolean") {
     return <td>{value ? "نعم" : "لا"}</td>;
@@ -389,9 +428,14 @@ function extractRows(payload: unknown): Record<string, unknown>[] {
   if (Array.isArray(payload)) return payload as Record<string, unknown>[];
   if (payload && typeof payload === "object") {
     const record = payload as Record<string, unknown>;
-    if (Array.isArray(record["data"])) return record["data"] as Record<string, unknown>[];
+    if (Array.isArray(record["data"]))
+      return record["data"] as Record<string, unknown>[];
     for (const value of Object.values(record)) {
-      if (Array.isArray(value) && value.length > 0 && typeof value[0] === "object") {
+      if (
+        Array.isArray(value) &&
+        value.length > 0 &&
+        typeof value[0] === "object"
+      ) {
         return value as Record<string, unknown>[];
       }
     }
@@ -433,105 +477,114 @@ function FilterBar({
     <div className="no-print">
       <Panel>
         <div className="filter-bar">
-        {dimensions.includes("college") && (
-          <label className="field">
-            <span className="field__label">الكلية</span>
-            <select
-              className="input"
-              value={filters.college_id ?? ""}
-              // The department is cleared with the college. Keeping it would
-              // send a department that belongs to another college, and the
-              // report would come back empty for no visible reason.
-              onChange={(e) =>
-                set({ college_id: e.target.value || undefined, department_id: undefined })
-              }
-            >
-              <option value="">كل الكليات</option>
-              {(colleges.data ?? []).map((college) => (
-                <option key={college.id} value={college.id}>
-                  {college.name_ar}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        {dimensions.includes("department") && (
-          <label className="field">
-            <span className="field__label">القسم</span>
-            <select
-              className="input"
-              value={filters.department_id ?? ""}
-              onChange={(e) => set({ department_id: e.target.value || undefined })}
-              disabled={!filters.college_id}
-            >
-              <option value="">
-                {filters.college_id ? "كل الأقسام" : "اختر الكلية أولاً"}
-              </option>
-              {departmentsOf(departments.data, filters.college_id).map((department) => (
-                <option key={department.id} value={department.id}>
-                  {department.name_ar}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        {dimensions.includes("study_type") && (
-          <label className="field">
-            <span className="field__label">نوع الدراسة</span>
-            <select
-              className="input"
-              value={filters.study_type_id ?? ""}
-              onChange={(e) => set({ study_type_id: e.target.value || undefined })}
-            >
-              <option value="">كل الأنواع</option>
-              {(studyTypes.data ?? []).map((type) => (
-                <option key={type.id} value={type.id}>
-                  {type.name_ar}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        {dimensions.includes("stage") && (
-          <label className="field">
-            <span className="field__label">المرحلة</span>
-            <input
-              className="input num"
-              type="number"
-              min={1}
-              max={7}
-              value={filters.stage ?? ""}
-              placeholder="كل المراحل"
-              onChange={(e) => set({ stage: e.target.value || undefined })}
-            />
-          </label>
-        )}
-
-        {spec.dateRange && (
-          <>
+          {dimensions.includes("college") && (
             <label className="field">
-              <span className="field__label">من</span>
+              <span className="field__label">الكلية</span>
+              <select
+                className="input"
+                value={filters.college_id ?? ""}
+                // The department is cleared with the college. Keeping it would
+                // send a department that belongs to another college, and the
+                // report would come back empty for no visible reason.
+                onChange={(e) =>
+                  set({
+                    college_id: e.target.value || undefined,
+                    department_id: undefined,
+                  })
+                }
+              >
+                <option value="">كل الكليات</option>
+                {(colleges.data ?? []).map((college) => (
+                  <option key={college.id} value={college.id}>
+                    {college.name_ar}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {dimensions.includes("department") && (
+            <label className="field">
+              <span className="field__label">القسم</span>
+              <select
+                className="input"
+                value={filters.department_id ?? ""}
+                onChange={(e) =>
+                  set({ department_id: e.target.value || undefined })
+                }
+                disabled={!filters.college_id}
+              >
+                <option value="">
+                  {filters.college_id ? "كل الأقسام" : "اختر الكلية أولاً"}
+                </option>
+                {departmentsOf(departments.data, filters.college_id).map(
+                  (department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.name_ar}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+          )}
+
+          {dimensions.includes("study_type") && (
+            <label className="field">
+              <span className="field__label">نوع الدراسة</span>
+              <select
+                className="input"
+                value={filters.study_type_id ?? ""}
+                onChange={(e) =>
+                  set({ study_type_id: e.target.value || undefined })
+                }
+              >
+                <option value="">كل الأنواع</option>
+                {(studyTypes.data ?? []).map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.name_ar}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {dimensions.includes("stage") && (
+            <label className="field">
+              <span className="field__label">المرحلة</span>
               <input
                 className="input num"
-                type="date"
-                value={filters.from ?? ""}
-                onChange={(e) => set({ from: e.target.value || undefined })}
+                type="number"
+                min={1}
+                max={7}
+                value={filters.stage ?? ""}
+                placeholder="كل المراحل"
+                onChange={(e) => set({ stage: e.target.value || undefined })}
               />
             </label>
-            <label className="field">
-              <span className="field__label">إلى</span>
-              <input
-                className="input num"
-                type="date"
-                value={filters.to ?? ""}
-                onChange={(e) => set({ to: e.target.value || undefined })}
-              />
-            </label>
-          </>
-        )}
+          )}
+
+          {spec.dateRange && (
+            <>
+              <label className="field">
+                <span className="field__label">من</span>
+                <input
+                  className="input num"
+                  type="date"
+                  value={filters.from ?? ""}
+                  onChange={(e) => set({ from: e.target.value || undefined })}
+                />
+              </label>
+              <label className="field">
+                <span className="field__label">إلى</span>
+                <input
+                  className="input num"
+                  type="date"
+                  value={filters.to ?? ""}
+                  onChange={(e) => set({ to: e.target.value || undefined })}
+                />
+              </label>
+            </>
+          )}
 
           {narrowed && (
             <Button variant="ghost" onClick={() => onChange({})}>
@@ -551,9 +604,11 @@ function FilterBar({
  * — an export that silently ran unfiltered is a spreadsheet somebody quotes as
  * one department's figures.
  *
- * The page's own طباعة button covers print, so there is no third button for
- * the server's print-ready page: two ways to print one report is two pages
- * that can disagree.
+ * Print sits beside them and goes to the same place — the server — for the
+ * same reason: two ways to print one report is two pages that can disagree.
+ * It used to print the live page, and that page is themed, its wide tables
+ * live in scroll containers, and its fills depend on a print-dialog checkbox,
+ * so the same report printed differently on every machine.
  *
  * An export is the whole result rather than the page on screen, which is the
  * server's rule and not this button's — the limit is dropped from the query so
@@ -587,11 +642,64 @@ function ExportButtons({
 
   return (
     <>
-      <Button variant="ghost" disabled={running !== null} onClick={() => void run("csv")}>
+      <Button
+        variant="ghost"
+        disabled={running !== null}
+        onClick={() => void run("csv")}
+      >
         {running === "csv" ? "…CSV" : "CSV"}
       </Button>
-      <Button variant="ghost" disabled={running !== null} onClick={() => void run("xlsx")}>
+      <Button
+        variant="ghost"
+        disabled={running !== null}
+        onClick={() => void run("xlsx")}
+      >
         {running === "xlsx" ? "…Excel" : "Excel"}
+      </Button>
+      {refusal && (
+        <div className="no-print" style={{ flexBasis: "100%" }}>
+          <RefusalPanel refusal={refusal} />
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Print, by opening the server's PDF of this report in the browser's viewer.
+ *
+ * Carries the same filters as the export buttons for the same reason: a sheet
+ * printed unfiltered and quoted as one department's figures is the failure
+ * this screen is built to prevent. The server drops the page limit on an
+ * export, so what prints is the whole result rather than the rows on screen.
+ */
+function PrintButton({
+  path,
+  query,
+}: {
+  path: string;
+  query: Record<string, string | number | undefined>;
+}) {
+  const [running, setRunning] = useState(false);
+  const [refusal, setRefusal] = useState<Refusal | null>(null);
+
+  const print = async () => {
+    setRunning(true);
+    setRefusal(null);
+    try {
+      await api.openDocument(path, { ...query, format: "pdf" });
+    } catch (error) {
+      if (isRefusal(error)) setRefusal(error);
+      else throw error;
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <>
+      <Button disabled={running} onClick={() => void print()}>
+        {running ? "…يُحضَّر" : "طباعة"}
       </Button>
       {refusal && (
         <div className="no-print" style={{ flexBasis: "100%" }}>
@@ -618,12 +726,15 @@ function reportQuery(
   const query: Record<string, string | number | undefined> = {};
   // The year summary carries its year in the path, so sending it again would
   // be a filter the handler does not read.
-  if (spec.yearRequired && year && spec.id !== "year") query["academic_year_id"] = year.id;
+  if (spec.yearRequired && year && spec.id !== "year")
+    query["academic_year_id"] = year.id;
 
   const dimensions = spec.dimensions ?? [];
   if (dimensions.includes("college")) query["college_id"] = filters.college_id;
-  if (dimensions.includes("department")) query["department_id"] = filters.department_id;
-  if (dimensions.includes("study_type")) query["study_type_id"] = filters.study_type_id;
+  if (dimensions.includes("department"))
+    query["department_id"] = filters.department_id;
+  if (dimensions.includes("study_type"))
+    query["study_type_id"] = filters.study_type_id;
   if (dimensions.includes("stage")) query["stage"] = filters.stage;
   if (spec.dateRange) {
     query["from"] = filters.from;
@@ -641,8 +752,10 @@ function narrowingText(
   studyTypes: { id: string; name_ar: string }[] | undefined,
 ): string {
   const parts: string[] = [];
-  const named = (rows: { id: string; name_ar: string }[] | undefined, id?: string) =>
-    id ? (rows?.find((row) => row.id === id)?.name_ar ?? id) : undefined;
+  const named = (
+    rows: { id: string; name_ar: string }[] | undefined,
+    id?: string,
+  ) => (id ? (rows?.find((row) => row.id === id)?.name_ar ?? id) : undefined);
 
   const college = named(colleges, filters.college_id);
   if (college) parts.push(college);

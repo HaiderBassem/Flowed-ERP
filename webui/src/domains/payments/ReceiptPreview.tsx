@@ -18,10 +18,14 @@ import { Button, EmptyState, Skeleton } from "@/components/primitives";
  * The 80mm text rendering is the one the window actually feeds to its roll
  * printer, so it is the default tab and it prints from this page directly.
  *
- * The A5 HTML opens in its own window. It cannot be shown inline: the server's
- * receipt carries a <style> block, and the interface is served under
- * `style-src 'self'`, which would strip it and show a preview that does not
- * match the paper — the one thing this component exists to prevent.
+ * The official A5 copy is the server's PDF, opened in the browser's viewer.
+ * It cannot be shown inline: the interface is served under `style-src 'self'`,
+ * so an embedded copy would lose the document's own styling and preview
+ * something other than the paper — the one thing this component exists to
+ * prevent. A PDF also settles what an HTML popup left to the machine: the
+ * font is embedded, the Arabic is shaped by the renderer rather than by
+ * whatever face the desk happens to have, and the page size is the
+ * document's rather than the print dialog's.
  */
 export function ReceiptPreview({
   kind,
@@ -40,20 +44,23 @@ export function ReceiptPreview({
     enabled: Boolean(id),
   });
 
-  const openA5 = async () => {
-    const html = await api.document(`/${kind}/${id}/receipt`, { format: "html" });
-    const window_ = window.open("", "_blank", "width=760,height=900");
-    if (!window_) return;
-    window_.document.open();
-    window_.document.write(html);
-    window_.document.close();
-    window_.focus();
-  };
+  // The official receipt is the server's PDF, opened in the browser's own
+  // viewer. It carries the embedded font, the shaped Arabic and the A5 page
+  // the paper actually needs, so it prints the same from any desk. The earlier
+  // version wrote the server's HTML into a popup and left the operator to find
+  // Ctrl+P — and what came out then depended on that window's margins and the
+  // browser's headers, which is the drift this screen exists to avoid.
+  const openA5 = () =>
+    api.openDocument(`/${kind}/${id}/receipt`, { format: "pdf" });
 
   const printText = () => {
-    // Printed from a dedicated element so the surrounding interface does not
-    // reach the roll. print.css hides everything else.
+    // The thermal roll is printed from the page rather than as a PDF, because
+    // its content is the server's 42-column text and a PDF would impose a page
+    // size the roll does not have. The class isolates the receipt element for
+    // the duration, so the surrounding interface does not reach the paper.
+    document.body.classList.add("printing-receipt");
     window.print();
+    document.body.classList.remove("printing-receipt");
   };
 
   if (text.isLoading) return <Skeleton height={220} />;
@@ -100,14 +107,17 @@ export function ReceiptPreview({
       </div>
 
       {format === "text" ? (
-        <pre className="receipt receipt--80mm" style={{ whiteSpace: "pre-wrap", margin: 0 }}>
+        <pre
+          className="receipt receipt--80mm"
+          style={{ whiteSpace: "pre-wrap", margin: 0 }}
+        >
           {text.data}
         </pre>
       ) : (
         <div className="callout callout--note no-print">
           <p style={{ margin: 0 }}>
-            النسخة الرسمية A5 تُفتح في نافذة مستقلة لأنها وثيقة الخادم بتنسيقها — المعاينة هنا
-            ستفقد تنسيقها وتخالف الورق.
+            النسخة الرسمية A5 تُفتح في نافذة مستقلة لأنها وثيقة الخادم بتنسيقها
+            — المعاينة هنا ستفقد تنسيقها وتخالف الورق.
           </p>
         </div>
       )}

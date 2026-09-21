@@ -9,7 +9,14 @@ import { Chip, StateChip } from "@/components/Chip";
 import { Crumbs } from "@/components/Crumbs";
 import { Money } from "@/components/Money";
 import { RefusalPanel } from "@/components/RefusalPanel";
-import { Button, EmptyState, Panel, Row, Skeleton, Stat } from "@/components/primitives";
+import {
+  Button,
+  EmptyState,
+  Panel,
+  Row,
+  Skeleton,
+  Stat,
+} from "@/components/primitives";
 import { useSession } from "@/app/session";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { amount } from "@/lib/money";
@@ -34,7 +41,8 @@ export function StatementScreen() {
 
   const statement = useQuery({
     queryKey: ["statement", id],
-    queryFn: () => api.get<StatementReport>(`/reports/students/${id}/statement`),
+    queryFn: () =>
+      api.get<StatementReport>(`/reports/students/${id}/statement`),
     enabled: Boolean(id),
   });
 
@@ -52,7 +60,10 @@ export function StatementScreen() {
     return (
       <main className="screen">
         {isRefusal(statement.error) ? (
-          <RefusalPanel refusal={statement.error} onRetry={() => void statement.refetch()} />
+          <RefusalPanel
+            refusal={statement.error}
+            onRetry={() => void statement.refetch()}
+          />
         ) : (
           <EmptyState kind="no-results" title="تعذّر تحضير الكشف" />
         )}
@@ -78,8 +89,9 @@ export function StatementScreen() {
         <Link className="btn no-print" to={`/students/${view.student_id}`}>
           ملف الطالب
         </Link>
-        {can("statement.export") && <StatementExport studentId={view.student_id} />}
-        <Button onClick={() => window.print()}>طباعة</Button>
+        {can("statement.export") && (
+          <StatementExport studentId={view.student_id} />
+        )}
       </div>
 
       {/* The context header every printed report carries (§11). */}
@@ -99,8 +111,15 @@ export function StatementScreen() {
       </dl>
 
       <div className="deck" style={{ marginBottom: 12 }}>
-        <Stat value={<Money value={view.total_charged} tone="plain" />} label="إجمالي ما فُرض" />
-        <Stat value={<Money value={view.total_paid} tone="plain" />} label="إجمالي ما دُفع" tone="live" />
+        <Stat
+          value={<Money value={view.total_charged} tone="plain" />}
+          label="إجمالي ما فُرض"
+        />
+        <Stat
+          value={<Money value={view.total_paid} tone="plain" />}
+          label="إجمالي ما دُفع"
+          tone="live"
+        />
         <Stat
           value={<Money value={view.outstanding} tone="plain" />}
           label="المتبقي — تجميع قراءة عبر السنوات"
@@ -125,7 +144,10 @@ export function StatementScreen() {
             </>
           }
           aside={
-            <Link className="label no-print" to={`/accounts/${account.account_id}`}>
+            <Link
+              className="label no-print"
+              to={`/accounts/${account.account_id}`}
+            >
               فتح الحساب ←
             </Link>
           }
@@ -153,7 +175,6 @@ export function StatementScreen() {
                 </Row>
               )}
             </div>
-
           </div>
 
           {(account.payments ?? []).length > 0 && (
@@ -172,13 +193,20 @@ export function StatementScreen() {
                 {(account.payments ?? []).map((payment) => (
                   <tr
                     key={payment.payment_id}
-                    className={payment.status === "voided" ? "is-void" : undefined}
+                    className={
+                      payment.status === "voided" ? "is-void" : undefined
+                    }
                   >
                     <td>
-                      <Link className="k ltr no-print" to={`/payments/${payment.payment_id}`}>
+                      <Link
+                        className="k ltr no-print"
+                        to={`/payments/${payment.payment_id}`}
+                      >
                         {payment.receipt_no ?? "—"}
                       </Link>
-                      <span className="k ltr print-only">{payment.receipt_no ?? "—"}</span>
+                      <span className="k ltr print-only">
+                        {payment.receipt_no ?? "—"}
+                      </span>
                     </td>
                     <td>{payment.method}</td>
                     <td className="n col-group-money">
@@ -228,7 +256,27 @@ function StatementExport({ studentId }: { studentId: string }) {
     setRunning(format);
     setRefusal(null);
     try {
-      await api.download(`/reports/students/${studentId}/statement`, { format });
+      await api.download(`/reports/students/${studentId}/statement`, {
+        format,
+      });
+    } catch (error) {
+      if (isRefusal(error)) setRefusal(error);
+      else throw error;
+    } finally {
+      setRunning(null);
+    }
+  };
+
+  // Print goes to the server's PDF rather than printing this page: a statement
+  // is the document a student carries to a ministry desk, and it cannot look
+  // different depending on which machine in the office produced it.
+  const print = async () => {
+    setRunning("pdf");
+    setRefusal(null);
+    try {
+      await api.openDocument(`/reports/students/${studentId}/statement`, {
+        format: "pdf",
+      });
     } catch (error) {
       if (isRefusal(error)) setRefusal(error);
       else throw error;
@@ -239,11 +287,22 @@ function StatementExport({ studentId }: { studentId: string }) {
 
   return (
     <>
-      <Button variant="ghost" disabled={running !== null} onClick={() => void run("csv")}>
+      <Button
+        variant="ghost"
+        disabled={running !== null}
+        onClick={() => void run("csv")}
+      >
         {running === "csv" ? "…CSV" : "CSV"}
       </Button>
-      <Button variant="ghost" disabled={running !== null} onClick={() => void run("xlsx")}>
+      <Button
+        variant="ghost"
+        disabled={running !== null}
+        onClick={() => void run("xlsx")}
+      >
         {running === "xlsx" ? "…Excel" : "Excel"}
+      </Button>
+      <Button disabled={running !== null} onClick={() => void print()}>
+        {running === "pdf" ? "…يُحضَّر" : "طباعة"}
       </Button>
       {refusal && (
         <div className="no-print" style={{ flexBasis: "100%" }}>
@@ -268,7 +327,11 @@ export { Chip };
 interface StatementReport {
   student: { id: string; student_no: string; full_name: string };
   accounts: StatementAccount[];
-  totals: { effective_net: RawAmount; net_paid: RawAmount; remaining: RawAmount };
+  totals: {
+    effective_net: RawAmount;
+    net_paid: RawAmount;
+    remaining: RawAmount;
+  };
 }
 
 interface StatementAccount {
@@ -308,7 +371,10 @@ interface StatementAccount {
 function flatten(report: StatementReport) {
   const due = report.accounts
     .flatMap((account) => account.installments)
-    .filter((installment) => installment.status !== "paid" && amount(installment.remaining) > 0n)
+    .filter(
+      (installment) =>
+        installment.status !== "paid" && amount(installment.remaining) > 0n,
+    )
     .sort((a, b) => a.due_date.localeCompare(b.due_date))[0];
 
   return {
@@ -320,7 +386,9 @@ function flatten(report: StatementReport) {
     total_charged: report.totals.effective_net,
     total_paid: report.totals.net_paid,
     outstanding: report.totals.remaining,
-    next_due: due ? { due_date: due.due_date, remaining: due.remaining } : undefined,
+    next_due: due
+      ? { due_date: due.due_date, remaining: due.remaining }
+      : undefined,
     accounts: report.accounts.map((account) => ({
       account_id: account.account_id,
       academic_year: account.academic_year_code,

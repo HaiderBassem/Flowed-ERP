@@ -121,6 +121,64 @@
 }
 
 @media print {
+  /* Paper is light whatever the screen was.
+
+     The dark palette is what made printing depend on the machine: it sets
+     --ink to a near-white, and forcing the background white underneath it
+     printed pale text onto pale paper — an operator in dark mode got a sheet
+     that looked blank. Forcing two properties is not enough, because every
+     border, chip and table band reads a token too, so the whole dark palette
+     is restated here in its light values.
+
+     All three selectors are needed: the bare :root for the default, the
+     data-theme one to outrank the explicit toggle, and the :not() one to
+     outrank the system-preference block, which is still in force while the
+     browser prints. */
+  :root,
+  :root[data-theme="dark"],
+  :root:not([data-theme="light"]) {
+    --paper: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #ece8df;
+    --surface-3: #e1dcd0;
+    --ink: #1a1c1b;
+    --ink-2: #3e4540;
+    --muted: #6e756f;
+    --rule: #e2ded4;
+    --rule-strong: #c9c4b7;
+    --accent: #1c3a2f;
+    --accent-ink: #16443a;
+    --accent-soft: #e2eae4;
+    --on-accent: #ffffff;
+    --sage: #3d6b5c;
+    --gold: #c8a96e;
+    --gold-ink: #8a6f3c;
+    --gold-soft: #f2e9d7;
+    --void: #9c2f2f;
+    --void-soft: #f5e2df;
+    --pending: #8a6000;
+    --pending-soft: #f6ecd2;
+    --frozen: #3b5a83;
+    --frozen-soft: #e4e9f2;
+    --study-morning: #b5541f;
+    --study-morning-soft: #f5e6da;
+    --study-evening: #5b3a8e;
+    --study-evening-soft: #eae3f3;
+    --study-parallel: #0f7a8c;
+    --study-parallel-soft: #dcedef;
+    --shadow: none;
+    --shadow-lg: none;
+  }
+
+  /* Print the fills rather than leaving them to a checkbox in the print
+     dialog. A table header band, a paid bar and a void chip all carry meaning
+     through colour; without this they arrive as empty boxes on some machines
+     and not others. */
+  html {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
   html,
   body {
     background: #fff !important;
@@ -128,6 +186,67 @@
   .receipt {
     border: 0;
     margin: 0;
+  }
+
+  /* A scroll container cannot scroll on paper, and browsers disagree on
+     whether the overflow is clipped — the same report printed on two machines
+     shows different columns. Let wide tables lay out at their natural width. */
+  .table-wrap {
+    overflow: visible !important;
+  }
+  .table-wrap .grid,
+  .panel__body--flush > .grid,
+  .panel__body--flush > .table-wrap > .grid {
+    min-width: 0 !important;
+  }
+
+  /* A sticky header repeats itself down the page once thead is a header
+     group. */
+  .grid thead th {
+    position: static !important;
+  }
+
+  /* Printing the thermal receipt prints the receipt, not the page around it.
+     Visibility rather than display: hiding the ancestors with display would
+     take the receipt down with them, so everything is made invisible and the
+     receipt alone is made visible again, then lifted to the top of the sheet.
+
+     Until this existed, printing a receipt from /payments/:id put the page
+     heading, the document panel and the two-column grid onto an 80mm roll —
+     which is what the comment in ReceiptPreview already claimed was handled. */
+  body.printing-receipt * {
+    visibility: hidden;
+  }
+  body.printing-receipt .receipt,
+  body.printing-receipt .receipt * {
+    visibility: visible;
+  }
+  body.printing-receipt .receipt {
+    position: absolute;
+    top: 0;
+    inset-inline-start: 0;
+    width: 100%;
+  }
+  body.printing-receipt .cols,
+  body.printing-receipt .cols--half {
+    display: block !important;
+  }
+}
+
+/* The 42-column receipt is aligned by padding it with spaces, which only lines
+   up in a font whose characters are all the same width. It inherited the
+   interface's proportional Arabic face, so every centred line and every
+   right-aligned total sat slightly off. */
+.receipt--80mm,
+pre.receipt {
+  font-family: "SF Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+  font-variant-ligatures: none;
+}
+
+@media print {
+  /* Kept together so a receipt never splits across two pieces of roll. */
+  .receipt--80mm {
+    break-inside: avoid;
   }
   .print-only {
     display: block !important;

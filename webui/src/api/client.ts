@@ -41,7 +41,8 @@ export const tokens = {
  * produces: a fresh key per click is a double collection on one network blip.
  */
 export function newIdempotencyKey(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto)
+    return crypto.randomUUID();
   return `k-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
@@ -79,19 +80,25 @@ async function request<T>(
 ): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   const isForm = body instanceof FormData;
-  if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
+  if (body !== undefined && !isForm)
+    headers["Content-Type"] = "application/json";
   if (!options.anonymous) {
     const access = tokens.access();
     if (access) headers["Authorization"] = `Bearer ${access}`;
   }
-  if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
+  if (options.idempotencyKey)
+    headers["Idempotency-Key"] = options.idempotencyKey;
 
   let response: Response;
   try {
     response = await fetch(buildUrl(path, options.query), {
       method,
       headers,
-      body: isForm ? body : body !== undefined ? JSON.stringify(body) : undefined,
+      body: isForm
+        ? body
+        : body !== undefined
+          ? JSON.stringify(body)
+          : undefined,
       ...(options.signal ? { signal: options.signal } : {}),
     });
   } catch (cause) {
@@ -103,7 +110,12 @@ async function request<T>(
     throw unreachable(cause);
   }
 
-  if (response.status === 401 && !options.anonymous && !options.retried && tokens.refresh()) {
+  if (
+    response.status === 401 &&
+    !options.anonymous &&
+    !options.retried &&
+    tokens.refresh()
+  ) {
     // One renewal, then stop. Looping turns an expired session into a request
     // storm against an endpoint that is already refusing.
     if (await renew()) {
@@ -114,7 +126,8 @@ async function request<T>(
   const text = await response.text();
   const payload: unknown = text ? safeParse(text) : null;
 
-  if (!response.ok) throw refusalFrom(response.status, payload, response.headers);
+  if (!response.ok)
+    throw refusalFrom(response.status, payload, response.headers);
 
   // Returned as sent. httpx.OK writes a single resource unwrapped and only a
   // *page* carries {data, total, limit, offset} — so a client that unwraps
@@ -138,11 +151,16 @@ async function renew(): Promise<boolean> {
   try {
     const response = await fetch(`${BASE}/auth/refresh`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
       body: JSON.stringify({ refresh_token: refresh }),
     });
     if (!response.ok) return false;
-    const body = (await response.json()) as { data?: { access_token?: string } } & {
+    const body = (await response.json()) as {
+      data?: { access_token?: string };
+    } & {
       access_token?: string;
     };
     const access = body.data?.access_token ?? body.access_token;
@@ -158,7 +176,10 @@ async function renew(): Promise<boolean> {
  * Fetch a document (a receipt) with the credential in a header rather than the
  * URL, and hand back the text for preview and print.
  */
-async function document(path: string, query?: RequestOptions["query"]): Promise<string> {
+async function document(
+  path: string,
+  query?: RequestOptions["query"],
+): Promise<string> {
   const access = tokens.access();
   let response: Response;
   try {
@@ -169,7 +190,8 @@ async function document(path: string, query?: RequestOptions["query"]): Promise<
     throw unreachable(cause);
   }
   const text = await response.text();
-  if (!response.ok) throw refusalFrom(response.status, safeParse(text), response.headers);
+  if (!response.ok)
+    throw refusalFrom(response.status, safeParse(text), response.headers);
   return text;
 }
 
@@ -192,7 +214,10 @@ async function document(path: string, query?: RequestOptions["query"]): Promise<
  * error body is read and thrown as a Refusal like anywhere else; a 403 on an
  * export must read as "not your scope", not as a broken download.
  */
-async function download(path: string, query?: RequestOptions["query"]): Promise<void> {
+async function download(
+  path: string,
+  query?: RequestOptions["query"],
+): Promise<void> {
   const access = tokens.access();
   let response: Response;
   try {
@@ -221,6 +246,63 @@ async function download(path: string, query?: RequestOptions["query"]): Promise<
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+/**
+ * Open a server-rendered document in a viewer rather than saving it.
+ *
+ * Printing goes through here instead of window.print() on the live page. The
+ * server renders the receipt and the report as real PDFs — Amiri embedded,
+ * Arabic shaped, the page size decided by the document rather than by a print
+ * dialog — and handing the browser a finished PDF is what makes two desks
+ * print the same paper. Printing the interface instead made the output depend
+ * on the machine's theme, its print-dialog checkboxes and its idea of how a
+ * scroll container behaves on paper.
+ *
+ * The credential travels in a header, so the URL cannot simply be opened: the
+ * bytes are fetched, wrapped in a blob URL and opened from there.
+ *
+ * The tab is opened before the await. A popup blocker allows a window opened
+ * in the click's own task and blocks one opened after a network round trip.
+ */
+async function openDocument(
+  path: string,
+  query?: RequestOptions["query"],
+): Promise<void> {
+  const viewer = window.open("", "_blank");
+  const access = tokens.access();
+
+  let response: Response;
+  try {
+    response = await fetch(buildUrl(path, query), {
+      headers: access ? { Authorization: `Bearer ${access}` } : {},
+    });
+  } catch (cause) {
+    viewer?.close();
+    throw unreachable(cause);
+  }
+
+  if (!response.ok) {
+    viewer?.close();
+    const text = await response.text();
+    throw refusalFrom(response.status, safeParse(text), response.headers);
+  }
+
+  const url = URL.createObjectURL(await response.blob());
+  if (viewer) {
+    viewer.location.href = url;
+  } else {
+    // Popup blocked: fall back to saving it, so the operator still gets the
+    // document rather than a button that appears to do nothing.
+    const anchor = window.document.createElement("a");
+    anchor.href = url;
+    anchor.download = filenameFrom(response.headers) ?? "document.pdf";
+    window.document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+  // Revoked late: revoking while the viewer is still loading leaves it blank.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 /** The name the server gave the file, out of the disposition header. */
 function filenameFrom(headers: Headers): string | null {
   const disposition = headers.get("Content-Disposition");
@@ -247,6 +329,7 @@ export const api = {
     request<T>("DELETE", path, undefined, options),
   document,
   download,
+  openDocument,
 };
 
 export { Refusal };
