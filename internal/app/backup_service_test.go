@@ -230,20 +230,6 @@ func adminActor() shared.Actor {
 // CreateBackup
 // ---------------------------------------------------------------------------
 
-func TestCreateBackupRefusesNonAdmin(t *testing.T) {
-	svc, _, _ := newBackupFixture(t, &fakeRunner{}, &fakePool{}, &fakeGate{})
-	nonAdmin := shared.Actor{UserID: shared.NewID(), Username: "cashier", Roles: []shared.Role{shared.RoleCashier}}
-
-	_, err := svc.CreateBackup(context.Background(), nonAdmin, port.BackupManual)
-	if err == nil {
-		t.Fatal("expected an authority error")
-	}
-	domainErr, ok := shared.AsDomain(err)
-	if !ok || domainErr.Kind != shared.KindForbidden {
-		t.Fatalf("expected KindForbidden, got %v", err)
-	}
-}
-
 func TestCreateBackupRecordsFailureWithoutReturningAnError(t *testing.T) {
 	runner := &fakeRunner{dumpErr: errors.New("disk full")}
 	svc, store, audit := newBackupFixture(t, runner, &fakePool{}, &fakeGate{})

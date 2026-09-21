@@ -124,8 +124,12 @@ func TestPaymentRejectsNonPositiveAmounts(t *testing.T) {
 	}
 }
 
-// Approval is a second person's act, in the domain as well as in the database.
-func TestFourEyesIsEnforcedOnRefundsVoidsAndDrawers(t *testing.T) {
+// The four-eyes rule left with the second operator it depended on: this system
+// is run from one account, and a rule refusing self-approval refused every
+// approval. The lifecycle order is what still binds, and it is what stops a
+// refund being approved twice or a void being executed twice — each of which
+// would pay the same money out again.
+func TestRefundAndVoidLifecyclesBindTheirOrder(t *testing.T) {
 	requester := shared.NewID()
 	now := time.Now().UTC()
 
@@ -137,37 +141,29 @@ func TestFourEyesIsEnforcedOnRefundsVoidsAndDrawers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := refund.Approve(requester, now); err == nil {
-		t.Error("a refund must not be approved by the person who requested it")
+	if err := refund.Approve(requester, now); err != nil {
+		t.Errorf("the requester must be able to approve with one account: %v", err)
 	}
-	if err := refund.Approve(shared.NewID(), now); err != nil {
-		t.Errorf("a different approver should succeed: %v", err)
+	if refund.ApprovedBy == nil || *refund.ApprovedBy != requester {
+		t.Error("an approved refund must record who approved it")
+	}
+	if err := refund.Approve(shared.NewID(), now); err == nil {
+		t.Error("an approved refund must not be approved a second time")
 	}
 
 	voidRequest, err := payment.NewVoidRequest(shared.NewID(), "wrong student", requester)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := voidRequest.Execute(requester, now); err == nil {
-		t.Error("a void must not be executed by the cashier who requested it")
+	// The requester may now execute their own void: the four-eyes rule left
+	// with the second operator it depended on. What still holds is the order —
+	// a request must exist before it can be executed, and an executed one
+	// cannot be executed twice.
+	if err := voidRequest.Execute(requester, now); err != nil {
+		t.Errorf("the requester should be able to execute with one account: %v", err)
 	}
-	if err := voidRequest.Execute(shared.NewID(), now); err != nil {
-		t.Errorf("a different executor should succeed: %v", err)
-	}
-
-	cashier := shared.NewID()
-	session, err := payment.NewCashierSession(cashier, shared.NewID(), shared.NewID(), 100_000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := session.Close(500_000, 500_000, nil, now); err != nil {
-		t.Fatal(err)
-	}
-	if err := session.Approve(cashier, now); err == nil {
-		t.Error("a cashier must not sign off their own drawer")
-	}
-	if err := session.Approve(shared.NewID(), now); err != nil {
-		t.Errorf("a supervisor should be able to sign off: %v", err)
+	if err := voidRequest.Execute(shared.NewID(), now); err == nil {
+		t.Error("an executed void must not be executed a second time")
 	}
 }
 
@@ -198,27 +194,5 @@ func TestRefundLifecycleOrder(t *testing.T) {
 	}
 	if err := refund.Approve(shared.NewID(), now); err == nil {
 		t.Error("a posted refund must not be re-approved")
-	}
-}
-
-// A drawer that does not balance needs an explanation before the shift can be
-// signed off — that is the point of counting it.
-func TestCashierSessionDemandsAnExplanationForAVariance(t *testing.T) {
-	session, err := payment.NewCashierSession(shared.NewID(), shared.NewID(), shared.NewID(), 100_000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-
-	if err := session.Close(500_000, 480_000, nil, now); err == nil {
-		t.Error("closing a drawer 20,000 short without a reason must be refused")
-	}
-
-	reason := "20,000 handed to the bursar against receipt 88"
-	if err := session.Close(500_000, 480_000, &reason, now); err != nil {
-		t.Fatal(err)
-	}
-	if session.Variance == nil || *session.Variance != -20_000 {
-		t.Errorf("variance = %v, want -20,000", session.Variance)
 	}
 }

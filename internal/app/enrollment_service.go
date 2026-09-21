@@ -595,11 +595,6 @@ type ChangeStatusResult struct {
 // (براءة الذمة) under the year's policy: ignore, warn, or block with a named
 // override.
 func (s *EnrollmentService) ChangeEnrollmentStatus(ctx context.Context, actor shared.Actor, in ChangeStatusInput) (*ChangeStatusResult, error) {
-	// A treatment that moves money is a financial act, whoever asked for it.
-	// A registrar may withdraw a student; writing off what they owe needs the
-	// authority that writes off anything else.
-	if in.FinancialTreatment.ChangesMoney() {
-	}
 	if academic.RequiresFinancialTreatment(in.Target) && in.FinancialTreatment == "" {
 		return nil, shared.Validation("enrollment.financial_treatment_required",
 			"%s ends the enrollment, so the command must say what happens to the money", in.Target).

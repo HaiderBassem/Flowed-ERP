@@ -427,22 +427,17 @@ var (
 	financeManager = shared.Actor{
 		UserID:   shared.NewID(),
 		Username: "finance.one",
-		Roles:    []shared.Role{shared.RoleFinanceManager},
+		Roles:    []shared.Role{shared.RoleAdmin},
 	}
 	secondManager = shared.Actor{
 		UserID:   shared.NewID(),
 		Username: "finance.two",
-		Roles:    []shared.Role{shared.RoleFinanceManager},
+		Roles:    []shared.Role{shared.RoleAdmin},
 	}
 	administrator = shared.Actor{
 		UserID:   shared.NewID(),
 		Username: "admin",
 		Roles:    []shared.Role{shared.RoleAdmin},
-	}
-	cashier = shared.Actor{
-		UserID:   shared.NewID(),
-		Username: "cashier",
-		Roles:    []shared.Role{shared.RoleCashier},
 	}
 )
 
@@ -622,24 +617,6 @@ func TestDefineFeePolicyRefusesAClosedYear(t *testing.T) {
 	})
 
 	requireCode(t, err, "config.year_not_configurable")
-}
-
-func TestDefineFeePolicyRequiresFinanceAuthority(t *testing.T) {
-	f := newCfgFixture(t)
-
-	_, err := f.service.DefineFeePolicy(context.Background(), cashier, app.DefineFeePolicyInput{
-		PolicyCode:     "ENG_2025",
-		AcademicYearID: f.openYear.ID,
-		Components:     tuition(2_000_000),
-	})
-
-	if err == nil || shared.KindOf(err) != shared.KindForbidden {
-		t.Fatalf("a cashier defined a fee policy: %v", err)
-	}
-	// Authority is checked before anything is read, so nothing was touched.
-	if len(f.audit.entries) != 0 {
-		t.Errorf("a refused command was audited: %v", f.audit.actions())
-	}
 }
 
 func TestDefineFeePolicyDefaultsAndAudits(t *testing.T) {
@@ -1237,18 +1214,6 @@ func TestCreateStudyTypeNeedsNoCodeChange(t *testing.T) {
 	}
 }
 
-func TestCreateStudyTypeIsAdministratorOnly(t *testing.T) {
-	f := newCfgFixture(t)
-
-	_, err := f.service.CreateStudyType(context.Background(), financeManager, app.CreateStudyTypeInput{
-		Code:   "DISTANCE",
-		NameAr: "التعليم عن بعد",
-	})
-	if err == nil || shared.KindOf(err) != shared.KindForbidden {
-		t.Fatalf("a finance manager created reference data: %v", err)
-	}
-}
-
 func TestCreateDepartmentRequiresAKnownCollege(t *testing.T) {
 	f := newCfgFixture(t)
 	ctx := context.Background()
@@ -1385,16 +1350,6 @@ func TestSetStudyTypeInitialDebtChangesTheAmountByRetiringTheOldVersion(t *testi
 	if err != nil || gross != money.FromInt64(750_000) {
 		t.Errorf("retired policy's amount = %s (err %v), want the original 750000 unchanged", gross, err)
 	}
-}
-
-func TestSetStudyTypeInitialDebtRequiresFinanceAuthority(t *testing.T) {
-	f := newCfgFixture(t)
-	_, err := f.service.SetStudyTypeInitialDebt(context.Background(), cashier, app.SetStudyTypeInitialDebtInput{
-		AcademicYearID: f.openYear.ID,
-		StudyTypeID:    f.studyType.ID,
-		Amount:         money.FromInt64(750_000),
-	})
-	requireCode(t, err, "insufficient_role")
 }
 
 func TestRetireFeePolicyFreesItsScopeForANewPublication(t *testing.T) {
@@ -1586,16 +1541,6 @@ func TestSetStudyTypeInstallmentPlanRefusesLinesWithoutAPositiveAmount(t *testin
 		},
 	})
 	requireCode(t, err, "installment_template.invalid_amount")
-}
-
-func TestSetStudyTypeInstallmentPlanRequiresFinanceAuthority(t *testing.T) {
-	f := newCfgFixture(t)
-	_, err := f.service.SetStudyTypeInstallmentPlan(context.Background(), cashier, app.SetStudyTypeInstallmentPlanInput{
-		AcademicYearID: f.openYear.ID,
-		StudyTypeID:    f.studyType.ID,
-		Lines:          []app.StudyTypeInstallmentLineInput{{Amount: money.FromInt64(750_000)}},
-	})
-	requireCode(t, err, "insufficient_role")
 }
 
 func TestRetireInstallmentTemplateFreesItsScopeForANewPublication(t *testing.T) {

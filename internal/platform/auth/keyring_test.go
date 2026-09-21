@@ -22,7 +22,7 @@ func rotationUser() *port.User {
 	return &port.User{
 		ID:       shared.NewID(),
 		Username: "finance.one",
-		Roles:    []shared.Role{shared.RoleFinanceManager},
+		Roles:    []shared.Role{shared.RoleAdmin},
 		IsActive: true,
 	}
 }
@@ -39,7 +39,7 @@ func serviceWith(active string, retired []string) *auth.TokenService {
 // mid-shift, which is why in practice the secret never got rotated at all.
 func TestTokenSignedWithRetiredKeyStillVerifies(t *testing.T) {
 	before := serviceWith(retiredSecret, nil)
-	token, _, err := before.Issue(rotationUser(), nil)
+	token, _, err := before.Issue(rotationUser())
 	if err != nil {
 		t.Fatalf("issuing before rotation: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestTokenSignedWithRetiredKeyStillVerifies(t *testing.T) {
 // retiring a leaked key impossible.
 func TestTokenSignedWithDroppedKeyIsRefused(t *testing.T) {
 	before := serviceWith(otherSecret, nil)
-	token, _, err := before.Issue(rotationUser(), nil)
+	token, _, err := before.Issue(rotationUser())
 	if err != nil {
 		t.Fatalf("issuing: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestTokenSignedWithDroppedKeyIsRefused(t *testing.T) {
 // happens to be first in a map.
 func TestNewTokensAreSignedWithTheActiveKey(t *testing.T) {
 	svc := serviceWith(activeSecret, []string{retiredSecret})
-	token, _, err := svc.Issue(rotationUser(), nil)
+	token, _, err := svc.Issue(rotationUser())
 	if err != nil {
 		t.Fatalf("issuing: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestScopeSurvivesTheTokenRoundTrip(t *testing.T) {
 	user.Departments = []shared.ID{department}
 
 	svc := serviceWith(activeSecret, nil)
-	token, _, err := svc.Issue(user, nil)
+	token, _, err := svc.Issue(user)
 	if err != nil {
 		t.Fatalf("issuing: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestScopeSurvivesTheTokenRoundTrip(t *testing.T) {
 
 func TestUniversityScopeKeepsTheTokenSmall(t *testing.T) {
 	svc := serviceWith(activeSecret, nil)
-	token, _, err := svc.Issue(rotationUser(), nil)
+	token, _, err := svc.Issue(rotationUser())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -628,7 +628,7 @@ func newBulkWorld(t *testing.T) *bulkWorld {
 		UserID:   shared.NewID(),
 		Username: "officer",
 		Roles: []shared.Role{
-			shared.RoleAcademicOfficer, shared.RoleFinanceManager, shared.RoleRegistrar, shared.RoleAdmin,
+			shared.RoleAdmin, shared.RoleAdmin, shared.RoleAdmin, shared.RoleAdmin,
 		},
 	}
 
@@ -869,6 +869,16 @@ func bulkNotFound(what string) error {
 
 type bulkStudents struct{ store *bulkStore }
 
+// MoneySummaries answers with nothing: these tests are about promotion and
+// account generation, and no assertion here reads a paid percentage. An empty
+// map is what the real repository returns for students with no accounts, so
+// callers take the same branch they would in production.
+func (f *bulkStudents) MoneySummaries(
+	_ context.Context, _ []shared.ID,
+) (map[shared.ID]port.StudentMoneySummary, error) {
+	return map[shared.ID]port.StudentMoneySummary{}, nil
+}
+
 func (f *bulkStudents) Create(_ context.Context, s *student.Student) error {
 	if f.store.failStudentNo != "" && s.StudentNo == f.store.failStudentNo {
 		return shared.Conflict("student.duplicate_number", "a student with this number already exists")
@@ -1103,14 +1113,6 @@ func (f *bulkReference) UpdateStudentCategory(context.Context, *academic.Student
 }
 func (f *bulkReference) CreatePaymentMethod(context.Context, *payment.Method) error { return nil }
 func (f *bulkReference) UpdatePaymentMethod(context.Context, *payment.Method) error { return nil }
-func (f *bulkReference) ListCashierDesks(context.Context, bool) ([]*payment.CashierDesk, error) {
-	return nil, nil
-}
-func (f *bulkReference) GetCashierDesk(context.Context, shared.ID) (*payment.CashierDesk, error) {
-	return nil, bulkNotFound("cashier desk")
-}
-func (f *bulkReference) CreateCashierDesk(context.Context, *payment.CashierDesk) error { return nil }
-func (f *bulkReference) UpdateCashierDesk(context.Context, *payment.CashierDesk) error { return nil }
 func (f *bulkReference) UsageCount(context.Context, port.MasterDataKind, shared.ID) (int, error) {
 	return 0, nil
 }

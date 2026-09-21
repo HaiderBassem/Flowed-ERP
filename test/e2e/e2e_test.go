@@ -317,9 +317,14 @@ func nextYearCode() (code, start, end string) {
 		fmt.Sprintf("%d-07-01", base+1)
 }
 
-// signIn creates an operator with the given roles and returns a client holding
-// their token, with the must-change-password step already completed.
-func signIn(t *testing.T, roles ...string) *client {
+// signIn creates an operator and returns a client holding their token, with
+// the must-change-password step already completed.
+//
+// The roles a caller names are ignored: there is one role and every account
+// holds it. The parameter survives so that each call still reads as "the
+// person who would have done this", which is the only thing the role names
+// were still communicating by the end.
+func signIn(t *testing.T, _ ...string) *client {
 	t.Helper()
 	admin := adminClient(t)
 
@@ -327,7 +332,7 @@ func signIn(t *testing.T, roles ...string) *client {
 	created := admin.expect(admin.post("/api/v1/users", map[string]any{
 		"username":  username,
 		"full_name": "E2E " + username,
-		"roles":     roles,
+		"roles":     []string{"admin"},
 	}), http.StatusCreated, "creating an operator")
 
 	temporary, _ := created.data()["temporary_password"].(string)
@@ -335,15 +340,7 @@ func signIn(t *testing.T, roles ...string) *client {
 		t.Fatal("the server should generate and return a temporary password once")
 	}
 
-	// A cashier cannot sign in without a desk: receipt series run per desk, and
-	// a collection with no desk has no paper book to reconcile against. The
-	// fixture opens one rather than working around the rule.
 	credentials := map[string]any{"username": username, "password": temporary}
-	for _, role := range roles {
-		if role == "cashier" {
-			credentials["cashier_desk_id"] = ensureDesk(t, admin)
-		}
-	}
 
 	anonymous := &client{t: t}
 	login := anonymous.expect(anonymous.post("/api/v1/auth/login", credentials),
@@ -366,25 +363,28 @@ func signIn(t *testing.T, roles ...string) *client {
 	return &client{t: t, token: token}
 }
 
-// ensureDesk opens a cashier desk once and reuses it.
-var (
-	deskOnce sync.Once
-	deskID   string
-)
+// statementPaid reads what a student has paid, net of refunds, from the
+// statement report. See statementRemaining for why both go through a helper.
+func statementPaid(statement response) int64 {
+	totals, _ := statement.data()["totals"].(map[string]any)
+	if totals == nil {
+		return 0
+	}
+	return number(totals["net_paid"])
+}
 
-func ensureDesk(t *testing.T, admin *client) string {
-	t.Helper()
-	deskOnce.Do(func() {
-		created := admin.post("/api/v1/cashier-desks", map[string]any{
-			"code": "E" + strings.ToUpper(unique()[:6]), "name_ar": "شباك الاختبار",
-		})
-		if created.status == http.StatusCreated {
-			deskID, _ = created.data()["id"].(string)
-			return
-		}
-		t.Fatalf("opening a cashier desk: got %d: %s", created.status, created.raw)
-	})
-	return deskID
+// statementRemaining reads what a student still owes from the statement report.
+//
+// The portal's statement put "outstanding" at the top level; this one nests its
+// figures under "totals" and calls the field "remaining". Reading it through
+// one helper is what stops the difference being rediscovered at each call site
+// as a zero that looks like a lost payment.
+func statementRemaining(statement response) int64 {
+	totals, _ := statement.data()["totals"].(map[string]any)
+	if totals == nil {
+		return 0
+	}
+	return number(totals["remaining"])
 }
 
 // adminClient returns a signed-in administrator, creating one directly the
@@ -447,26 +447,6 @@ func TestUnauthenticatedRequestsAreRefused(t *testing.T) {
 	for _, path := range []string{"/health", "/ready"} {
 		if got := anonymous.get(path); got.status != http.StatusOK {
 			t.Errorf("%s answered %d, want 200", path, got.status)
-		}
-	}
-}
-
-func TestRolesAreEnforcedServerSide(t *testing.T) {
-	cashier := signIn(t, "cashier")
-
-	// A cashier may take money and may not administer users, publish fee
-	// policy, or read the audit trail.
-	refused := map[string]string{
-		"/api/v1/users":                    "GET",
-		"/api/v1/oversight/reconciliation": "GET",
-	}
-	for path, method := range refused {
-		got := cashier.do(method, path, nil, nil)
-		if got.status != http.StatusForbidden {
-			t.Errorf("%s %s answered %d for a cashier, want 403", method, path, got.status)
-		}
-		if got.errorCode() != "insufficient_role" {
-			t.Errorf("%s: code = %q, want insufficient_role", path, got.errorCode())
 		}
 	}
 }
@@ -676,9 +656,9 @@ func TestCollectionPostsAllocatesAndPrintsAReceipt(t *testing.T) {
 	}
 
 	// The statement is what the desk and the student both read.
-	statement := finance.expect(finance.get("/api/v1/portal/students/"+sc.studentID+"/statement"),
+	statement := finance.expect(finance.get("/api/v1/reports/students/"+sc.studentID+"/statement"),
 		http.StatusOK, "statement")
-	if outstanding := number(statement.data()["outstanding"]); outstanding != sc.outstanding-500_000 {
+	if outstanding := statementRemaining(statement); outstanding != sc.outstanding-500_000 {
 		t.Errorf("outstanding = %d, want %d", outstanding, sc.outstanding-500_000)
 	}
 }
@@ -709,9 +689,9 @@ func TestRetryingAPaymentCollectsOnce(t *testing.T) {
 			firstPayment["id"], secondPayment["id"])
 	}
 
-	statement := finance.expect(finance.get("/api/v1/portal/students/"+sc.studentID+"/statement"),
+	statement := finance.expect(finance.get("/api/v1/reports/students/"+sc.studentID+"/statement"),
 		http.StatusOK, "statement")
-	if paid := number(statement.data()["total_paid"]); paid != 300_000 {
+	if paid := statementPaid(statement); paid != 300_000 {
 		t.Errorf("total paid = %d, want the 300,000 collected once", paid)
 	}
 }
@@ -814,10 +794,10 @@ func TestConcurrentCollectionsDoNotLoseMoney(t *testing.T) {
 		t.Fatal("no concurrent collection succeeded")
 	}
 
-	statement := finance.expect(finance.get("/api/v1/portal/students/"+sc.studentID+"/statement"),
+	statement := finance.expect(finance.get("/api/v1/reports/students/"+sc.studentID+"/statement"),
 		http.StatusOK, "statement")
 	wantPaid := int64(succeeded * amount)
-	if paid := number(statement.data()["total_paid"]); paid != wantPaid {
+	if paid := statementPaid(statement); paid != wantPaid {
 		t.Fatalf("total paid = %d after %d concurrent collections, want %d — a lost update",
 			paid, succeeded, wantPaid)
 	}
@@ -855,9 +835,9 @@ func TestWithdrawalRequiresAnExplicitFinancialTreatment(t *testing.T) {
 		t.Errorf("waived %d, want the whole %d that was unpaid", waived, sc.outstanding)
 	}
 
-	statement := admin.expect(admin.get("/api/v1/portal/students/"+sc.studentID+"/statement"),
+	statement := admin.expect(admin.get("/api/v1/reports/students/"+sc.studentID+"/statement"),
 		http.StatusOK, "statement")
-	if outstanding := number(statement.data()["outstanding"]); outstanding != 0 {
+	if outstanding := statementRemaining(statement); outstanding != 0 {
 		t.Errorf("outstanding = %d after waiving the unpaid remainder, want 0", outstanding)
 	}
 }
@@ -896,9 +876,9 @@ func TestInstallmentPlanCanBeRescheduledWithoutTouchingPaidMoney(t *testing.T) {
 
 	// The plan still sums to what is owed; the domain asserts it and a failure
 	// would have aborted the transaction.
-	statement := finance.expect(finance.get("/api/v1/portal/students/"+sc.studentID+"/statement"),
+	statement := finance.expect(finance.get("/api/v1/reports/students/"+sc.studentID+"/statement"),
 		http.StatusOK, "statement")
-	if paid := number(statement.data()["total_paid"]); paid != 1_050_000 {
+	if paid := statementPaid(statement); paid != 1_050_000 {
 		t.Errorf("total paid = %d after rescheduling; money already paid must not move", paid)
 	}
 }
@@ -953,9 +933,9 @@ func TestMergingStudentsMovesEnrollmentsAndKeepsTheTombstone(t *testing.T) {
 	}
 
 	// And the money went with the enrollment.
-	statement := admin.expect(admin.get("/api/v1/portal/students/"+targetID+"/statement"),
+	statement := admin.expect(admin.get("/api/v1/reports/students/"+targetID+"/statement"),
 		http.StatusOK, "target statement")
-	if outstanding := number(statement.data()["outstanding"]); outstanding != duplicate.outstanding {
+	if outstanding := statementRemaining(statement); outstanding != duplicate.outstanding {
 		t.Errorf("the target owes %d, want the %d that moved with the enrollment",
 			outstanding, duplicate.outstanding)
 	}
@@ -1097,14 +1077,16 @@ func TestMasterDataAdministrationIsReachable(t *testing.T) {
 	admin := adminClient(t)
 	suffix := strings.ToUpper(unique()[:6])
 
-	desk := admin.expect(admin.post("/api/v1/cashier-desks", map[string]any{
-		"code": "D" + suffix[:4], "name_ar": "شباك الاختبار",
-	}), http.StatusCreated, "opening a cashier desk")
-	deskID, _ := desk.data()["id"].(string)
+	// A student category is what a hosted student's fees resolve against, so
+	// the office adds and renames these itself.
+	category := admin.expect(admin.post("/api/v1/student-categories", map[string]any{
+		"code": "C" + suffix[:4], "name_ar": "فئة اختبار",
+	}), http.StatusCreated, "creating a student category")
+	categoryID, _ := category.data()["id"].(string)
 
-	admin.expect(admin.do(http.MethodPatch, "/api/v1/cashier-desks/"+deskID, map[string]any{
-		"name_ar": "شباك معدّل", "reason": "renamed",
-	}, nil), http.StatusOK, "renaming the desk")
+	admin.expect(admin.do(http.MethodPatch, "/api/v1/student-categories/"+categoryID, map[string]any{
+		"name_ar": "فئة معدّلة", "reason": "renamed",
+	}, nil), http.StatusOK, "renaming the category")
 
 	// A payment method's cash flag is frozen once money has moved through it,
 	// but a fresh one can still be created and edited.
@@ -1156,16 +1138,6 @@ func TestReconciliationRecordsItsRunsAndTracksWhatItFinds(t *testing.T) {
 		http.StatusOK, "the queue")
 	if len(queue.list()) != 0 {
 		t.Errorf("the queue should be empty, holds %d", len(queue.list()))
-	}
-}
-
-// A cashier has no business in the oversight queue, and the refusal comes from
-// the server rather than from a hidden menu.
-func TestTheReconciliationQueueIsNotOpenToEveryone(t *testing.T) {
-	cashier := signIn(t, "cashier")
-
-	if got := cashier.get("/api/v1/reconciliation/findings"); got.status != http.StatusForbidden {
-		t.Errorf("a cashier reading the invariant queue got %d, want 403", got.status)
 	}
 }
 

@@ -34,7 +34,7 @@ func testUser() *port.User {
 	return &port.User{
 		ID:       shared.NewID(),
 		Username: "cashier.ali",
-		Roles:    []shared.Role{shared.RoleCashier},
+		Roles:    []shared.Role{shared.RoleAdmin},
 		IsActive: true,
 	}
 }
@@ -54,7 +54,7 @@ func forgedClaims(typ auth.TokenType) *auth.Claims {
 			ID:        "forged-session",
 		},
 		Username:  "attacker",
-		Roles:     []string{string(shared.RoleAdmin), string(shared.RoleFinanceManager)},
+		Roles:     []string{string(shared.RoleAdmin), string(shared.RoleAdmin)},
 		SessionID: "forged-session",
 		Type:      typ,
 	}
@@ -162,7 +162,7 @@ func TestParseRejectsTamperedClaims(t *testing.T) {
 	cfg := testAuthConfig()
 	svc := auth.NewTokenService(cfg)
 
-	token, _, err := svc.Issue(testUser(), nil)
+	token, _, err := svc.Issue(testUser())
 	if err != nil {
 		t.Fatalf("issuing: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestParseRejectsExpiredToken(t *testing.T) {
 	past := shared.FixedClock{Instant: time.Now().UTC().Add(-2 * time.Hour)}
 	issuer := auth.NewTokenServiceWithClock(cfg, past)
 
-	token, expiresAt, err := issuer.Issue(testUser(), nil)
+	token, expiresAt, err := issuer.Issue(testUser())
 	if err != nil {
 		t.Fatalf("issuing: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestParseRejectsExpiredToken(t *testing.T) {
 func TestParseRejectsRefreshToken(t *testing.T) {
 	svc := auth.NewTokenService(testAuthConfig())
 
-	refresh, _, err := svc.IssueRefresh(testUser(), nil)
+	refresh, _, err := svc.IssueRefresh(testUser())
 	if err != nil {
 		t.Fatalf("issuing the refresh token: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestParseRejectsRefreshToken(t *testing.T) {
 func TestParseRefreshRejectsAccessToken(t *testing.T) {
 	svc := auth.NewTokenService(testAuthConfig())
 
-	access, _, err := svc.Issue(testUser(), nil)
+	access, _, err := svc.Issue(testUser())
 	if err != nil {
 		t.Fatalf("issuing the access token: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestParseRejectsForeignIssuer(t *testing.T) {
 	other := cfg
 	other.Issuer = "somebody-else"
 
-	token, _, err := auth.NewTokenService(other).Issue(testUser(), nil)
+	token, _, err := auth.NewTokenService(other).Issue(testUser())
 	if err != nil {
 		t.Fatalf("issuing: %v", err)
 	}
@@ -272,10 +272,9 @@ func TestIssueAndParseRoundTrip(t *testing.T) {
 	svc := auth.NewTokenService(testAuthConfig())
 
 	user := testUser()
-	user.Roles = []shared.Role{shared.RoleCashier, shared.RoleReportViewer}
-	desk := shared.NewID()
+	user.Roles = []shared.Role{shared.RoleAdmin}
 
-	token, expiresAt, err := svc.Issue(user, &desk)
+	token, expiresAt, err := svc.Issue(user)
 	if err != nil {
 		t.Fatalf("issuing: %v", err)
 	}
@@ -293,11 +292,8 @@ func TestIssueAndParseRoundTrip(t *testing.T) {
 	if actor.Username != user.Username {
 		t.Errorf("username: got %q, want %q", actor.Username, user.Username)
 	}
-	if !actor.HasRole(shared.RoleCashier) || !actor.HasRole(shared.RoleReportViewer) {
-		t.Errorf("roles: got %v, want both cashier and report_viewer", actor.Roles)
-	}
-	if actor.CashierDeskID == nil || *actor.CashierDeskID != desk {
-		t.Errorf("cashier desk: got %v, want %s", actor.CashierDeskID, desk)
+	if !actor.HasRole(shared.RoleAdmin) {
+		t.Errorf("roles: got %v, want admin", actor.Roles)
 	}
 	if actor.SessionID == "" {
 		t.Error("expected a session id on the actor")
@@ -312,7 +308,7 @@ func TestIssueAndParseRoundTrip(t *testing.T) {
 func TestIssuePairSharesOneSession(t *testing.T) {
 	svc := auth.NewTokenService(testAuthConfig())
 
-	pair, err := svc.IssuePair(testUser(), nil)
+	pair, err := svc.IssuePair(testUser())
 	if err != nil {
 		t.Fatalf("issuing the pair: %v", err)
 	}
@@ -345,7 +341,7 @@ func TestSessionIDsAreUnique(t *testing.T) {
 
 	seen := make(map[string]struct{}, 32)
 	for range 32 {
-		token, _, err := svc.Issue(user, nil)
+		token, _, err := svc.Issue(user)
 		if err != nil {
 			t.Fatalf("issuing: %v", err)
 		}
@@ -366,7 +362,7 @@ func TestUnknownRolesAreDropped(t *testing.T) {
 	svc := auth.NewTokenService(testAuthConfig())
 
 	claims := forgedClaims(auth.TokenTypeAccess)
-	claims.Roles = []string{"superuser", string(shared.RoleCashier), "root"}
+	claims.Roles = []string{"superuser", string(shared.RoleAdmin), "root"}
 	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(testSecret))
 	if err != nil {
 		t.Fatalf("signing: %v", err)
@@ -376,7 +372,7 @@ func TestUnknownRolesAreDropped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parsing: %v", err)
 	}
-	if len(actor.Roles) != 1 || actor.Roles[0] != shared.RoleCashier {
+	if len(actor.Roles) != 1 || actor.Roles[0] != shared.RoleAdmin {
 		t.Errorf("expected only the cashier role to survive, got %v", actor.Roles)
 	}
 }

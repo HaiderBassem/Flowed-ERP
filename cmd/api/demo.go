@@ -12,7 +12,6 @@ import (
 	"flowed/internal/domain/billing"
 	"flowed/internal/domain/discount"
 	"flowed/internal/domain/money"
-	"flowed/internal/domain/payment"
 	"flowed/internal/domain/shared"
 	"flowed/internal/platform/auth"
 	"flowed/internal/platform/config"
@@ -79,14 +78,10 @@ type demoBuilder struct {
 	discounts   *app.DiscountService
 	years       *app.YearService
 
-	// Actors the demo acts as. Real commands check authority, so the demo has
-	// to hold the right role for each step — which is itself a check that the
-	// permission matrix is usable rather than merely strict.
-	admin     shared.Actor
-	registrar shared.Actor
-	officer   shared.Actor
-	finance   shared.Actor
-	cashier   shared.Actor
+	// The actor the demo acts as. There is one, which is the point: every
+	// command it drives is a command the office can drive from the single
+	// account it signs in with.
+	admin shared.Actor
 
 	yearIDs     map[string]shared.ID
 	deptIDs     map[string]shared.ID
@@ -94,7 +89,6 @@ type demoBuilder struct {
 	studyType   map[string]shared.ID
 	methods     map[string]shared.ID
 	discountIDs map[string]shared.ID
-	deskID      shared.ID
 
 	counts map[string]int
 }
@@ -812,11 +806,6 @@ func (d *demoBuilder) collect(ctx context.Context, accountID shared.ID, amount m
 	if !amount.IsPositive() {
 		return nil
 	}
-	// Cash needs an open drawer, so the demo opens one lazily the first time it
-	// takes cash — the same requirement a real cashier faces.
-	if method == payment.MethodCash {
-	}
-
 	// The tail of the identifier, not the head: these are UUIDv7 values whose
 	// leading hex digits are a millisecond timestamp, so two payments recorded
 	// in the same millisecond produced the same reference — and the university
@@ -1111,9 +1100,8 @@ func (d *demoBuilder) printSummary() {
 			fmt.Printf("  %-26s %d\n", key, n)
 		}
 	}
-	fmt.Printf("\nSign in with any of: admin, registrar, officer, finance, cashier, auditor, viewer\n")
-	fmt.Printf("Password for all of them: %s\n", demoPassword)
-	fmt.Printf("The cashier must sign in at desk D01.\n\n")
+	fmt.Printf("\nSign in as: admin\n")
+	fmt.Printf("Password:   %s\n\n", demoPassword)
 	fmt.Printf("Years: 2023-2024 and 2024-2025 are financially closed, 2025-2026 is open.\n\n")
 }
 

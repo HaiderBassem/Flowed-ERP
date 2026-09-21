@@ -84,8 +84,6 @@ func (s *ReconciliationSummary) Clean() bool { return s.Critical == 0 && s.Warni
 func (s *ReconciliationService) Run(
 	ctx context.Context, actor shared.Actor, kinds []port.ReconciliationKind,
 ) (*ReconciliationSummary, error) {
-	if !actor.IsSystem() {
-	}
 	if len(kinds) == 0 {
 		kinds = port.AllReconciliationKinds
 	}

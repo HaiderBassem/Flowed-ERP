@@ -8,6 +8,10 @@ import (
 	"flowed/internal/domain/shared"
 )
 
+// amt is the pointer form a fixed template amount takes. It lived in
+// sponsor_test.go until sponsorship was removed.
+func amt(v money.Amount) *money.Amount { return &v }
+
 func quarterlyTemplate() []billing.TemplateLine {
 	return []billing.TemplateLine{
 		{LineNo: 1, ShareBP: 2500, DueOffsetDays: 0},

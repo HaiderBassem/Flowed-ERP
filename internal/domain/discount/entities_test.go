@@ -11,40 +11,35 @@ import (
 
 // A discount is money leaving the university, and the rules that govern one are
 // in these two state machines rather than in the resolution engine beside them.
-// The engine was tested; these were not, which is how the four-eyes rule came
-// to have no test at all despite being checked in three places.
+// The engine was tested; these were not.
 
-func TestADiscountCannotBeApprovedByThePersonWhoAskedForIt(t *testing.T) {
+// The four-eyes rule left with the second operator it depended on: the system
+// is run from one account, and a rule refusing self-approval refused every
+// approval. What has to survive is the record — who granted it and when — since
+// that is now the whole of the control.
+func TestAnApprovedGrantRecordsWhoGrantedItAndWhen(t *testing.T) {
 	requester := shared.NewID()
 	at := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)
 
 	assignment := submitted(t, requester)
 
-	err := assignment.Approve(requester, at)
-	if err == nil {
-		t.Fatal("a discount approved by its own requester defeats the control " +
-			"entirely: one person would be able to grant money alone")
-	}
-	if code := shared.CodeOf(err); code != "discount.self_approval" {
-		t.Errorf("code = %q, want discount.self_approval", code)
-	}
-	if assignment.Status != discount.AssignmentSubmitted {
-		t.Errorf("a refused approval must leave the grant submitted, got %s", assignment.Status)
-	}
-
-	// A second pair of eyes is exactly what makes it legal.
-	approver := shared.NewID()
-	if err := assignment.Approve(approver, at); err != nil {
-		t.Fatalf("approval by somebody else: %v", err)
+	if err := assignment.Approve(requester, at); err != nil {
+		t.Fatalf("the requester must be able to approve with one account: %v", err)
 	}
 	if assignment.Status != discount.AssignmentApproved {
 		t.Errorf("status = %s, want approved", assignment.Status)
 	}
-	if assignment.ApprovedBy == nil || *assignment.ApprovedBy != approver {
+	if assignment.ApprovedBy == nil || *assignment.ApprovedBy != requester {
 		t.Error("an approved grant must record who approved it")
 	}
 	if assignment.ApprovedAt == nil || !assignment.ApprovedAt.Equal(at) {
 		t.Error("an approved grant must record when")
+	}
+
+	// The order still binds. An approved grant approved again would stamp a
+	// second approver over the first and lose the only record there is.
+	if err := assignment.Approve(shared.NewID(), at); err == nil {
+		t.Error("an approved grant must not be approved a second time")
 	}
 }
 

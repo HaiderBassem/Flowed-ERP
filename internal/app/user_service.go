@@ -553,17 +553,11 @@ func (s *UserService) ListUsers(ctx context.Context, actor shared.Actor, activeO
 
 // GetUser returns one operator.
 func (s *UserService) GetUser(ctx context.Context, actor shared.Actor, id shared.ID) (*port.User, error) {
-	// An operator may always read their own record: the UI shows their roles,
-	// their scope and whether their password must be changed.
-	if id != actor.UserID {
-	}
 	return s.users.GetByID(ctx, id)
 }
 
 // ListSessions returns an operator's sign-ins.
 func (s *UserService) ListSessions(ctx context.Context, actor shared.Actor, userID shared.ID, includeEnded bool) ([]*port.Session, error) {
-	if userID != actor.UserID {
-	}
 	return s.session.ListForUser(ctx, userID, includeEnded)
 }
 
@@ -573,8 +567,6 @@ func (s *UserService) RevokeSession(ctx context.Context, actor shared.Actor, ses
 		session, err := s.session.GetByID(ctx, sessionID)
 		if err != nil {
 			return err
-		}
-		if session.UserID != actor.UserID {
 		}
 		if reason == "" {
 			reason = "revoked by operator"
@@ -620,8 +612,6 @@ func (s *UserService) RevokeOtherSessions(ctx context.Context, actor shared.Acto
 
 // LoginHistory returns recent sign-in attempts against an account.
 func (s *UserService) LoginHistory(ctx context.Context, actor shared.Actor, userID shared.ID, limit int) ([]port.LoginAttempt, error) {
-	if userID != actor.UserID {
-	}
 	return s.logins.ListForUser(ctx, userID, limit)
 }
 

@@ -25,26 +25,27 @@ func testTokenService() *auth.TokenService {
 	})
 }
 
-func cashier() *port.User {
+func operator() *port.User {
 	return &port.User{
 		ID:       shared.NewID(),
-		Username: "cashier.ali",
-		Roles:    []shared.Role{shared.RoleCashier},
+		Username: "operator.ali",
+		Roles:    []shared.Role{shared.RoleAdmin},
 		IsActive: true,
 	}
 }
 
-// guardedRouter mounts one endpoint behind Authenticate and RequireRoles.
-func guardedRouter(ts *auth.TokenService, roles ...shared.Role) (*gin.Engine, *shared.Actor) {
+// guardedRouter mounts one endpoint behind Authenticate.
+//
+// There is no role middleware left to mount behind it: with one account every
+// signed-in operator may do everything, and authority is recorded in the audit
+// trail rather than checked at the edge.
+func guardedRouter(ts *auth.TokenService) (*gin.Engine, *shared.Actor) {
 	gin.SetMode(gin.TestMode)
 	var seen shared.Actor
 
 	router := gin.New()
 	router.Use(httpx.RequestID())
 	group := router.Group("/", httpx.Authenticate(ts))
-	if len(roles) > 0 {
-		group.Use(httpx.RequireRoles(roles...))
-	}
 	group.POST("/payments", func(c *gin.Context) {
 		seen = httpx.MustActor(c)
 		httpx.Created(c, gin.H{"ok": true})
@@ -66,10 +67,9 @@ func authedPost(t *testing.T, router *gin.Engine, authorization string) *httptes
 
 func TestAuthenticatePopulatesActor(t *testing.T) {
 	ts := testTokenService()
-	user := cashier()
-	desk := shared.NewID()
+	user := operator()
 
-	token, _, err := ts.Issue(user, &desk)
+	token, _, err := ts.Issue(user)
 	if err != nil {
 		t.Fatalf("issuing: %v", err)
 	}
@@ -83,9 +83,6 @@ func TestAuthenticatePopulatesActor(t *testing.T) {
 	if seen.UserID != user.ID {
 		t.Errorf("user id: got %s, want %s", seen.UserID, user.ID)
 	}
-	if seen.CashierDeskID == nil || *seen.CashierDeskID != desk {
-		t.Errorf("desk: got %v, want %s", seen.CashierDeskID, desk)
-	}
 	// The audit trail needs the origin, and only the transport knows it.
 	if seen.IPAddress != "10.20.30.40" {
 		t.Errorf("ip address: got %q, want 10.20.30.40", seen.IPAddress)
@@ -95,7 +92,7 @@ func TestAuthenticatePopulatesActor(t *testing.T) {
 func TestAuthenticateRejectsBadCredentials(t *testing.T) {
 	ts := testTokenService()
 
-	refresh, _, err := ts.IssueRefresh(cashier(), nil)
+	refresh, _, err := ts.IssueRefresh(operator())
 	if err != nil {
 		t.Fatalf("issuing the refresh token: %v", err)
 	}
@@ -129,60 +126,14 @@ func TestAuthenticateRejectsBadCredentials(t *testing.T) {
 	}
 }
 
-// TestRequireRolesRefusesTheWrongRole covers the separation of duties the whole
-// role matrix exists for: an administrator configures the system and must not
-// be able to post a payment.
-func TestRequireRolesRefusesTheWrongRole(t *testing.T) {
-	ts := testTokenService()
-
-	admin := cashier()
-	admin.Username = "admin.sara"
-	admin.Roles = []shared.Role{shared.RoleAdmin}
-
-	token, _, err := ts.Issue(admin, nil)
-	if err != nil {
-		t.Fatalf("issuing: %v", err)
-	}
-
-	router, _ := guardedRouter(ts, shared.RoleCashier)
-	rec := authedPost(t, router, "Bearer "+token)
-
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status: got %d, want 403 (%s)", rec.Code, rec.Body.String())
-	}
-	body := decodeError(t, rec)
-	if body.Code != "insufficient_role" {
-		t.Errorf("code: got %q, want the domain's insufficient_role", body.Code)
-	}
-	if _, ok := body.Details["required_roles"]; !ok {
-		t.Errorf("expected the domain's details to survive, got %v", body.Details)
-	}
-}
-
-func TestRequireRolesAdmitsAHolder(t *testing.T) {
-	ts := testTokenService()
-
-	token, _, err := ts.Issue(cashier(), nil)
-	if err != nil {
-		t.Fatalf("issuing: %v", err)
-	}
-
-	router, _ := guardedRouter(ts, shared.RoleCashier, shared.RoleFinanceManager)
-	rec := authedPost(t, router, "Bearer "+token)
-
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("status: got %d, want 201 (%s)", rec.Code, rec.Body.String())
-	}
-}
-
 // TestActorFromReachesTheRequestContext proves a service given only the
 // context.Context — which is all a command handler ever sees — can still name
 // the actor.
 func TestActorFromReachesTheRequestContext(t *testing.T) {
 	ts := testTokenService()
-	user := cashier()
+	user := operator()
 
-	token, _, err := ts.Issue(user, nil)
+	token, _, err := ts.Issue(user)
 	if err != nil {
 		t.Fatalf("issuing: %v", err)
 	}
