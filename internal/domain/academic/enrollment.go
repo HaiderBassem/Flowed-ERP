@@ -3,7 +3,7 @@ package academic
 import (
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/shared"
 )
 
 // EnrollmentStatus answers "is this student still with us in this year".
@@ -142,8 +142,9 @@ type NewEnrollmentParams struct {
 
 // NewEnrollment builds a draft enrollment after validating its context.
 func NewEnrollment(p NewEnrollmentParams) (*Enrollment, error) {
-	if p.Stage < 1 {
-		return nil, shared.Validation("enrollment.invalid_stage", "stage must be at least 1, got %d", p.Stage)
+	if p.Stage < 1 || p.Stage > 5 {
+		return nil, shared.Validation("enrollment.invalid_stage",
+			"stage must be between 1 and 5, got %d", p.Stage)
 	}
 	if p.DepartmentStageCount > 0 && p.Stage > p.DepartmentStageCount {
 		return nil, shared.Validation("enrollment.stage_out_of_range",

@@ -3,8 +3,8 @@ package student_test
 import (
 	"testing"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/domain/student"
+	"flowed/internal/domain/shared"
+	"flowed/internal/domain/student"
 )
 
 func newStudent(t *testing.T, no, name, mother string) *student.Student {
@@ -91,5 +91,60 @@ func TestFoldArabicMatchesTheDatabaseRules(t *testing.T) {
 	// would merge two people.
 	if student.FoldArabic("محمد") == student.FoldArabic("أحمد") {
 		t.Error("two different names must not fold to the same value")
+	}
+}
+
+// Every shape a clerk might type for the same Iraqi mobile number must
+// canonicalise to the same stored value — otherwise the same subscriber ends
+// up on file under several different-looking strings.
+func TestNormalizeIraqiPhoneAcceptsEveryShapeOfTheSameNumber(t *testing.T) {
+	const want = "07701234567"
+	shapes := []string{
+		"07701234567",
+		"+964 770 123 4567",
+		"00964770123 4567",
+		"9647701234567",
+		"0770-123-4567",
+		"٠٧٧٠١٢٣٤٥٦٧", // Arabic-Indic digits
+	}
+
+	for _, raw := range shapes {
+		raw := raw
+		got, err := student.NormalizeIraqiPhone(&raw)
+		if err != nil {
+			t.Fatalf("NormalizeIraqiPhone(%q): %v", raw, err)
+		}
+		if got == nil || *got != want {
+			t.Errorf("NormalizeIraqiPhone(%q) = %v, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestNormalizeIraqiPhoneRefusesWhatIsNotAnIraqiMobileNumber(t *testing.T) {
+	cases := []string{
+		"12345",           // too short
+		"07701234567890",  // too many digits
+		"01234567890",     // not a mobile prefix (7xx)
+		"+1 555 123 4567", // a foreign number
+	}
+	for _, raw := range cases {
+		raw := raw
+		if _, err := student.NormalizeIraqiPhone(&raw); err == nil {
+			t.Errorf("NormalizeIraqiPhone(%q) should have been refused", raw)
+		}
+	}
+}
+
+func TestNormalizeIraqiPhoneTreatsBlankAsAbsent(t *testing.T) {
+	blank := "   "
+	got, err := student.NormalizeIraqiPhone(&blank)
+	if err != nil {
+		t.Fatalf("blank phone should not error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("blank phone should clear the field, got %q", *got)
+	}
+	if got, err := student.NormalizeIraqiPhone(nil); err != nil || got != nil {
+		t.Errorf("nil phone should pass through as nil, got (%v, %v)", got, err)
 	}
 }

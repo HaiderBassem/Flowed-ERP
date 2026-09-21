@@ -11,15 +11,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/app"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/auth"
-	"github.com/swibit/flowed/internal/platform/config"
-	"github.com/swibit/flowed/internal/platform/httpx"
-	"github.com/swibit/flowed/internal/platform/observability"
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/internal/port"
-	"github.com/swibit/flowed/webui"
+	"flowed/internal/app"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/auth"
+	"flowed/internal/platform/config"
+	"flowed/internal/platform/httpx"
+	"flowed/internal/platform/observability"
+	"flowed/internal/platform/pg"
+	"flowed/internal/port"
+	"flowed/webui"
 )
 
 // RouterDeps is everything the router needs to wire itself.
@@ -53,6 +53,15 @@ type RouterDeps struct {
 	// Reconciliation is the invariant queue: what the nightly checks found and
 	// what was done about it.
 	Reconciliation *ReconciliationHandlers
+	// Backups serves the Backup & Restore screen: creating, listing,
+	// restoring, exporting, importing and scheduling backups.
+	Backups *BackupHandlers
+	// Maintenance is closed for the short window a restore swaps the live
+	// database's pool. Never nil in a real server — BuildEngine always
+	// constructs one — but every handler must still work if a test builds a
+	// router without going through it, which is why the field itself may be
+	// nil and Middleware treats that as "always open."
+	Maintenance *httpx.MaintenanceGate
 	// AuthService backs the session-revocation middleware as well as the
 	// credential endpoints: a token whose session was revoked must stop
 	// working on the next request, not at the end of its lifetime.
@@ -113,12 +122,19 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 
 	engine.Use(
 		httpx.RequestID(),
+		// Ahead of everything else that touches the database: a restore's
+		// live-swap window closes this gate while the pool is briefly gone,
+		// and every request behind it must get a clean, retryable 503 rather
+		// than hang on a pool that does not exist yet.
+		deps.Maintenance.Middleware(probeRoutes...),
 		httpx.Observe(deps.Observability),
 		httpx.Logger(deps.Log),
 		httpx.Recovery(deps.Log),
 		httpx.SecurityHeaders(deps.Config.Auth.RequireHSTS),
 		httpx.CORS(deps.Config.HTTP),
-		httpx.BodyLimit(deps.Config.HTTP.MaxRequestBodyBytes),
+		httpx.BodyLimit(deps.Config.HTTP.MaxRequestBodyBytes, map[string]int64{
+			"/api/v1/backups/import": deps.Config.HTTP.MaxBackupUploadBytes,
+		}),
 		// Comfortably inside the server's write timeout, so a handler that runs
 		// long still gets to write its error before the socket is torn down.
 		httpx.Timeout(deps.Config.HTTP.WriteTimeout-2*time.Second),
@@ -217,6 +233,9 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	}
 	if deps.Reconciliation != nil {
 		deps.Reconciliation.Register(secured)
+	}
+	if deps.Backups != nil {
+		deps.Backups.Register(secured)
 	}
 	if deps.Intents != nil {
 		deps.Intents.Register(secured)
@@ -404,6 +423,14 @@ func registerStudents(g *gin.RouterGroup, h *Handlers) {
 	students.POST("",
 		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAdmin),
 		h.RegisterStudent)
+	// Identity, academic placement, and — for an actor who also holds finance
+	// authority — initial pricing, in one request. The role gate here is the
+	// base authority to attempt it at all; RegisterStudentWithPlacement checks
+	// each of the three composed commands' own authority again before running
+	// it, and prices only when the actor qualifies for that too.
+	students.POST("/intake",
+		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAdmin),
+		h.RegisterStudentWithPlacement)
 	students.PATCH("/:id/contact",
 		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAcademicOfficer, shared.RoleAdmin),
 		h.UpdateStudentContact)

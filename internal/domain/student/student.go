@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/shared"
 )
 
 // Status is the person's standing with the university, derived from their
@@ -46,6 +46,68 @@ const (
 
 var studentNoPattern = regexp.MustCompile(`^[A-Za-z0-9/_-]{1,32}$`)
 
+// iraqiMobilePattern matches the 10-digit subscriber number of an Iraqi
+// mobile line once the country code and any leading trunk zero have been
+// stripped: a 7 followed by an operator digit in 3..9 and eight more digits
+// (Zain, Asiacell and Korek all issue in the 73x-79x ranges). Landlines and
+// numbers from other countries are refused, not stored as free text.
+var iraqiMobilePattern = regexp.MustCompile(`^7[3-9][0-9]{8}$`)
+
+var nonDigitPattern = regexp.MustCompile(`\D`)
+
+// NormalizeIraqiPhone validates a phone number entered in any common shape —
+// +964 770 123 4567, 00964770123456, 07701234567, or the same digits typed on
+// an Arabic keyboard — and canonicalises it to the local 11-digit form
+// (leading 0 plus the 10-digit subscriber number) that the rest of the system
+// stores and displays. A nil or blank input clears the field rather than
+// erroring, matching the optional-phone behaviour callers already expect.
+//
+// This is the one place a phone number is accepted into the domain: reject
+// here, and there is no path left by which an invalid number reaches the
+// database, unlike the raw free-text column this used to be.
+func NormalizeIraqiPhone(raw *string) (*string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	digits := nonDigitPattern.ReplaceAllString(arabicIndicToWestern(trimmed), "")
+	switch {
+	case strings.HasPrefix(digits, "00964"):
+		digits = digits[5:]
+	case strings.HasPrefix(digits, "964"):
+		digits = digits[3:]
+	case strings.HasPrefix(digits, "0"):
+		digits = digits[1:]
+	}
+
+	if !iraqiMobilePattern.MatchString(digits) {
+		return nil, shared.Validation("student.invalid_phone",
+			"%q is not a valid Iraqi mobile number", trimmed)
+	}
+	canonical := "0" + digits
+	return &canonical, nil
+}
+
+// arabicIndicToWestern maps Arabic-Indic and Extended Arabic-Indic numerals
+// to their Western equivalents so a number typed on an Arabic keyboard
+// validates the same as one typed on a Latin one.
+func arabicIndicToWestern(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= '٠' && r <= '٩':
+			return '0' + (r - '٠')
+		case r >= '۰' && r <= '۹':
+			return '0' + (r - '۰')
+		default:
+			return r
+		}
+	}, s)
+}
+
 // Student is a person known to the university.
 type Student struct {
 	ID        shared.ID
@@ -55,7 +117,6 @@ type Student struct {
 	// and display. IdentityVersion rows remain the record of what was true when.
 	FullName   string
 	MotherName string
-	NationalID *string
 	BirthDate  *shared.Date
 	Gender     *Gender
 
@@ -83,7 +144,6 @@ type NewParams struct {
 	StudentNo  string
 	FullName   string
 	MotherName string
-	NationalID *string
 	BirthDate  *shared.Date
 	Gender     *Gender
 	Phone      *string
@@ -118,16 +178,19 @@ func New(p NewParams) (*Student, error) {
 	if p.Gender != nil && *p.Gender != GenderMale && *p.Gender != GenderFemale {
 		return nil, shared.Validation("student.invalid_gender", "gender must be male or female")
 	}
+	phone, err := NormalizeIraqiPhone(p.Phone)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Student{
 		ID:         shared.NewID(),
 		StudentNo:  studentNo,
 		FullName:   fullName,
 		MotherName: motherName,
-		NationalID: trimOptional(p.NationalID),
 		BirthDate:  p.BirthDate,
 		Gender:     p.Gender,
-		Phone:      trimOptional(p.Phone),
+		Phone:      phone,
 		Status:     StatusActive,
 		CreatedBy:  p.CreatedBy,
 	}, nil
@@ -247,7 +310,6 @@ type IdentityVersion struct {
 	VersionNo         int32
 	FullName          string
 	MotherName        string
-	NationalID        *string
 	BirthDate         *shared.Date
 	BirthPlace        *string
 	Gender            *Gender
@@ -276,7 +338,6 @@ func NewIdentityVersion(s *Student, versionNo int32, reason string, effectiveFro
 		VersionNo:     versionNo,
 		FullName:      s.FullName,
 		MotherName:    s.MotherName,
-		NationalID:    s.NationalID,
 		BirthDate:     s.BirthDate,
 		Gender:        s.Gender,
 		EffectiveFrom: effectiveFrom,
@@ -286,15 +347,4 @@ func NewIdentityVersion(s *Student, versionNo int32, reason string, effectiveFro
 
 func collapseSpaces(s string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
-}
-
-func trimOptional(s *string) *string {
-	if s == nil {
-		return nil
-	}
-	trimmed := strings.TrimSpace(*s)
-	if trimmed == "" {
-		return nil
-	}
-	return &trimmed
 }

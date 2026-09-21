@@ -171,12 +171,17 @@ jobs:
         env:
           APP_ENV: development
           AUTH_JWT_SECRET: ci-only-secret-not-used-in-any-deployment
+          # dropdb and createdb are libpq programs and read the password from
+          # the environment, not from DB_PASSWORD. It belongs in this step's own
+          # env: every `run` is a fresh shell, so an export in the step above
+          # does not reach here, and without it dropdb blocks on a password
+          # prompt that nothing in a runner will ever answer.
+          PGPASSWORD: flowed
         run: |
           dropdb -h localhost -U flowed --if-exists flowed_demo
           createdb -h localhost -U flowed flowed_demo
           DB_NAME=flowed_demo go run ./cmd/migrate up
           DB_NAME=flowed_demo go run ./cmd/api demo
-        # PGPASSWORD is needed by createdb/dropdb.
 
   contract:
     name: OpenAPI contract
@@ -206,4 +211,6 @@ jobs:
       - name: Build UI
         run: make ui-build
       - name: UI tests
-        run: node --test web/test/
+        # A bare directory argument no longer auto-discovers test files on
+        # current Node; it needs a glob that actually matches them.
+        run: node --test web/test/*.test.js

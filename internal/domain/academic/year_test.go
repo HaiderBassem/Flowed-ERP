@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/shared"
 )
 
 // openYear builds an open year whose dates match its code, since the domain

@@ -6,8 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/auth"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/auth"
 )
 
 // ginActorKey is where the authenticated actor lives in the gin context. As

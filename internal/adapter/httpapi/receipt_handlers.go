@@ -6,9 +6,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/app"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/httpx"
+	"flowed/internal/app"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/httpx"
 )
 
 // ReceiptHandlers serves printable receipts.

@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/discount"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/payment"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/domain/student"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/discount"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/payment"
+	"flowed/internal/domain/shared"
+	"flowed/internal/domain/student"
+	"flowed/internal/port"
 )
 
 // ---------------------------------------------------------------------------
@@ -917,6 +917,11 @@ func (f *bulkStudents) AppendIdentityVersion(context.Context, *student.IdentityV
 func (f *bulkStudents) IdentityHistory(context.Context, shared.ID) ([]*student.IdentityVersion, error) {
 	return nil, nil
 }
+func (f *bulkStudents) CurrentEnrollmentSummaries(
+	context.Context, []shared.ID,
+) (map[shared.ID]port.CurrentEnrollmentSummary, error) {
+	return nil, nil
+}
 
 type bulkYears struct{ store *bulkStore }
 
@@ -1135,6 +1140,9 @@ func (f *bulkPolicies) Create(context.Context, *billing.FeePolicy) error { retur
 func (f *bulkPolicies) Publish(context.Context, shared.ID, shared.ID, time.Time) error {
 	return nil
 }
+func (f *bulkPolicies) Retire(context.Context, shared.ID, time.Time) error {
+	return nil
+}
 func (f *bulkPolicies) GetByID(_ context.Context, id shared.ID) (*billing.FeePolicy, error) {
 	if f.store.policy != nil && f.store.policy.ID == id {
 		return f.store.policy, nil
@@ -1155,6 +1163,9 @@ type bulkTemplates struct{ store *bulkStore }
 
 func (f *bulkTemplates) Create(context.Context, *billing.InstallmentTemplate) error { return nil }
 func (f *bulkTemplates) Publish(context.Context, shared.ID, shared.ID, time.Time) error {
+	return nil
+}
+func (f *bulkTemplates) Retire(context.Context, shared.ID, time.Time) error {
 	return nil
 }
 func (f *bulkTemplates) GetByID(context.Context, shared.ID) (*billing.InstallmentTemplate, error) {

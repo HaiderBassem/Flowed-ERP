@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/swibit/flowed/internal/adapter/httpapi"
+	"flowed/internal/adapter/httpapi"
 )
 
 func main() {

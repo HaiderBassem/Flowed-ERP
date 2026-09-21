@@ -12,19 +12,21 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/swibit/flowed/internal/adapter/auditship"
-	"github.com/swibit/flowed/internal/adapter/httpapi"
-	"github.com/swibit/flowed/internal/adapter/messaging"
-	"github.com/swibit/flowed/internal/adapter/payments"
-	"github.com/swibit/flowed/internal/adapter/postgres"
-	"github.com/swibit/flowed/internal/adapter/receipt"
-	"github.com/swibit/flowed/internal/app"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/auth"
-	"github.com/swibit/flowed/internal/platform/config"
-	"github.com/swibit/flowed/internal/platform/observability"
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/adapter/auditship"
+	"flowed/internal/adapter/backup"
+	"flowed/internal/adapter/httpapi"
+	"flowed/internal/adapter/messaging"
+	"flowed/internal/adapter/payments"
+	"flowed/internal/adapter/postgres"
+	"flowed/internal/adapter/receipt"
+	"flowed/internal/app"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/auth"
+	"flowed/internal/platform/config"
+	"flowed/internal/platform/httpx"
+	"flowed/internal/platform/observability"
+	"flowed/internal/platform/pg"
+	"flowed/internal/port"
 )
 
 // buildEngine wires every layer. This is the only place in the process where
@@ -106,7 +108,7 @@ func BuildEngine(
 
 	accountService := app.NewAccountService(deps)
 	enrollmentService := app.NewEnrollmentService(deps)
-	studentService := app.NewStudentService(deps)
+	studentService := app.NewStudentService(deps).WithPlacement(enrollmentService, accountService)
 	paymentService := app.NewPaymentService(deps)
 
 	handlers := &Handlers{
@@ -188,6 +190,15 @@ func BuildEngine(
 	reconciliation := app.NewReconciliationService(deps,
 		postgres.NewReconciliationRepository(db), app.ReconciliationConfig{})
 
+	maintenance := httpx.NewMaintenanceGate()
+	backupRunner := backup.NewRunner(cfg.Database, cfg.Backup.MaintenanceDatabase, cfg.Backup.Timeout)
+	backupService := app.NewBackupService(deps, postgres.NewBackupRepository(db), backupRunner, db, maintenance,
+		app.BackupServiceConfig{
+			Dir:              cfg.Backup.Dir,
+			LiveDatabase:     cfg.Database.Name,
+			RetentionMinKeep: cfg.Backup.RetentionMinKeep,
+		})
+
 	// Built from the defaults rather than from a bare literal, and the
 	// difference is not cosmetic. withDefaults can fill an interval that
 	// arrives zero, but it cannot fill a bool: the literal that used to be here
@@ -204,6 +215,7 @@ func BuildEngine(
 	schedulerCfg.Reconcile = reconciliation
 	schedulerCfg.AuditShip = auditShipper
 	schedulerCfg.AuditShipInterval = cfg.AuditArchive.Interval
+	schedulerCfg.Backup = backupService
 
 	scheduler := app.NewScheduler(deps, db, idempotency, rateLimiter, schedulerCfg)
 
@@ -228,6 +240,8 @@ func BuildEngine(
 		Cashier:        httpapi.NewCashierHandlers(cashierService, masterDataService, db),
 		AuditArchive:   httpapi.NewAuditArchiveHandlers(auditShipper),
 		Reconciliation: httpapi.NewReconciliationHandlers(reconciliation),
+		Backups:        httpapi.NewBackupHandlers(backupService),
+		Maintenance:    maintenance,
 		Receipts:       httpapi.NewReceiptHandlers(receiptService),
 		Tokens:         tokens,
 		Idempotency:    idempotency,

@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/platform/config"
-	"github.com/swibit/flowed/internal/platform/logger"
-	"github.com/swibit/flowed/internal/platform/observability"
+	"flowed/internal/domain/money"
+	"flowed/internal/platform/config"
+	"flowed/internal/platform/logger"
+	"flowed/internal/platform/observability"
 )
 
 func newProvider(t *testing.T) *observability.Provider {

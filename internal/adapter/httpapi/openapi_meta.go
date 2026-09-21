@@ -1,6 +1,6 @@
 package httpapi
 
-import "github.com/swibit/flowed/internal/app"
+import "flowed/internal/app"
 
 // operationMetadata carries what a route table cannot: what an endpoint is
 // for, which roles reach it, and the Go types it binds and returns.
@@ -404,6 +404,118 @@ var operationMetadata = map[string]operationMeta{
 		Summary:     "Accounts whose cached totals disagree with their transactions",
 		Description: "Expected to be empty. The financial year close refuses while it is not.",
 	},
+
+	// The entries below carry a summary and nothing else. A body schema is a
+	// claim about what the server accepts and returns, and inventing one to
+	// fill a gap would be a schema that lies; a one-line summary only says
+	// what the route is for, which the route table cannot say for itself.
+
+	// ------------------------------------------------- academic years (cont.)
+	"GET /api/v1/academic-years":                        {Summary: "List academic years"},
+	"POST /api/v1/academic-years":                       {Summary: "Create an academic year"},
+	"POST /api/v1/academic-years/:id/open":              {Summary: "Open a year for enrolment and collection"},
+	"POST /api/v1/academic-years/:id/close-financially": {Summary: "Shut the books on a year, leaving academic recording open"},
+	"POST /api/v1/academic-years/:id/close":             {Summary: "Declare a year academically over"},
+	"POST /api/v1/academic-years/:id/reopen":            {Summary: "Reopen a closed year"},
+
+	// ------------------------------------------------------- accounts (cont.)
+	"GET /api/v1/accounts/:id": {Summary: "Read a financial account"},
+
+	// ----------------------------------------------------------------- bulk
+	"POST /api/v1/bulk/promotions": {Summary: "Promote a cohort to the next stage"},
+	"POST /api/v1/bulk/accounts":   {Summary: "Generate accounts for a cohort"},
+
+	// -------------------------------------------------------------- cashier
+	"GET /api/v1/cashier-desks":                 {Summary: "List cashier desks"},
+	"POST /api/v1/cashier-sessions":             {Summary: "Open a cashier session"},
+	"GET /api/v1/cashier-sessions/current":      {Summary: "Your own open cashier session"},
+	"GET /api/v1/cashier-sessions/:id":          {Summary: "Read a cashier session"},
+	"POST /api/v1/cashier-sessions/:id/close":   {Summary: "Close a session and declare the drawer"},
+	"POST /api/v1/cashier-sessions/:id/approve": {Summary: "Approve a closed session's count"},
+
+	// ----------------------------------------------------------- master data
+	"GET /api/v1/colleges":        {Summary: "List colleges"},
+	"POST /api/v1/colleges":       {Summary: "Create a college"},
+	"GET /api/v1/departments":     {Summary: "List departments"},
+	"POST /api/v1/departments":    {Summary: "Create a department"},
+	"GET /api/v1/study-types":     {Summary: "List study types"},
+	"POST /api/v1/study-types":    {Summary: "Create a study type"},
+	"GET /api/v1/payment-methods": {Summary: "List payment methods"},
+
+	// ------------------------------------------------------ discounts (cont.)
+	"GET /api/v1/discounts/definitions":               {Summary: "List discount definitions"},
+	"POST /api/v1/discounts/definitions":              {Summary: "Create a discount definition"},
+	"GET /api/v1/discounts/definitions/:id":           {Summary: "Read a discount definition"},
+	"POST /api/v1/discounts/definitions/:id/versions": {Summary: "Draft a new version of a discount"},
+	"GET /api/v1/discounts/versions/:id":              {Summary: "Read a discount version"},
+	"POST /api/v1/discounts/versions/:id/publish":     {Summary: "Publish a discount version"},
+	"POST /api/v1/discounts/assignments":              {Summary: "Grant a discount to a student"},
+	"POST /api/v1/discounts/assignments/:id/approve":  {Summary: "Approve a granted discount"},
+	"POST /api/v1/discounts/assignments/:id/revoke":   {Summary: "Revoke a granted discount"},
+	"POST /api/v1/discounts/applications/:id/confirm": {Summary: "Confirm a discount application"},
+
+	// ---------------------------------------------------- enrollments (cont.)
+	"GET /api/v1/enrollments/:id":         {Summary: "Read an enrollment"},
+	"POST /api/v1/enrollments/:id/result": {Summary: "Record an academic result"},
+
+	// --------------------------------------------------------- fee policies
+	"GET /api/v1/fee-policies":                      {Summary: "List fee policies"},
+	"POST /api/v1/fee-policies":                     {Summary: "Create a fee policy"},
+	"GET /api/v1/fee-policies/:id":                  {Summary: "Read a fee policy"},
+	"POST /api/v1/fee-policies/:id/publish":         {Summary: "Publish a fee policy"},
+	"POST /api/v1/fee-policies/:id/retire":          {Summary: "Retire a fee policy"},
+	"POST /api/v1/fee-policies/preview-resolution":  {Summary: "Preview which policy a placement resolves to"},
+	"POST /api/v1/fee-policies/study-type-defaults": {Summary: "Set a study type's initial debt"},
+
+	// ------------------------------------------------- installment templates
+	"GET /api/v1/installment-templates":                      {Summary: "List installment templates"},
+	"POST /api/v1/installment-templates":                     {Summary: "Create an installment template"},
+	"GET /api/v1/installment-templates/:id":                  {Summary: "Read an installment template"},
+	"POST /api/v1/installment-templates/:id/publish":         {Summary: "Publish an installment template"},
+	"POST /api/v1/installment-templates/:id/retire":          {Summary: "Retire an installment template"},
+	"POST /api/v1/installment-templates/study-type-defaults": {Summary: "Set a study type's default installment plan"},
+
+	// -------------------------------------------------------------- imports
+	"GET /api/v1/imports":                    {Summary: "List student imports"},
+	"POST /api/v1/imports/students":          {Summary: "Upload a student import file"},
+	"GET /api/v1/imports/:id":                {Summary: "Review an import"},
+	"POST /api/v1/imports/:id/validate":      {Summary: "Validate an uploaded import"},
+	"PATCH /api/v1/imports/:id/rows/:row_no": {Summary: "Decide what to do with one import row"},
+	"POST /api/v1/imports/:id/confirm":       {Summary: "Confirm an import for running"},
+	"POST /api/v1/imports/:id/run":           {Summary: "Run a confirmed import"},
+	"POST /api/v1/imports/:id/resume":        {Summary: "Resume an interrupted import"},
+	"POST /api/v1/imports/:id/cancel":        {Summary: "Cancel an import"},
+
+	// ------------------------------------------------------ payments (cont.)
+	"GET /api/v1/payments/:id":         {Summary: "Read a payment"},
+	"GET /api/v1/payments/:id/receipt": {Summary: "A payment's printable receipt"},
+	"GET /api/v1/voids/pending":        {Summary: "Voids awaiting a decision"},
+
+	// ------------------------------------------------------- refunds (cont.)
+	"GET /api/v1/refunds/pending":      {Summary: "Refunds awaiting a decision"},
+	"POST /api/v1/refunds/:id/approve": {Summary: "Approve a refund"},
+	"POST /api/v1/refunds/:id/reject":  {Summary: "Reject a refund"},
+	"GET /api/v1/refunds/:id/receipt":  {Summary: "A refund's printable receipt"},
+
+	// ------------------------------------------------------ students (cont.)
+	"GET /api/v1/students/:id":             {Summary: "Read a student"},
+	"POST /api/v1/students/intake":         {Summary: "Register, place and price a student in one request"},
+	"GET /api/v1/students/:id/enrollments": {Summary: "A student's enrollments"},
+	"GET /api/v1/students/:id/accounts":    {Summary: "A student's financial accounts"},
+	"GET /api/v1/students/:id/discounts":   {Summary: "A student's discounts"},
+	"GET /api/v1/students/:id/audit":       {Summary: "A student's audit trail"},
+
+	// ------------------------------------------------------- reports (cont.)
+	"GET /api/v1/reports/years/:id":              {Summary: "A year's financial summary"},
+	"GET /api/v1/reports/students/:id/statement": {Summary: "A student's statement"},
+	"GET /api/v1/reports/cash-flow":              {Summary: "Cash in and out over a period"},
+	"GET /api/v1/reports/collection-trend":       {Summary: "Collection over time"},
+	"GET /api/v1/reports/stages":                 {Summary: "Money and counts by stage"},
+	"GET /api/v1/reports/study-types":            {Summary: "Money and counts by study type"},
+	"GET /api/v1/reports/discounts":              {Summary: "Discounts granted"},
+	"GET /api/v1/reports/exemptions":             {Summary: "Exemptions granted"},
+	"GET /api/v1/reports/refunds":                {Summary: "Refunds paid"},
+	"GET /api/v1/reports/voids":                  {Summary: "Voided payments"},
 
 	// -------------------------------------------------------------- service
 	"GET /health": {Summary: "Liveness", Description: "Answers without touching the database.", Public: true},

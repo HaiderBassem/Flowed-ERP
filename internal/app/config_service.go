@@ -8,12 +8,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/discount"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/discount"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
 
 // ConfigService administers everything the pricing engine reads: fee policies,
@@ -248,6 +248,208 @@ func (s *ConfigService) PublishFeePolicy(ctx context.Context, actor shared.Actor
 				"specificity_score": policy.SpecificityScore,
 				"scope":             s.policyScopeKey(policy),
 				"gross_total":       gross.Int64(),
+			},
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return policy, nil
+}
+
+// RetireFeePolicy takes a published policy out of resolution, freeing its
+// scope for a new version.
+//
+// This is what makes a configured price actually changeable without touching
+// code: publishing a second policy over the same scope is refused by
+// uq_fee_policy_scope while the first still holds it, so a price change is
+// retire-then-publish, never an edit. Retiring never reaches into accounts
+// already generated — those hold copied snapshot lines and a reference to
+// this exact version, not to "whichever policy currently resolves this
+// scope".
+func (s *ConfigService) RetireFeePolicy(ctx context.Context, actor shared.Actor, policyID shared.ID) (*billing.FeePolicy, error) {
+	if err := actor.RequireAnyRole("RetireFeePolicy",
+		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
+		return nil, err
+	}
+
+	var policy *billing.FeePolicy
+	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
+		now := nowOr(s.deps.Clock)
+
+		var err error
+		policy, err = s.deps.FeePolicies.GetByID(ctx, policyID)
+		if err != nil {
+			return err
+		}
+		before := snapshotOf(policy)
+
+		if err := policy.Retire(now); err != nil {
+			return err
+		}
+		if err := s.deps.FeePolicies.Retire(ctx, policy.ID, now); err != nil {
+			return err
+		}
+
+		return s.record(ctx, port.AuditEntry{
+			EntityType:     "fee_policy",
+			EntityID:       &policy.ID,
+			Action:         "fee_policy.retired",
+			Actor:          actor,
+			Before:         before,
+			After:          snapshotOf(policy),
+			AcademicYearID: &policy.AcademicYearID,
+			Metadata: map[string]any{
+				"policy_code": policy.PolicyCode,
+				"scope":       s.policyScopeKey(policy),
+			},
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return policy, nil
+}
+
+// StudyTypeDebtComponentCode is the one fee component every study-type
+// default-debt policy carries, so a caller can pick these policies out of a
+// year's list without guessing at a naming convention.
+const StudyTypeDebtComponentCode = "INITIAL_DEBT"
+
+const studyTypeDebtPolicyPrefix = "DEFAULT_DEBT_"
+
+// SetStudyTypeInitialDebtInput names the flat amount a newly created
+// enrollment of one study type should be priced at, for one academic year.
+type SetStudyTypeInitialDebtInput struct {
+	AcademicYearID shared.ID
+	StudyTypeID    shared.ID
+	Amount         money.Amount
+}
+
+// SetStudyTypeInitialDebt is the configurable default this feature asked for:
+// a study-type-only wildcard fee policy — every other scope dimension left
+// null — so a new enrollment of that study type prices to this figure unless
+// a more specific published policy (naming an actual college, department,
+// stage or category) exists, which still wins on specificity exactly as any
+// other pair of overlapping policies would.
+//
+// It is not a parallel balance system: it defines and publishes an ordinary
+// fee_policy_version through the same engine every other price goes through,
+// so the number is only ever spent through GenerateFinancialAccount's normal
+// resolution, snapshot and installment path. Changing the amount later is
+// retire-then-publish, in one transaction, so resolution is never briefly
+// left with two published policies at this scope, nor with none.
+func (s *ConfigService) SetStudyTypeInitialDebt(ctx context.Context, actor shared.Actor, in SetStudyTypeInitialDebtInput) (*billing.FeePolicy, error) {
+	if err := actor.RequireAnyRole("SetStudyTypeInitialDebt",
+		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
+		return nil, err
+	}
+
+	components, err := s.buildComponents([]FeeComponentInput{{
+		Code:   StudyTypeDebtComponentCode,
+		NameAr: "التزام ابتدائي",
+		Amount: in.Amount,
+	}})
+	if err != nil {
+		return nil, err
+	}
+
+	var policy *billing.FeePolicy
+	err = s.deps.Tx.Write(ctx, func(ctx context.Context) error {
+		studyType, err := s.deps.Reference.GetStudyType(ctx, in.StudyTypeID)
+		if err != nil {
+			return err
+		}
+		year, err := s.deps.Years.GetByID(ctx, in.AcademicYearID)
+		if err != nil {
+			return err
+		}
+		if err := s.requireConfigurableYear(year, "configuring a study type's default debt"); err != nil {
+			return err
+		}
+
+		existing, err := s.deps.FeePolicies.List(ctx, in.AcademicYearID)
+		if err != nil {
+			return err
+		}
+		// uq_fee_policy_code_version has no academic_year_id column — it is
+		// unique on (policy_code, version_no) across every year — so the code
+		// must carry the year itself, or a second year's first version of
+		// "this study type's default" collides with the first year's.
+		policyCode := studyTypeDebtPolicyPrefix + year.Code + "_" + studyType.Code
+		var previous *billing.FeePolicy
+		nextVersion := int32(1)
+		for _, p := range existing {
+			if p.PolicyCode != policyCode {
+				continue
+			}
+			if p.VersionNo >= nextVersion {
+				nextVersion = p.VersionNo + 1
+			}
+			if p.Status == billing.PolicyPublished {
+				previous = p
+			}
+		}
+
+		now := nowOr(s.deps.Clock)
+		if previous != nil {
+			if err := previous.Retire(now); err != nil {
+				return err
+			}
+			if err := s.deps.FeePolicies.Retire(ctx, previous.ID, now); err != nil {
+				return err
+			}
+			if err := s.record(ctx, port.AuditEntry{
+				EntityType:     "fee_policy",
+				EntityID:       &previous.ID,
+				Action:         "fee_policy.retired",
+				Actor:          actor,
+				AcademicYearID: &year.ID,
+				Metadata: map[string]any{
+					"policy_code": previous.PolicyCode,
+					"reason":      "superseded by a new default debt amount",
+				},
+			}); err != nil {
+				return err
+			}
+		}
+
+		policy = &billing.FeePolicy{
+			ID:             shared.NewID(),
+			PolicyCode:     policyCode,
+			VersionNo:      nextVersion,
+			AcademicYearID: year.ID,
+			StudyTypeID:    &studyType.ID,
+			Status:         billing.PolicyDraft,
+			MaxDiscountBP:  money.FullRate,
+			Description:    ptr("default debt on creation — " + studyType.NameAr),
+			Components:     components,
+			CreatedBy:      &actor.UserID,
+		}
+		policy.SpecificityScore = policy.ComputeSpecificity()
+
+		if err := s.deps.FeePolicies.Create(ctx, policy); err != nil {
+			return err
+		}
+		if err := policy.Publish(actor.UserID, now); err != nil {
+			return err
+		}
+		if err := s.deps.FeePolicies.Publish(ctx, policy.ID, actor.UserID, now); err != nil {
+			return s.explainScopeClash(err, policy)
+		}
+
+		return s.record(ctx, port.AuditEntry{
+			EntityType:     "fee_policy",
+			EntityID:       &policy.ID,
+			Action:         "fee_policy.defined",
+			Actor:          actor,
+			After:          snapshotOf(policy),
+			AcademicYearID: &year.ID,
+			Metadata: map[string]any{
+				"policy_code": policy.PolicyCode,
+				"version_no":  policy.VersionNo,
+				"study_type":  studyType.Code,
+				"amount":      in.Amount.Int64(),
 			},
 		})
 	})
@@ -606,8 +808,15 @@ func (s *ConfigService) buildComponents(inputs []FeeComponentInput) ([]*billing.
 type TemplateLineInput struct {
 	// LineNo may be left at zero, in which case the lines are numbered in the
 	// order they were given.
-	LineNo  int16
+	LineNo int16
+	// Exactly one of ShareBP or Amount is used: Amount when every line on the
+	// template supplies one — "400,000 / 400,000 / 350,000 / 350,000" — in
+	// which case ShareBP is derived rather than taken from the caller, so a
+	// plan generated from it reproduces the typed figures exactly instead of
+	// re-deriving them through a percentage. ShareBP alone is the ordinary
+	// percentage template.
 	ShareBP money.BasisPoints
+	Amount  *money.Amount
 	// DueOffsetDays counts from the academic year's start, so one template
 	// serves every year.
 	DueOffsetDays int
@@ -789,6 +998,55 @@ func (s *ConfigService) PublishInstallmentTemplate(ctx context.Context, actor sh
 	return template, nil
 }
 
+// RetireInstallmentTemplate takes a published template out of resolution,
+// freeing its scope for a new version — the installment-template counterpart
+// of RetireFeePolicy, and needed for the same reason: a published template's
+// scope is claimed until something retires it (uq_installment_template_scope),
+// so changing a plan is retire-then-publish, never an edit.
+func (s *ConfigService) RetireInstallmentTemplate(ctx context.Context, actor shared.Actor, templateID shared.ID) (*billing.InstallmentTemplate, error) {
+	if err := actor.RequireAnyRole("RetireInstallmentTemplate",
+		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
+		return nil, err
+	}
+
+	var template *billing.InstallmentTemplate
+	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
+		now := nowOr(s.deps.Clock)
+
+		var err error
+		template, err = s.deps.Templates.GetByID(ctx, templateID)
+		if err != nil {
+			return err
+		}
+		before := snapshotOf(template)
+
+		if err := template.Retire(now); err != nil {
+			return err
+		}
+		if err := s.deps.Templates.Retire(ctx, template.ID, now); err != nil {
+			return err
+		}
+
+		return s.record(ctx, port.AuditEntry{
+			EntityType:     "installment_template",
+			EntityID:       &template.ID,
+			Action:         "installment_template.retired",
+			Actor:          actor,
+			Before:         before,
+			After:          snapshotOf(template),
+			AcademicYearID: template.AcademicYearID,
+			Metadata: map[string]any{
+				"code":  template.Code,
+				"scope": s.templateScopeKey(template),
+			},
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return template, nil
+}
+
 // ListInstallmentTemplates returns the templates applicable to a year, or
 // every template when the year is nil.
 func (s *ConfigService) ListInstallmentTemplates(ctx context.Context, actor shared.Actor, yearID *shared.ID) ([]*billing.InstallmentTemplate, error) {
@@ -806,6 +1064,188 @@ func (s *ConfigService) GetInstallmentTemplate(ctx context.Context, actor shared
 		return nil, err
 	}
 	return s.deps.Templates.GetByID(ctx, templateID)
+}
+
+// StudyTypeInstallmentLineInput is one literal installment on a study type's
+// default plan.
+type StudyTypeInstallmentLineInput struct {
+	Amount        money.Amount
+	DueOffsetDays int
+	Label         *string
+}
+
+// SetStudyTypeInstallmentPlanInput names the literal installments a newly
+// created enrollment of one study type should be split into, for one
+// academic year.
+type SetStudyTypeInstallmentPlanInput struct {
+	AcademicYearID shared.ID
+	StudyTypeID    shared.ID
+	Lines          []StudyTypeInstallmentLineInput
+}
+
+// installmentPlanCodePrefix mirrors studyTypeDebtPolicyPrefix: a template
+// code namespaced by this feature so SetStudyTypeInstallmentPlan can find its
+// own previous versions without touching a template a finance manager
+// defined by hand over the same scope. Unlike a fee policy, a template has no
+// version_no column of its own — uq_installment_template_code is unique on
+// the bare code, retired rows included — so every call gets a code carrying
+// a fresh numeric suffix rather than reusing one.
+// Short because installment_template.code has only 32 characters to spend in
+// total, split between this, a compact fragment of two ids and a version
+// suffix — see compactID.
+const installmentPlanCodePrefix = "PLAN_"
+
+// compactID renders a short, fixed-length, deterministic fragment of a UUID
+// for use inside a code that has to stay within a tight length limit
+// (installment_template.code, capped at 32 characters by
+// ck_installment_template_code) while still being reproducible from the id
+// alone, so a later call can find what an earlier one created.
+func compactID(id shared.ID) string {
+	return strings.ToUpper(strings.ReplaceAll(id.String(), "-", "")[:8])
+}
+
+// SetStudyTypeInstallmentPlan is the configuration surface for a study type's
+// default installment plan: a study-type-only wildcard installment template —
+// every other scope dimension left null — authored in the literal amounts an
+// administrator actually means ("400,000 / 400,000 / 350,000 / 350,000"),
+// not percentages.
+//
+// It reuses the same installment-template engine every other plan goes
+// through: retiring the previous version (if any) then defining and
+// publishing a new one, all in one transaction, exactly the pattern
+// SetStudyTypeInitialDebt already uses for the fee side.
+func (s *ConfigService) SetStudyTypeInstallmentPlan(ctx context.Context, actor shared.Actor, in SetStudyTypeInstallmentPlanInput) (*billing.InstallmentTemplate, error) {
+	if err := actor.RequireAnyRole("SetStudyTypeInstallmentPlan",
+		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
+		return nil, err
+	}
+
+	lineInputs := make([]TemplateLineInput, len(in.Lines))
+	for i, line := range in.Lines {
+		amount := line.Amount
+		lineInputs[i] = TemplateLineInput{
+			Amount:        &amount,
+			DueOffsetDays: line.DueOffsetDays,
+			Label:         line.Label,
+		}
+	}
+	lines, err := s.buildTemplateLines(lineInputs)
+	if err != nil {
+		return nil, err
+	}
+
+	var template *billing.InstallmentTemplate
+	err = s.deps.Tx.Write(ctx, func(ctx context.Context) error {
+		studyType, err := s.deps.Reference.GetStudyType(ctx, in.StudyTypeID)
+		if err != nil {
+			return err
+		}
+		year, err := s.deps.Years.GetByID(ctx, in.AcademicYearID)
+		if err != nil {
+			return err
+		}
+		if err := s.requireConfigurableYear(year, "configuring a study type's default installment plan"); err != nil {
+			return err
+		}
+
+		existing, err := s.deps.Templates.List(ctx, &in.AcademicYearID)
+		if err != nil {
+			return err
+		}
+		// installment_template has no version_no column the way
+		// fee_policy_version does — uq_installment_template_code is unique on
+		// the bare code, retired rows included — so a second call for this
+		// exact scope cannot reuse the first call's code at all; it needs a
+		// fresh one. The base already carries the year, since
+		// uq_installment_template_code has no academic_year_id column either.
+		// ck_installment_template_code caps a code at 32 upper-case letters,
+		// digits and underscores — no hyphens, and too tight to spell out a
+		// year and a study-type code (which is itself allowed up to 32
+		// characters) side by side without risking overflow. A short,
+		// deterministic fragment of each id keeps the composite code fixed
+		// in length regardless of how either is named; the year and study
+		// type themselves are recorded properly in the template's own
+		// columns; the code only has to be able to find its own prior
+		// versions again.
+		base := installmentPlanCodePrefix + compactID(year.ID) + "_" + compactID(studyType.ID)
+		nextVersion := 1
+		var previous *billing.InstallmentTemplate
+		for _, t := range existing {
+			if !strings.HasPrefix(t.Code, base) {
+				continue
+			}
+			nextVersion++
+			if t.Status == billing.PolicyPublished {
+				previous = t
+			}
+		}
+		code := base + "_V" + strconv.Itoa(nextVersion)
+
+		now := nowOr(s.deps.Clock)
+		if previous != nil {
+			if err := previous.Retire(now); err != nil {
+				return err
+			}
+			if err := s.deps.Templates.Retire(ctx, previous.ID, now); err != nil {
+				return err
+			}
+			if err := s.record(ctx, port.AuditEntry{
+				EntityType:     "installment_template",
+				EntityID:       &previous.ID,
+				Action:         "installment_template.retired",
+				Actor:          actor,
+				AcademicYearID: previous.AcademicYearID,
+				Metadata: map[string]any{
+					"code":   previous.Code,
+					"reason": "superseded by a new default installment plan",
+				},
+			}); err != nil {
+				return err
+			}
+		}
+
+		template = &billing.InstallmentTemplate{
+			ID:              shared.NewID(),
+			Code:            code,
+			NameAr:          "قسط افتراضي — " + studyType.NameAr,
+			AcademicYearID:  &year.ID,
+			StudyTypeID:     &studyType.ID,
+			MaxInstallments: int16(len(lines)),
+			Status:          billing.PolicyDraft,
+			Lines:           lines,
+		}
+		if err := s.deps.Templates.Create(ctx, template); err != nil {
+			return err
+		}
+		if err := s.refuseDuplicateTemplateScope(ctx, template); err != nil {
+			return err
+		}
+		if err := template.Publish(actor.UserID, now); err != nil {
+			return s.explainShareTotal(err, template)
+		}
+		if err := s.deps.Templates.Publish(ctx, template.ID, actor.UserID, now); err != nil {
+			return err
+		}
+
+		return s.record(ctx, port.AuditEntry{
+			EntityType:     "installment_template",
+			EntityID:       &template.ID,
+			Action:         "installment_template.defined",
+			Actor:          actor,
+			After:          snapshotOf(template),
+			AcademicYearID: template.AcademicYearID,
+			Metadata: map[string]any{
+				"code":       template.Code,
+				"study_type": studyType.Code,
+				"line_count": len(lines),
+				"total_bp":   int(s.totalShare(lines)),
+			},
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return template, nil
 }
 
 // explainShareTotal adds the template's identity and the size of the gap to
@@ -878,10 +1318,40 @@ func (s *ConfigService) totalShare(lines []billing.TemplateLine) money.BasisPoin
 }
 
 // buildTemplateLines validates and numbers the lines of a draft template.
+//
+// A template is authored either in percentages (ShareBP on every line) or in
+// literal amounts (Amount on every line) — never a mix, because a line with
+// neither has no defined share and a line with both is ambiguous about which
+// one is authoritative. In the literal case ShareBP is derived here, not
+// taken from the caller: that is what lets a mid-year re-split, which only
+// ever knows a share of a remainder, keep working from a template nobody
+// entered a percentage into.
 func (s *ConfigService) buildTemplateLines(inputs []TemplateLineInput) ([]billing.TemplateLine, error) {
 	if len(inputs) == 0 {
 		return nil, shared.Validation("installment_template.no_lines",
 			"a template must define at least one installment; the lines are the template")
+	}
+
+	amountCount := 0
+	for _, in := range inputs {
+		if in.Amount != nil {
+			amountCount++
+		}
+	}
+	literal := amountCount > 0
+	if literal && amountCount != len(inputs) {
+		return nil, shared.Validation("installment_template.mixed_amount_and_share",
+			"%d of %d lines carry a literal amount; a template is authored either entirely in amounts "+
+				"or entirely in percentages, never a mix", amountCount, len(inputs))
+	}
+
+	var derivedShares []money.BasisPoints
+	if literal {
+		var err error
+		derivedShares, err = sharesFromAmounts(inputs)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	lines := make([]billing.TemplateLine, 0, len(inputs))
@@ -902,7 +1372,10 @@ func (s *ConfigService) buildTemplateLines(inputs []TemplateLineInput) ([]billin
 		}
 		seen[lineNo] = true
 
-		if in.ShareBP <= 0 || in.ShareBP > money.FullRate {
+		shareBP := in.ShareBP
+		if literal {
+			shareBP = derivedShares[i]
+		} else if in.ShareBP <= 0 || in.ShareBP > money.FullRate {
 			return nil, shared.Validation("installment_template.invalid_share",
 				"line %d has a share of %d basis points; a share is between 1 and %d",
 				lineNo, in.ShareBP, money.FullRate).
@@ -917,12 +1390,77 @@ func (s *ConfigService) buildTemplateLines(inputs []TemplateLineInput) ([]billin
 
 		lines = append(lines, billing.TemplateLine{
 			LineNo:        lineNo,
-			ShareBP:       in.ShareBP,
+			ShareBP:       shareBP,
+			Amount:        in.Amount,
 			DueOffsetDays: in.DueOffsetDays,
 			Label:         in.Label,
 		})
 	}
 	return lines, nil
+}
+
+// sharesFromAmounts derives a basis-point share for every line of a
+// literal-amount template, summing to exactly money.FullRate.
+//
+// Every line but the last is rounded independently; the last absorbs
+// whatever the rounding left over, the same convention GeneratePlan itself
+// uses for the reverse operation (splitting a net back into amounts) — so a
+// template round-trips through this exactly for the one net it was written
+// for. This total is not required to match any other configured price: it is
+// only what makes the shares valid to store, and GeneratePlan's own
+// VerifyPlanSum is what refuses a mismatch against a real account's net.
+func sharesFromAmounts(inputs []TemplateLineInput) ([]money.BasisPoints, error) {
+	var total money.Amount
+	for i, in := range inputs {
+		if in.Amount == nil || in.Amount.IsNegative() || in.Amount.IsZero() {
+			return nil, shared.Validation("installment_template.invalid_amount",
+				"line %d has no positive amount; a literal-amount template needs one on every line", i+1).
+				WithDetail("line_no", i+1)
+		}
+		next, err := total.Add(*in.Amount)
+		if err != nil {
+			return nil, shared.Internal("installment_template.amount_overflow", err, "summing template amounts")
+		}
+		total = next
+	}
+
+	shares := make([]money.BasisPoints, len(inputs))
+	var allocated money.BasisPoints
+	for i := 0; i < len(inputs)-1; i++ {
+		bp, err := deriveShareBP(*inputs[i].Amount, total)
+		if err != nil {
+			return nil, shared.Internal("installment_template.share_arithmetic", err,
+				"deriving a share for line %d", i+1)
+		}
+		shares[i] = bp
+		allocated += bp
+	}
+	last := money.FullRate - allocated
+	if last <= 0 || last > money.FullRate {
+		return nil, shared.Validation("installment_template.invalid_amount",
+			"the last installment's amount is too small relative to the others to derive a valid share").
+			WithDetail("line_no", len(inputs))
+	}
+	shares[len(inputs)-1] = last
+	return shares, nil
+}
+
+// deriveShareBP computes amount's share of total in basis points, rounded
+// half-up — the same convention money.ApplyRate uses to go the other way.
+func deriveShareBP(amount, total money.Amount) (money.BasisPoints, error) {
+	const scale = int64(money.FullRate)
+	a, t := amount.Int64(), total.Int64()
+	if a > (int64(1)<<62)/scale {
+		return 0, shared.Internal("installment_template.share_overflow", nil,
+			"amount %d is too large for exact share arithmetic", a)
+	}
+	product := a * scale
+	quotient := product / t
+	remainder := product % t
+	if remainder*2 >= t {
+		quotient++
+	}
+	return money.BasisPoints(quotient), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1489,9 +2027,9 @@ func (s *ConfigService) checkStage(stage *int16) error {
 	if stage == nil {
 		return nil
 	}
-	if *stage < 1 || *stage > 8 {
+	if *stage < 1 || *stage > 5 {
 		return shared.Validation("config.invalid_stage",
-			"a stage is between 1 and 8, got %d", *stage).
+			"a stage is between 1 and 5, got %d", *stage).
 			WithDetail("stage", int(*stage))
 	}
 	return nil

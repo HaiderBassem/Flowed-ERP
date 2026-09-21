@@ -3,8 +3,8 @@ package postgres
 import (
 	"context"
 
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/platform/pg"
+	"flowed/internal/port"
 )
 
 // TxManager adapts the platform connection pool to the transaction boundary

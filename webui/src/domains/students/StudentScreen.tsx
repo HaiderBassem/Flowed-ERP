@@ -4,7 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { isRefusal } from "@/api/errors";
 import type { AccountView, EnrollmentView, StudentView } from "@/api/types";
-import { Chip, StateChip } from "@/components/Chip";
+import { useStudyTypes } from "@/api/reference";
+import { Chip, StateChip, StudyTypeChip } from "@/components/Chip";
 import { Crumbs } from "@/components/Crumbs";
 import { Money } from "@/components/Money";
 import { RefusalPanel } from "@/components/RefusalPanel";
@@ -39,6 +40,9 @@ export function StudentScreen() {
   const { id } = useParams<{ id: string }>();
   const { can } = useSession();
   const { years } = useWorkingContext();
+  const studyTypes = useStudyTypes();
+  const studyTypeCode = (studyTypeId: string) =>
+    studyTypes.data?.find((t) => t.id === studyTypeId)?.code;
 
   const student = useQuery({
     queryKey: ["student", id],
@@ -104,6 +108,11 @@ export function StudentScreen() {
         <Link className="btn" to={`/students/${view.id}/statement`}>
           كشف الطالب
         </Link>
+        {can("student.contact") && (
+          <Link className="btn" to={`/students/${view.id}/edit`}>
+            تعديل بيانات التواصل
+          </Link>
+        )}
         {can("identity.read") && (
           <Link className="btn" to={`/students/${view.id}/identity`}>
             الهوية القانونية
@@ -139,12 +148,25 @@ export function StudentScreen() {
           <Row label="الهاتف">
             <span className="num">{formatPhone(view.phone)}</span>
           </Row>
-          {view.national_id && (
-            <Row label="رقم وطني">
-              <span className="num">{view.national_id}</span>
+          <Row label="الحالة">{labelStudentStatus(view.status)}</Row>
+          {view.current_study_type_code && (
+            <Row label="نوع الدراسة">
+              <StudyTypeChip code={view.current_study_type_code} />
+              <span className="note" style={{ marginInlineStart: 6 }}>
+                (آخر تسجيل)
+              </span>
             </Row>
           )}
-          <Row label="الحالة">{labelStudentStatus(view.status)}</Row>
+          {view.current_academic_year_id && (
+            <Row label="السنة الدراسية">
+              <span className="num">
+                {yearOf(view.current_academic_year_id)?.code ?? "—"}
+              </span>
+              <span className="note" style={{ marginInlineStart: 6 }}>
+                (آخر تسجيل)
+              </span>
+            </Row>
+          )}
         </Panel>
 
         {/* ------------------------------------------------------- summary */}
@@ -180,7 +202,8 @@ export function StudentScreen() {
                   <th>السنة</th>
                   <th className="n">المرحلة</th>
                   <th className="n">المحاولة</th>
-                  <th>النوع</th>
+                  <th>نوع القيد</th>
+                  <th>نوع الدراسة</th>
                   <th>النتيجة</th>
                   <th>الحالة</th>
                 </tr>
@@ -196,6 +219,9 @@ export function StudentScreen() {
                     <td className="n">{enrollment.stage}</td>
                     <td className="n">{enrollment.attempt_number}</td>
                     <td>{labelEnrollmentKind(enrollment.kind)}</td>
+                    <td>
+                      <StudyTypeChip code={studyTypeCode(enrollment.study_type_id)} />
+                    </td>
                     <td>
                       {labelResult(enrollment.result)}
                       {enrollment.result_by_decision && (

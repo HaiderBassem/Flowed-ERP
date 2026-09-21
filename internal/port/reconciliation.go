@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/shared"
 )
 
 // ReconciliationKind names one invariant check.

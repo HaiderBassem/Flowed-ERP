@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/platform/config"
+	"flowed/internal/platform/config"
 )
 
 // baseEnv is the minimum a Load call needs to succeed.

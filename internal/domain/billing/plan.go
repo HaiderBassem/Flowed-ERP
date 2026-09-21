@@ -3,8 +3,8 @@ package billing
 import (
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
 )
 
 // InstallmentStatus is the state of one scheduled payment.
@@ -118,6 +118,12 @@ type TemplateLine struct {
 	ShareBP       money.BasisPoints
 	DueOffsetDays int
 	Label         *string
+	// Amount is set when the template was authored in literal amounts rather
+	// than percentages. ShareBP is still populated (derived at definition
+	// time) so a mid-year re-split, which only ever knows a share of a
+	// remainder, keeps working. GeneratePlan prefers Amount over ShareBP when
+	// every line on the template carries one.
+	Amount *money.Amount
 }
 
 // PlanSpec is the input to plan generation.
@@ -154,18 +160,9 @@ func GeneratePlan(spec PlanSpec) ([]*Installment, error) {
 			"the installment template has no lines")
 	}
 
-	weights := make([]money.BasisPoints, len(spec.Lines))
-	for i, line := range spec.Lines {
-		weights[i] = line.ShareBP
-	}
-
-	// The rounding residual lands on the first share. At generation time every
-	// installment is open, so the first is a safe place; a later re-split
-	// passes the index of the first still-open row instead.
-	amounts, err := money.SplitByRates(spec.NetAmount, weights, 0)
+	amounts, err := amountsFor(spec.Lines, spec.NetAmount)
 	if err != nil {
-		return nil, shared.Validation("plan.invalid_template",
-			"the template's shares do not form a valid split: %s", err.Error()).WithCause(err)
+		return nil, err
 	}
 
 	version := spec.PlanVersion
@@ -196,6 +193,50 @@ func GeneratePlan(spec PlanSpec) ([]*Installment, error) {
 		return nil, err
 	}
 	return installments, nil
+}
+
+// amountsFor computes each line's amount against a given net.
+//
+// Literal amounts win when every line on the template carries one — that is
+// what "1,500,000 as 400,000 / 400,000 / 350,000 / 350,000" means, and the
+// figures an administrator typed must survive untouched rather than being
+// re-derived through a percentage. They still have to sum to exactly net;
+// VerifyPlanSum is what catches a mismatch, immediately after this returns,
+// with the same refusal a bad percentage template would get.
+//
+// A template with only some lines carrying an amount cannot reach here in
+// practice — the application layer refuses that combination before a
+// template is ever published — so a partial set is treated as none and falls
+// through to the percentage split, which is always well-defined.
+func amountsFor(lines []TemplateLine, net money.Amount) ([]money.Amount, error) {
+	literal := true
+	for _, line := range lines {
+		if line.Amount == nil {
+			literal = false
+			break
+		}
+	}
+	if literal {
+		amounts := make([]money.Amount, len(lines))
+		for i, line := range lines {
+			amounts[i] = *line.Amount
+		}
+		return amounts, nil
+	}
+
+	weights := make([]money.BasisPoints, len(lines))
+	for i, line := range lines {
+		weights[i] = line.ShareBP
+	}
+	// The rounding residual lands on the first share. At generation time every
+	// installment is open, so the first is a safe place; a later re-split
+	// passes the index of the first still-open row instead.
+	amounts, err := money.SplitByRates(net, weights, 0)
+	if err != nil {
+		return nil, shared.Validation("plan.invalid_template",
+			"the template's shares do not form a valid split: %s", err.Error()).WithCause(err)
+	}
+	return amounts, nil
 }
 
 // VerifyPlanSum asserts that the live installments add up to what is owed.

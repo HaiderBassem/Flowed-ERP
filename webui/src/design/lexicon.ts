@@ -34,10 +34,10 @@ const YEAR: Lexicon = {
     hint: "المال مجمّد، والتسجيل الأكاديمي ما زال مفتوحاً — نتائج الدور الثاني تصل بعد إغلاق الخزينة",
   },
   closed: { label: "مغلقة", tone: "muted" },
-  settlement_window: {
-    label: "نافذة تسوية",
+  adjustment_open: {
+    label: "معاد فتحها للتسوية",
     tone: "void",
-    hint: "فتح استثنائي موقوت، معلَن لكل المستخدمين حتى يُغلق",
+    hint: "فتح استثنائي موقوت لتصحيح مدقَّق، حتى يُغلق مجدداً",
   },
 };
 
@@ -216,6 +216,22 @@ const DISCOUNT_CATEGORY: Record<string, string> = {
   other: "أخرى",
 };
 
+// Study type is master data (§ "whatever the ministry introduces next" in
+// academic.StudyType) — MORNING/EVENING/PARALLEL are just the seeded codes,
+// so an unrecognised one falls back to itself exactly like every other table
+// here, and to the muted chip tone rather than a made-up colour.
+const STUDY_TYPE: Record<string, string> = {
+  MORNING: "صباحي",
+  EVENING: "مسائي",
+  PARALLEL: "موازي",
+};
+
+const STUDY_TYPE_TONE: Record<string, string> = {
+  MORNING: "study-morning",
+  EVENING: "study-evening",
+  PARALLEL: "study-parallel",
+};
+
 const label = (table: Record<string, string>) => (value: string | null | undefined) =>
   value ? (table[value] ?? value) : "—";
 
@@ -225,3 +241,10 @@ export const labelResult = label(EXAM_RESULT);
 export const labelDebtPolicy = label(DEBT_POLICY);
 export const labelDisposition = label(IMPORT_DISPOSITION);
 export const labelDiscountCategory = label(DISCOUNT_CATEGORY);
+export const labelStudyType = label(STUDY_TYPE);
+
+/** Chip tone suffix ("chip--{suffix}") for a study type code, muted if unknown. */
+export function studyTypeChipTone(code: string | null | undefined): string {
+  if (!code) return "muted";
+  return STUDY_TYPE_TONE[code] ?? "muted";
+}

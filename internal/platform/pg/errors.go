@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/shared"
 )
 
 // PostgreSQL SQLSTATE codes this system reacts to by name rather than by
@@ -40,10 +40,6 @@ var constraintErrors = map[string]func(detail string) *shared.Error{
 	"uq_student_number": func(d string) *shared.Error {
 		return shared.Conflict("student.duplicate_number",
 			"a student with this university number already exists").WithDetail("db_detail", d)
-	},
-	"uq_student_national_id": func(d string) *shared.Error {
-		return shared.Conflict("student.duplicate_national_id",
-			"a student with this national identity number already exists").WithDetail("db_detail", d)
 	},
 	"uq_academic_year_code": func(d string) *shared.Error {
 		return shared.Conflict("academic_year.duplicate_code",

@@ -8,9 +8,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/pg"
+	"flowed/internal/port"
 )
 
 // ReconciliationRepository stores reconciliation runs and findings, and reads
@@ -420,8 +420,13 @@ func (r *ReconciliationRepository) CheckAuditChain(ctx context.Context, limit in
 
 	// The checkpoint's own entry must still hash to what was recorded. This is
 	// the one row that makes resuming safe rather than merely cheap.
+	//
+	// A checkpoint at sequence zero is exempt: it is what a pass over an empty
+	// trail leaves behind, and it points at no entry. Probing audit_log for it
+	// would find nothing — sequence numbers start at one — and report the trail
+	// as rewritten on a database where nothing has happened yet.
 	var found []port.ObservedFinding
-	if fromHash != nil {
+	if from > 0 && fromHash != nil {
 		var stillThere bool
 		if err := q.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM audit_log WHERE sequence_no = $1 AND entry_hash = $2)`,
@@ -507,13 +512,15 @@ func (r *ReconciliationRepository) recordVerification(
 		kind = "full"
 	}
 
+	// No WHERE EXISTS guard: a pass over an empty trail is still a pass, and
+	// recordVerification must leave a row behind it or the first-ever check
+	// looks identical to a check that never ran.
 	const query = `
 		INSERT INTO audit_verification (
 			id, sequence_no, entry_hash, entries, kind, problems, took_ms)
 		SELECT $1, $2, coalesce(
 			(SELECT entry_hash FROM audit_log WHERE sequence_no = $2),
-			'empty'), $3, $4, $5, $6
-		WHERE EXISTS (SELECT 1 FROM audit_log)`
+			'empty'), $3, $4, $5, $6`
 
 	q := r.db.Conn(ctx)
 	_, err := q.Exec(ctx, query,

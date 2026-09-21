@@ -5,8 +5,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/auth"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/auth"
 )
 
 func testHasher() *auth.Hasher {

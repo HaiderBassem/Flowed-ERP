@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/shared"
 )
 
 type txContextKey struct{}
@@ -136,7 +136,7 @@ func (db *DB) runTx(ctx context.Context, opts TxOptions, fn func(ctx context.Con
 		accessMode = pgx.ReadOnly
 	}
 
-	tx, err := db.pool.BeginTx(ctx, pgx.TxOptions{
+	tx, err := db.currentPool().BeginTx(ctx, pgx.TxOptions{
 		IsoLevel:   opts.Isolation,
 		AccessMode: accessMode,
 	})
@@ -237,7 +237,7 @@ func (db *DB) RequireTx(ctx context.Context, operation string) error {
 // runner and by singleton background jobs so that two API replicas cannot run
 // the nightly reconciliation twice.
 func (db *DB) AdvisoryLock(ctx context.Context, key int64) (unlock func(), err error) {
-	conn, err := db.pool.Acquire(ctx)
+	conn, err := db.currentPool().Acquire(ctx)
 	if err != nil {
 		return nil, TranslateError(fmt.Errorf("acquiring connection for advisory lock: %w", err))
 	}
@@ -258,7 +258,7 @@ func (db *DB) AdvisoryLock(ctx context.Context, key int64) (unlock func(), err e
 // TryAdvisoryLock takes an advisory lock without waiting, reporting whether it
 // was acquired.
 func (db *DB) TryAdvisoryLock(ctx context.Context, key int64) (acquired bool, unlock func(), err error) {
-	conn, err := db.pool.Acquire(ctx)
+	conn, err := db.currentPool().Acquire(ctx)
 	if err != nil {
 		return false, nil, TranslateError(fmt.Errorf("acquiring connection for advisory lock: %w", err))
 	}

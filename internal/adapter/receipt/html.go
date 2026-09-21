@@ -6,7 +6,7 @@ import (
 	"html/template"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/money"
+	"flowed/internal/domain/money"
 )
 
 // RenderHTML produces a self-contained printable receipt.

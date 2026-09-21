@@ -35,7 +35,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/shared"
 )
 
 // Format is how a report is rendered.

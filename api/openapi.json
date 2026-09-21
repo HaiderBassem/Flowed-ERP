@@ -109,7 +109,7 @@
     "/api/v1/academic-years": {
       "get": {
         "operationId": "getAcademicYears",
-        "summary": "",
+        "summary": "List academic years",
         "tags": [
           "academic-years"
         ],
@@ -219,7 +219,7 @@
       },
       "post": {
         "operationId": "postAcademicYears",
-        "summary": "",
+        "summary": "Create an academic year",
         "tags": [
           "academic-years"
         ],
@@ -328,10 +328,10 @@
         }
       }
     },
-    "/api/v1/academic-years/:id/close": {
+    "/api/v1/academic-years/{id}/close": {
       "post": {
         "operationId": "postAcademicYearsIdClose",
-        "summary": "",
+        "summary": "Declare a year academically over",
         "tags": [
           "academic-years"
         ],
@@ -433,10 +433,10 @@
         }
       }
     },
-    "/api/v1/academic-years/:id/close-financially": {
+    "/api/v1/academic-years/{id}/close-financially": {
       "post": {
         "operationId": "postAcademicYearsIdCloseFinancially",
-        "summary": "",
+        "summary": "Shut the books on a year, leaving academic recording open",
         "tags": [
           "academic-years"
         ],
@@ -538,10 +538,10 @@
         }
       }
     },
-    "/api/v1/academic-years/:id/open": {
+    "/api/v1/academic-years/{id}/open": {
       "post": {
         "operationId": "postAcademicYearsIdOpen",
-        "summary": "",
+        "summary": "Open a year for enrolment and collection",
         "tags": [
           "academic-years"
         ],
@@ -643,10 +643,10 @@
         }
       }
     },
-    "/api/v1/academic-years/:id/reopen": {
+    "/api/v1/academic-years/{id}/reopen": {
       "post": {
         "operationId": "postAcademicYearsIdReopen",
-        "summary": "",
+        "summary": "Reopen a closed year",
         "tags": [
           "academic-years"
         ],
@@ -880,24 +880,51 @@
         }
       }
     },
-    "/api/v1/accounts/:id": {
-      "get": {
-        "operationId": "getAccountsId",
-        "summary": "",
+    "/api/v1/accounts/adjustments": {
+      "post": {
+        "operationId": "postAccountsAdjustments",
+        "summary": "Adjust what an account owes",
+        "description": "The frozen net never moves. Every later change is a signed row, and what is owed is the net plus their sum.\n\nRoles: finance_manager, admin.\n\nRequires an `Idempotency-Key` header. A retry with the same key replays the original response; the same key with a different body is refused.",
         "tags": [
           "accounts"
         ],
         "parameters": [
           {
-            "name": "id",
-            "in": "path",
-            "required": true,
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, default 50, maximum 500.",
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Rows to skip.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Client-generated key. A retry with the same key replays the original response rather than collecting twice.",
+            "schema": {
+              "type": "string"
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostAdjustmentRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Success."
@@ -985,51 +1012,24 @@
         }
       }
     },
-    "/api/v1/accounts/adjustments": {
-      "post": {
-        "operationId": "postAccountsAdjustments",
-        "summary": "Adjust what an account owes",
-        "description": "The frozen net never moves. Every later change is a signed row, and what is owed is the net plus their sum.\n\nRoles: finance_manager, admin.\n\nRequires an `Idempotency-Key` header. A retry with the same key replays the original response; the same key with a different body is refused.",
+    "/api/v1/accounts/{id}": {
+      "get": {
+        "operationId": "getAccountsId",
+        "summary": "Read a financial account",
         "tags": [
           "accounts"
         ],
         "parameters": [
           {
-            "name": "limit",
-            "in": "query",
-            "description": "Page size, default 50, maximum 500.",
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "description": "Rows to skip.",
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
+            "name": "id",
+            "in": "path",
             "required": true,
-            "description": "Client-generated key. A retry with the same key replays the original response rather than collecting twice.",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PostAdjustmentRequest"
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "description": "Success."
@@ -2098,7 +2098,7 @@
     "/api/v1/bulk/accounts": {
       "post": {
         "operationId": "postBulkAccounts",
-        "summary": "",
+        "summary": "Generate accounts for a cohort",
         "tags": [
           "bulk"
         ],
@@ -2210,7 +2210,7 @@
     "/api/v1/bulk/promotions": {
       "post": {
         "operationId": "postBulkPromotions",
-        "summary": "",
+        "summary": "Promote a cohort to the next stage",
         "tags": [
           "bulk"
         ],
@@ -2322,7 +2322,7 @@
     "/api/v1/cashier-desks": {
       "get": {
         "operationId": "getCashierDesks",
-        "summary": "",
+        "summary": "List cashier desks",
         "tags": [
           "cashier-desks"
         ],
@@ -2434,7 +2434,7 @@
     "/api/v1/cashier-sessions": {
       "post": {
         "operationId": "postCashierSessions",
-        "summary": "",
+        "summary": "Open a cashier session",
         "tags": [
           "cashier-sessions"
         ],
@@ -2543,327 +2543,327 @@
         }
       }
     },
-    "/api/v1/cashier-sessions/:id": {
-      "get": {
-        "operationId": "getCashierSessionsId",
-        "summary": "",
-        "tags": [
-          "cashier-sessions"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success."
-          },
-          "400": {
-            "description": "The request is malformed, or a value is not one the domain accepts.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential, an expired one, or a session that was ended.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The actor's roles or organisational scope do not reach this.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such record.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "An internal failure. The response carries a request id and nothing else.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/cashier-sessions/:id/approve": {
-      "post": {
-        "operationId": "postCashierSessionsIdApprove",
-        "summary": "",
-        "tags": [
-          "cashier-sessions"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success."
-          },
-          "400": {
-            "description": "The request is malformed, or a value is not one the domain accepts.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential, an expired one, or a session that was ended.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The actor's roles or organisational scope do not reach this.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such record.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "An internal failure. The response carries a request id and nothing else.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/cashier-sessions/:id/close": {
-      "post": {
-        "operationId": "postCashierSessionsIdClose",
-        "summary": "",
-        "tags": [
-          "cashier-sessions"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success."
-          },
-          "400": {
-            "description": "The request is malformed, or a value is not one the domain accepts.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential, an expired one, or a session that was ended.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The actor's roles or organisational scope do not reach this.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such record.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "An internal failure. The response carries a request id and nothing else.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/cashier-sessions/current": {
       "get": {
         "operationId": "getCashierSessionsCurrent",
-        "summary": "",
+        "summary": "Your own open cashier session",
         "tags": [
           "cashier-sessions"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success."
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cashier-sessions/{id}": {
+      "get": {
+        "operationId": "getCashierSessionsId",
+        "summary": "Read a cashier session",
+        "tags": [
+          "cashier-sessions"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success."
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cashier-sessions/{id}/approve": {
+      "post": {
+        "operationId": "postCashierSessionsIdApprove",
+        "summary": "Approve a closed session's count",
+        "tags": [
+          "cashier-sessions"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success."
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cashier-sessions/{id}/close": {
+      "post": {
+        "operationId": "postCashierSessionsIdClose",
+        "summary": "Close a session and declare the drawer",
+        "tags": [
+          "cashier-sessions"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -2955,7 +2955,7 @@
     "/api/v1/colleges": {
       "get": {
         "operationId": "getColleges",
-        "summary": "",
+        "summary": "List colleges",
         "tags": [
           "colleges"
         ],
@@ -3065,7 +3065,7 @@
       },
       "post": {
         "operationId": "postColleges",
-        "summary": "",
+        "summary": "Create a college",
         "tags": [
           "colleges"
         ],
@@ -3177,7 +3177,7 @@
     "/api/v1/departments": {
       "get": {
         "operationId": "getDepartments",
-        "summary": "",
+        "summary": "List departments",
         "tags": [
           "departments"
         ],
@@ -3287,7 +3287,7 @@
       },
       "post": {
         "operationId": "postDepartments",
-        "summary": "",
+        "summary": "Create a department",
         "tags": [
           "departments"
         ],
@@ -3396,10 +3396,10 @@
         }
       }
     },
-    "/api/v1/discounts/applications/:id/confirm": {
+    "/api/v1/discounts/applications/{id}/confirm": {
       "post": {
         "operationId": "postDiscountsApplicationsIdConfirm",
-        "summary": "",
+        "summary": "Confirm a discount application",
         "tags": [
           "discounts"
         ],
@@ -3504,7 +3504,7 @@
     "/api/v1/discounts/assignments": {
       "post": {
         "operationId": "postDiscountsAssignments",
-        "summary": "",
+        "summary": "Grant a discount to a student",
         "tags": [
           "discounts"
         ],
@@ -3613,10 +3613,10 @@
         }
       }
     },
-    "/api/v1/discounts/assignments/:id/approve": {
+    "/api/v1/discounts/assignments/{id}/approve": {
       "post": {
         "operationId": "postDiscountsAssignmentsIdApprove",
-        "summary": "",
+        "summary": "Approve a granted discount",
         "tags": [
           "discounts"
         ],
@@ -3718,10 +3718,10 @@
         }
       }
     },
-    "/api/v1/discounts/assignments/:id/revoke": {
+    "/api/v1/discounts/assignments/{id}/revoke": {
       "post": {
         "operationId": "postDiscountsAssignmentsIdRevoke",
-        "summary": "",
+        "summary": "Revoke a granted discount",
         "tags": [
           "discounts"
         ],
@@ -3826,7 +3826,7 @@
     "/api/v1/discounts/definitions": {
       "get": {
         "operationId": "getDiscountsDefinitions",
-        "summary": "",
+        "summary": "List discount definitions",
         "tags": [
           "discounts"
         ],
@@ -3936,7 +3936,7 @@
       },
       "post": {
         "operationId": "postDiscountsDefinitions",
-        "summary": "",
+        "summary": "Create a discount definition",
         "tags": [
           "discounts"
         ],
@@ -4045,10 +4045,10 @@
         }
       }
     },
-    "/api/v1/discounts/definitions/:id": {
+    "/api/v1/discounts/definitions/{id}": {
       "get": {
         "operationId": "getDiscountsDefinitionsId",
-        "summary": "",
+        "summary": "Read a discount definition",
         "tags": [
           "discounts"
         ],
@@ -4150,10 +4150,10 @@
         }
       }
     },
-    "/api/v1/discounts/definitions/:id/versions": {
+    "/api/v1/discounts/definitions/{id}/versions": {
       "post": {
         "operationId": "postDiscountsDefinitionsIdVersions",
-        "summary": "",
+        "summary": "Draft a new version of a discount",
         "tags": [
           "discounts"
         ],
@@ -4255,10 +4255,10 @@
         }
       }
     },
-    "/api/v1/discounts/versions/:id": {
+    "/api/v1/discounts/versions/{id}": {
       "get": {
         "operationId": "getDiscountsVersionsId",
-        "summary": "",
+        "summary": "Read a discount version",
         "tags": [
           "discounts"
         ],
@@ -4360,10 +4360,10 @@
         }
       }
     },
-    "/api/v1/discounts/versions/:id/publish": {
+    "/api/v1/discounts/versions/{id}/publish": {
       "post": {
         "operationId": "postDiscountsVersionsIdPublish",
-        "summary": "",
+        "summary": "Publish a discount version",
         "tags": [
           "discounts"
         ],
@@ -4595,10 +4595,10 @@
         }
       }
     },
-    "/api/v1/enrollments/:id": {
+    "/api/v1/enrollments/{id}": {
       "get": {
         "operationId": "getEnrollmentsId",
-        "summary": "",
+        "summary": "Read an enrollment",
         "tags": [
           "enrollments"
         ],
@@ -4700,10 +4700,10 @@
         }
       }
     },
-    "/api/v1/enrollments/:id/result": {
+    "/api/v1/enrollments/{id}/result": {
       "post": {
         "operationId": "postEnrollmentsIdResult",
-        "summary": "",
+        "summary": "Record an academic result",
         "tags": [
           "enrollments"
         ],
@@ -4805,7 +4805,7 @@
         }
       }
     },
-    "/api/v1/enrollments/:id/status": {
+    "/api/v1/enrollments/{id}/status": {
       "post": {
         "operationId": "postEnrollmentsIdStatus",
         "summary": "Change an enrollment's status",
@@ -4928,7 +4928,7 @@
         }
       }
     },
-    "/api/v1/enrollments/:id/supersede": {
+    "/api/v1/enrollments/{id}/supersede": {
       "post": {
         "operationId": "postEnrollmentsIdSupersede",
         "summary": "Replace an enrollment mid-year",
@@ -5054,7 +5054,7 @@
     "/api/v1/fee-policies": {
       "get": {
         "operationId": "getFeePolicies",
-        "summary": "",
+        "summary": "List fee policies",
         "tags": [
           "fee-policies"
         ],
@@ -5164,7 +5164,7 @@
       },
       "post": {
         "operationId": "postFeePolicies",
-        "summary": "",
+        "summary": "Create a fee policy",
         "tags": [
           "fee-policies"
         ],
@@ -5183,216 +5183,6 @@
             "description": "Rows to skip.",
             "schema": {
               "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success."
-          },
-          "400": {
-            "description": "The request is malformed, or a value is not one the domain accepts.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential, an expired one, or a session that was ended.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The actor's roles or organisational scope do not reach this.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such record.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "An internal failure. The response carries a request id and nothing else.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/fee-policies/:id": {
-      "get": {
-        "operationId": "getFeePoliciesId",
-        "summary": "",
-        "tags": [
-          "fee-policies"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success."
-          },
-          "400": {
-            "description": "The request is malformed, or a value is not one the domain accepts.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential, an expired one, or a session that was ended.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The actor's roles or organisational scope do not reach this.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such record.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "An internal failure. The response carries a request id and nothing else.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/fee-policies/:id/publish": {
-      "post": {
-        "operationId": "postFeePoliciesIdPublish",
-        "summary": "",
-        "tags": [
-          "fee-policies"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
             }
           }
         ],
@@ -5486,9 +5276,436 @@
     "/api/v1/fee-policies/preview-resolution": {
       "post": {
         "operationId": "postFeePoliciesPreviewResolution",
-        "summary": "",
+        "summary": "Preview which policy a placement resolves to",
         "tags": [
           "fee-policies"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success."
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fee-policies/study-type-defaults": {
+      "post": {
+        "operationId": "postFeePoliciesStudyTypeDefaults",
+        "summary": "Set a study type's initial debt",
+        "tags": [
+          "fee-policies"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, default 50, maximum 500.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Rows to skip.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success."
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fee-policies/{id}": {
+      "get": {
+        "operationId": "getFeePoliciesId",
+        "summary": "Read a fee policy",
+        "tags": [
+          "fee-policies"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success."
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fee-policies/{id}/publish": {
+      "post": {
+        "operationId": "postFeePoliciesIdPublish",
+        "summary": "Publish a fee policy",
+        "tags": [
+          "fee-policies"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success."
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fee-policies/{id}/retire": {
+      "post": {
+        "operationId": "postFeePoliciesIdRetire",
+        "summary": "Retire a fee policy",
+        "tags": [
+          "fee-policies"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -5580,7 +5797,7 @@
     "/api/v1/imports": {
       "get": {
         "operationId": "getImports",
-        "summary": "",
+        "summary": "List student imports",
         "tags": [
           "imports"
         ],
@@ -5689,10 +5906,122 @@
         }
       }
     },
-    "/api/v1/imports/:id": {
+    "/api/v1/imports/students": {
+      "post": {
+        "operationId": "postImportsStudents",
+        "summary": "Upload a student import file",
+        "tags": [
+          "imports"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, default 50, maximum 500.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Rows to skip.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success."
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/imports/{id}": {
       "get": {
         "operationId": "getImportsId",
-        "summary": "",
+        "summary": "Review an import",
         "tags": [
           "imports"
         ],
@@ -5794,10 +6123,10 @@
         }
       }
     },
-    "/api/v1/imports/:id/cancel": {
+    "/api/v1/imports/{id}/cancel": {
       "post": {
         "operationId": "postImportsIdCancel",
-        "summary": "",
+        "summary": "Cancel an import",
         "tags": [
           "imports"
         ],
@@ -5899,10 +6228,10 @@
         }
       }
     },
-    "/api/v1/imports/:id/confirm": {
+    "/api/v1/imports/{id}/confirm": {
       "post": {
         "operationId": "postImportsIdConfirm",
-        "summary": "",
+        "summary": "Confirm an import for running",
         "tags": [
           "imports"
         ],
@@ -6004,10 +6333,10 @@
         }
       }
     },
-    "/api/v1/imports/:id/resume": {
+    "/api/v1/imports/{id}/resume": {
       "post": {
         "operationId": "postImportsIdResume",
-        "summary": "",
+        "summary": "Resume an interrupted import",
         "tags": [
           "imports"
         ],
@@ -6109,10 +6438,10 @@
         }
       }
     },
-    "/api/v1/imports/:id/rows/:row_no": {
+    "/api/v1/imports/{id}/rows/{row_no}": {
       "patch": {
         "operationId": "patchImportsIdRowsRowNo",
-        "summary": "",
+        "summary": "Decide what to do with one import row",
         "tags": [
           "imports"
         ],
@@ -6222,10 +6551,10 @@
         }
       }
     },
-    "/api/v1/imports/:id/run": {
+    "/api/v1/imports/{id}/run": {
       "post": {
         "operationId": "postImportsIdRun",
-        "summary": "",
+        "summary": "Run a confirmed import",
         "tags": [
           "imports"
         ],
@@ -6327,10 +6656,10 @@
         }
       }
     },
-    "/api/v1/imports/:id/validate": {
+    "/api/v1/imports/{id}/validate": {
       "post": {
         "operationId": "postImportsIdValidate",
-        "summary": "",
+        "summary": "Validate an uploaded import",
         "tags": [
           "imports"
         ],
@@ -6342,118 +6671,6 @@
             "schema": {
               "type": "string",
               "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success."
-          },
-          "400": {
-            "description": "The request is malformed, or a value is not one the domain accepts.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential, an expired one, or a session that was ended.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The actor's roles or organisational scope do not reach this.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such record.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "An internal failure. The response carries a request id and nothing else.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/imports/students": {
-      "post": {
-        "operationId": "postImportsStudents",
-        "summary": "",
-        "tags": [
-          "imports"
-        ],
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Page size, default 50, maximum 500.",
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "description": "Rows to skip.",
-            "schema": {
-              "type": "integer"
             }
           }
         ],
@@ -6547,7 +6764,7 @@
     "/api/v1/installment-templates": {
       "get": {
         "operationId": "getInstallmentTemplates",
-        "summary": "",
+        "summary": "List installment templates",
         "tags": [
           "installment-templates"
         ],
@@ -6657,7 +6874,7 @@
       },
       "post": {
         "operationId": "postInstallmentTemplates",
-        "summary": "",
+        "summary": "Create an installment template",
         "tags": [
           "installment-templates"
         ],
@@ -6766,10 +6983,122 @@
         }
       }
     },
-    "/api/v1/installment-templates/:id": {
+    "/api/v1/installment-templates/study-type-defaults": {
+      "post": {
+        "operationId": "postInstallmentTemplatesStudyTypeDefaults",
+        "summary": "Set a study type's default installment plan",
+        "tags": [
+          "installment-templates"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, default 50, maximum 500.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Rows to skip.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success."
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/installment-templates/{id}": {
       "get": {
         "operationId": "getInstallmentTemplatesId",
-        "summary": "",
+        "summary": "Read an installment template",
         "tags": [
           "installment-templates"
         ],
@@ -6871,10 +7200,115 @@
         }
       }
     },
-    "/api/v1/installment-templates/:id/publish": {
+    "/api/v1/installment-templates/{id}/publish": {
       "post": {
         "operationId": "postInstallmentTemplatesIdPublish",
-        "summary": "",
+        "summary": "Publish an installment template",
+        "tags": [
+          "installment-templates"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success."
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/installment-templates/{id}/retire": {
+      "post": {
+        "operationId": "postInstallmentTemplatesIdRetire",
+        "summary": "Retire an installment template",
         "tags": [
           "installment-templates"
         ],
@@ -7169,7 +7603,7 @@
     "/api/v1/payment-methods": {
       "get": {
         "operationId": "getPaymentMethods",
-        "summary": "",
+        "summary": "List payment methods",
         "tags": [
           "payment-methods"
         ],
@@ -7410,10 +7844,10 @@
         }
       }
     },
-    "/api/v1/payments/:id": {
+    "/api/v1/payments/{id}": {
       "get": {
         "operationId": "getPaymentsId",
-        "summary": "",
+        "summary": "Read a payment",
         "tags": [
           "payments"
         ],
@@ -7515,10 +7949,10 @@
         }
       }
     },
-    "/api/v1/payments/:id/receipt": {
+    "/api/v1/payments/{id}/receipt": {
       "get": {
         "operationId": "getPaymentsIdReceipt",
-        "summary": "",
+        "summary": "A payment's printable receipt",
         "tags": [
           "payments"
         ],
@@ -7866,7 +8300,7 @@
         }
       }
     },
-    "/api/v1/reconciliation/findings/:id/acknowledge": {
+    "/api/v1/reconciliation/findings/{id}/acknowledge": {
       "post": {
         "operationId": "postReconciliationFindingsIdAcknowledge",
         "summary": "Take a finding",
@@ -7989,7 +8423,7 @@
         }
       }
     },
-    "/api/v1/reconciliation/findings/:id/resolve": {
+    "/api/v1/reconciliation/findings/{id}/resolve": {
       "post": {
         "operationId": "postReconciliationFindingsIdResolve",
         "summary": "Close a finding",
@@ -8470,10 +8904,104 @@
         }
       }
     },
-    "/api/v1/refunds/:id/approve": {
+    "/api/v1/refunds/pending": {
+      "get": {
+        "operationId": "getRefundsPending",
+        "summary": "Refunds awaiting a decision",
+        "tags": [
+          "refunds"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success."
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/refunds/{id}/approve": {
       "post": {
         "operationId": "postRefundsIdApprove",
-        "summary": "",
+        "summary": "Approve a refund",
         "tags": [
           "refunds"
         ],
@@ -8575,7 +9103,7 @@
         }
       }
     },
-    "/api/v1/refunds/:id/post": {
+    "/api/v1/refunds/{id}/post": {
       "post": {
         "operationId": "postRefundsIdPost",
         "summary": "Post an approved refund",
@@ -8690,10 +9218,10 @@
         }
       }
     },
-    "/api/v1/refunds/:id/receipt": {
+    "/api/v1/refunds/{id}/receipt": {
       "get": {
         "operationId": "getRefundsIdReceipt",
-        "summary": "",
+        "summary": "A refund's printable receipt",
         "tags": [
           "refunds"
         ],
@@ -8795,10 +9323,10 @@
         }
       }
     },
-    "/api/v1/refunds/:id/reject": {
+    "/api/v1/refunds/{id}/reject": {
       "post": {
         "operationId": "postRefundsIdReject",
-        "summary": "",
+        "summary": "Reject a refund",
         "tags": [
           "refunds"
         ],
@@ -8812,100 +9340,6 @@
               "format": "uuid"
             }
           }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success."
-          },
-          "400": {
-            "description": "The request is malformed, or a value is not one the domain accepts.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential, an expired one, or a session that was ended.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The actor's roles or organisational scope do not reach this.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such record.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "An internal failure. The response carries a request id and nothing else.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/refunds/pending": {
-      "get": {
-        "operationId": "getRefundsPending",
-        "summary": "",
-        "tags": [
-          "refunds"
         ],
         "responses": {
           "200": {
@@ -9106,7 +9540,7 @@
     "/api/v1/reports/cash-flow": {
       "get": {
         "operationId": "getReportsCashFlow",
-        "summary": "",
+        "summary": "Cash in and out over a period",
         "tags": [
           "reports"
         ],
@@ -9325,7 +9759,7 @@
     "/api/v1/reports/collection-trend": {
       "get": {
         "operationId": "getReportsCollectionTrend",
-        "summary": "",
+        "summary": "Collection over time",
         "tags": [
           "reports"
         ],
@@ -9669,7 +10103,7 @@
     "/api/v1/reports/discounts": {
       "get": {
         "operationId": "getReportsDiscounts",
-        "summary": "",
+        "summary": "Discounts granted",
         "tags": [
           "reports"
         ],
@@ -9794,7 +10228,7 @@
     "/api/v1/reports/exemptions": {
       "get": {
         "operationId": "getReportsExemptions",
-        "summary": "",
+        "summary": "Exemptions granted",
         "tags": [
           "reports"
         ],
@@ -10044,7 +10478,7 @@
     "/api/v1/reports/refunds": {
       "get": {
         "operationId": "getReportsRefunds",
-        "summary": "",
+        "summary": "Refunds paid",
         "tags": [
           "reports"
         ],
@@ -10169,7 +10603,7 @@
     "/api/v1/reports/stages": {
       "get": {
         "operationId": "getReportsStages",
-        "summary": "",
+        "summary": "Money and counts by stage",
         "tags": [
           "reports"
         ],
@@ -10291,10 +10725,10 @@
         }
       }
     },
-    "/api/v1/reports/students/:id/statement": {
+    "/api/v1/reports/students/{id}/statement": {
       "get": {
         "operationId": "getReportsStudentsIdStatement",
-        "summary": "",
+        "summary": "A student's statement",
         "tags": [
           "reports"
         ],
@@ -10412,7 +10846,7 @@
     "/api/v1/reports/study-types": {
       "get": {
         "operationId": "getReportsStudyTypes",
-        "summary": "",
+        "summary": "Money and counts by study type",
         "tags": [
           "reports"
         ],
@@ -10537,7 +10971,7 @@
     "/api/v1/reports/voids": {
       "get": {
         "operationId": "getReportsVoids",
-        "summary": "",
+        "summary": "Voided payments",
         "tags": [
           "reports"
         ],
@@ -10659,10 +11093,10 @@
         }
       }
     },
-    "/api/v1/reports/years/:id": {
+    "/api/v1/reports/years/{id}": {
       "get": {
         "operationId": "getReportsYearsId",
-        "summary": "",
+        "summary": "A year's financial summary",
         "tags": [
           "reports"
         ],
@@ -11028,10 +11462,104 @@
         }
       }
     },
-    "/api/v1/students/:id": {
+    "/api/v1/students/intake": {
+      "post": {
+        "operationId": "postStudentsIntake",
+        "summary": "Register, place and price a student in one request",
+        "tags": [
+          "students"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success."
+          },
+          "400": {
+            "description": "The request is malformed, or a value is not one the domain accepts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential, an expired one, or a session that was ended.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The actor's roles or organisational scope do not reach this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A uniqueness or concurrency clash — a duplicate, or a record already in this state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A well-formed request the domain refuses: paying into closed books, voiding a payment that carries a refund.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited, or an account locked after repeated failed sign-ins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An internal failure. The response carries a request id and nothing else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/students/{id}": {
       "get": {
         "operationId": "getStudentsId",
-        "summary": "",
+        "summary": "Read a student",
         "tags": [
           "students"
         ],
@@ -11133,10 +11661,10 @@
         }
       }
     },
-    "/api/v1/students/:id/accounts": {
+    "/api/v1/students/{id}/accounts": {
       "get": {
         "operationId": "getStudentsIdAccounts",
-        "summary": "",
+        "summary": "A student's financial accounts",
         "tags": [
           "students"
         ],
@@ -11238,10 +11766,10 @@
         }
       }
     },
-    "/api/v1/students/:id/audit": {
+    "/api/v1/students/{id}/audit": {
       "get": {
         "operationId": "getStudentsIdAudit",
-        "summary": "",
+        "summary": "A student's audit trail",
         "tags": [
           "students"
         ],
@@ -11343,7 +11871,7 @@
         }
       }
     },
-    "/api/v1/students/:id/contact": {
+    "/api/v1/students/{id}/contact": {
       "patch": {
         "operationId": "patchStudentsIdContact",
         "summary": "Update contact details",
@@ -11466,10 +11994,10 @@
         }
       }
     },
-    "/api/v1/students/:id/discounts": {
+    "/api/v1/students/{id}/discounts": {
       "get": {
         "operationId": "getStudentsIdDiscounts",
-        "summary": "",
+        "summary": "A student's discounts",
         "tags": [
           "students"
         ],
@@ -11571,10 +12099,10 @@
         }
       }
     },
-    "/api/v1/students/:id/enrollments": {
+    "/api/v1/students/{id}/enrollments": {
       "get": {
         "operationId": "getStudentsIdEnrollments",
-        "summary": "",
+        "summary": "A student's enrollments",
         "tags": [
           "students"
         ],
@@ -11679,7 +12207,7 @@
     "/api/v1/study-types": {
       "get": {
         "operationId": "getStudyTypes",
-        "summary": "",
+        "summary": "List study types",
         "tags": [
           "study-types"
         ],
@@ -11789,7 +12317,7 @@
       },
       "post": {
         "operationId": "postStudyTypes",
-        "summary": "",
+        "summary": "Create a study type",
         "tags": [
           "study-types"
         ],
@@ -12021,33 +12549,12 @@
         }
       }
     },
-    "/api/v1/voids/:id/execute": {
-      "post": {
-        "operationId": "postVoidsIdExecute",
-        "summary": "Execute a void",
-        "description": "Roles: finance_manager, admin.\n\nRequires an `Idempotency-Key` header. A retry with the same key replays the original response; the same key with a different body is refused.",
+    "/api/v1/voids/pending": {
+      "get": {
+        "operationId": "getVoidsPending",
+        "summary": "Voids awaiting a decision",
         "tags": [
           "voids"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "description": "Client-generated key. A retry with the same key replays the original response rather than collecting twice.",
-            "schema": {
-              "type": "string"
-            }
-          }
         ],
         "responses": {
           "200": {
@@ -12136,12 +12643,33 @@
         }
       }
     },
-    "/api/v1/voids/pending": {
-      "get": {
-        "operationId": "getVoidsPending",
-        "summary": "",
+    "/api/v1/voids/{id}/execute": {
+      "post": {
+        "operationId": "postVoidsIdExecute",
+        "summary": "Execute a void",
+        "description": "Roles: finance_manager, admin.\n\nRequires an `Idempotency-Key` header. A retry with the same key replays the original response; the same key with a different body is refused.",
         "tags": [
           "voids"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Client-generated key. A retry with the same key replays the original response rather than collecting twice.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -12430,8 +12958,10 @@
             "type": "string"
           },
           "college_id": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "id": {
             "type": "string"
@@ -12468,8 +12998,10 @@
         "type": "object",
         "properties": {
           "charge_instead": {
-            "type": "integer",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "financial_treatment": {
             "type": "string",
@@ -12485,12 +13017,16 @@
             "type": "string"
           },
           "order_ref": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "reason": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "result": {
             "type": "string"
@@ -12511,12 +13047,24 @@
             "$ref": "#/components/schemas/EnrollmentView"
           },
           "financial_treatment": {
-            "$ref": "#/components/schemas/TreatmentView",
-            "nullable": true
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TreatmentView"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "graduation_clearance": {
-            "$ref": "#/components/schemas/ClearanceView",
-            "nullable": true
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClearanceView"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -12534,8 +13082,10 @@
             "type": "integer"
           },
           "override_reason": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "policy": {
             "type": "string"
@@ -12569,17 +13119,21 @@
             "type": "boolean"
           },
           "override_reason": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "previous_enrollment_id": {
-            "type": "string",
-            "description": "UUID.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "UUID."
           },
           "stage": {
             "type": "integer",
-            "description": "Required; minimum 1; maximum 8."
+            "description": "Required; minimum 1; maximum 5."
           },
           "student_id": {
             "type": "string",
@@ -12644,12 +13198,16 @@
             "type": "string"
           },
           "supersede_reason": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "supersedes_id": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -12698,9 +13256,11 @@
             "description": "Required; UUID."
           },
           "installment_template_id": {
-            "type": "string",
-            "description": "UUID.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "UUID."
           }
         },
         "required": [
@@ -12711,8 +13271,10 @@
         "type": "object",
         "properties": {
           "cashier_desk_id": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "password": {
             "type": "string",
@@ -12767,13 +13329,17 @@
         "type": "object",
         "properties": {
           "acknowledged_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "acknowledged_reason": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "detail": {
             "type": "object"
@@ -12793,13 +13359,17 @@
             "format": "date-time"
           },
           "resolution": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "resolved_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "seen_count": {
             "type": "integer"
@@ -12822,16 +13392,20 @@
         "type": "object",
         "properties": {
           "error": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "findings": {
             "type": "integer"
           },
           "finished_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "id": {
             "type": "string"
@@ -12869,16 +13443,22 @@
             "type": "boolean"
           },
           "method_reference": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "notes": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "payer_name": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "payment_method_id": {
             "type": "string",
@@ -12943,42 +13523,48 @@
             "type": "boolean"
           },
           "address": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "birth_date": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "email": {
-            "type": "string",
-            "description": "E-mail address.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "E-mail address."
           },
           "full_name": {
             "type": "string",
             "description": "Required."
           },
           "gender": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "One of male, female.",
             "enum": [
               "male",
               "female"
-            ],
-            "nullable": true
+            ]
           },
           "mother_name": {
             "type": "string",
             "description": "Required."
           },
-          "national_id": {
-            "type": "string",
-            "nullable": true
-          },
           "phone": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "student_no": {
             "type": "string",
@@ -13054,8 +13640,10 @@
             "type": "string"
           },
           "ip_address": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "issued_at": {
             "type": "string",
@@ -13066,17 +13654,23 @@
             "format": "date-time"
           },
           "revoked_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "revoked_reason": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "user_agent": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -13106,20 +13700,68 @@
       "StudentView": {
         "type": "object",
         "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "birth_date": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "current_academic_year_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "current_stage": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "current_study_type_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "current_study_type_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "email": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "full_name": {
             "type": "string"
           },
           "gender": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guardian_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guardian_phone": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "id": {
             "type": "string"
@@ -13127,13 +13769,17 @@
           "mother_name": {
             "type": "string"
           },
-          "national_id": {
-            "type": "string",
-            "nullable": true
-          },
           "phone": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone_alt": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "status": {
             "type": "string"
@@ -13151,23 +13797,31 @@
             "description": "Required."
           },
           "new_category_code": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "new_department_id": {
-            "type": "string",
-            "description": "UUID.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "UUID."
           },
           "new_stage": {
-            "type": "integer",
-            "description": "Minimum 1; maximum 8.",
-            "nullable": true
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Minimum 1; maximum 5."
           },
           "new_study_type_id": {
-            "type": "string",
-            "description": "UUID.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "UUID."
           },
           "reason": {
             "type": "string",
@@ -13225,8 +13879,10 @@
         "type": "object",
         "properties": {
           "account_id": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "applied": {
             "type": "boolean"
@@ -13249,29 +13905,41 @@
         "type": "object",
         "properties": {
           "address": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "email": {
-            "type": "string",
-            "description": "E-mail address.",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "E-mail address."
           },
           "guardian_name": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "guardian_phone": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "phone": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "phone_alt": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -13279,8 +13947,10 @@
         "type": "object",
         "properties": {
           "cashier_desk_id": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "colleges": {
             "type": "array",
@@ -13299,12 +13969,16 @@
             }
           },
           "disabled_reason": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "email": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "full_name": {
             "type": "string"
@@ -13316,14 +13990,18 @@
             "type": "boolean"
           },
           "last_login_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "locked_until": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "must_change_password": {
             "type": "boolean"

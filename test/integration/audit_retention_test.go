@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/adapter/postgres"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/adapter/postgres"
+	"flowed/internal/domain/shared"
 )
 
 // Verifying the whole chain every night is work that grows forever. The
@@ -19,6 +19,11 @@ func TestChainVerificationResumesFromItsCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	db := shipTestDB(t)
 	store := postgres.NewReconciliationRepository(db)
+
+	// Entries first: a checkpoint names the entry it stopped at, so a pass over
+	// an empty trail has nothing to point at and leaves a zero. The suite must
+	// not depend on another test having written the trail before this one ran.
+	appendAuditEntries(t, db, "retention-"+shared.NewID().String(), 2)
 
 	// A first pass establishes a checkpoint.
 	if _, _, err := store.CheckAuditChain(ctx, 100); err != nil {

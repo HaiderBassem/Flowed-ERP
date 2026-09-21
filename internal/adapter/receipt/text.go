@@ -5,7 +5,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/swibit/flowed/internal/domain/money"
+	"flowed/internal/domain/money"
 )
 
 // receiptWidth is the character width of a standard 80mm thermal roll.

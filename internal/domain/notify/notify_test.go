@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/notify"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/notify"
+	"flowed/internal/domain/shared"
 )
 
 func schedule() notify.Schedule {

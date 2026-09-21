@@ -17,10 +17,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/swibit/flowed/internal/platform/config"
-	"github.com/swibit/flowed/internal/platform/logger"
-	"github.com/swibit/flowed/internal/platform/observability"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/platform/config"
+	"flowed/internal/platform/logger"
+	"flowed/internal/platform/observability"
+	"flowed/internal/port"
 )
 
 // RequestIDHeader is the header a correlation id is read from and echoed back
@@ -308,10 +308,19 @@ func CORS(cfg config.HTTP) gin.HandlerFunc {
 // BodyLimit caps how much of a request body the server will read, so that an
 // import endpoint cannot be used to exhaust memory. Reads past the limit fail
 // at the point of binding rather than after the whole payload is buffered.
-func BodyLimit(maxBytes int64) gin.HandlerFunc {
+// BodyLimit caps request bodies at maxBytes, except the paths named in
+// overrides, which get their own limit — a backup upload is legitimately far
+// larger than anything else this API accepts, and the alternative to naming
+// it here is raising the global cap for every route to accommodate the one
+// that needs it.
+func BodyLimit(maxBytes int64, overrides map[string]int64) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if maxBytes > 0 && c.Request != nil && c.Request.Body != nil {
-			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+		limit := maxBytes
+		if o, ok := overrides[c.Request.URL.Path]; ok {
+			limit = o
+		}
+		if limit > 0 && c.Request != nil && c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 		}
 		c.Next()
 	}

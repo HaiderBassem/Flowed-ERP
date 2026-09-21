@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/pg"
+	"flowed/internal/port"
 )
 
 // Advisory lock keys for the singleton jobs.
@@ -32,6 +32,7 @@ const (
 	lockKeyReminderDeliver  int64 = 8_531_224_907_150_009
 	lockKeyIntentExpiry     int64 = 8_531_224_907_150_010
 	lockKeyAuditShip        int64 = 8_531_224_907_150_011
+	lockKeyBackup           int64 = 8_531_224_907_150_012
 )
 
 // SchedulerConfig tunes the background jobs. The zero value is not usable;
@@ -124,6 +125,16 @@ type SchedulerConfig struct {
 	// registered at all rather than registered and failing every tick.
 	Sessions      port.SessionRepository
 	LoginAttempts port.LoginAttemptRepository
+
+	// Backup runs automatic backups. Nil in a deployment that has not
+	// migrated yet, in which case the job is not registered.
+	Backup *BackupService
+	// BackupCheckInterval is how often the job asks the schedule row whether
+	// a backup is due. Short relative to any realistic interval an
+	// administrator would configure (hours to days), because this is the
+	// delay between changing the schedule in the UI and it taking effect —
+	// not the backup interval itself.
+	BackupCheckInterval time.Duration
 }
 
 // DefaultSchedulerConfig is the production schedule.
@@ -148,6 +159,7 @@ func DefaultSchedulerConfig() SchedulerConfig {
 		ReminderDeliverInterval:  10 * time.Minute,
 		IntentExpiryInterval:     30 * time.Minute,
 		AuditShipInterval:        15 * time.Minute,
+		BackupCheckInterval:      15 * time.Minute,
 	}
 }
 
@@ -205,6 +217,9 @@ func (c SchedulerConfig) withDefaults() SchedulerConfig {
 	}
 	if c.StartupStagger <= 0 {
 		c.StartupStagger = d.StartupStagger
+	}
+	if c.BackupCheckInterval <= 0 {
+		c.BackupCheckInterval = d.BackupCheckInterval
 	}
 	return c
 }
@@ -360,6 +375,15 @@ func NewScheduler(
 			interval: cfg.AuditShipInterval,
 			lockKey:  lockKeyAuditShip,
 			run:      s.runAuditShip,
+		})
+	}
+
+	if cfg.Backup != nil {
+		s.jobs = append(s.jobs, job{
+			name:     "backup",
+			interval: cfg.BackupCheckInterval,
+			lockKey:  lockKeyBackup,
+			run:      s.runBackup,
 		})
 	}
 
@@ -730,6 +754,22 @@ func (s *Scheduler) runIntentExpiry(ctx context.Context) (jobResult, error) {
 		return jobResult{}, err
 	}
 	return jobResult{Attrs: []slog.Attr{slog.Int("intents_expired", expired)}}, nil
+}
+
+// runBackup asks the schedule row whether an automatic backup is due, and
+// takes one if so.
+//
+// The interval that matters — hours to days — lives in the database, not in
+// this ticker: this job runs far more often than any real backup schedule, so
+// that changing the schedule through the UI takes effect on the next tick
+// rather than on the next restart. RunScheduledBackup itself is the only
+// thing that decides whether time has actually passed.
+func (s *Scheduler) runBackup(ctx context.Context) (jobResult, error) {
+	ran, err := s.cfg.Backup.RunScheduledBackup(ctx)
+	if err != nil {
+		return jobResult{}, err
+	}
+	return jobResult{Attrs: []slog.Attr{slog.Bool("ran", ran)}}, nil
 }
 
 // runAuditShip copies whatever the audit trail has gained since the last pass

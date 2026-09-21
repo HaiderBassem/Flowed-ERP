@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/payment"
-	"github.com/swibit/flowed/internal/domain/settlement"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/payment"
+	"flowed/internal/domain/settlement"
+	"flowed/internal/domain/shared"
 )
 
 // SettlementRepository stores imported bank and card statements and what their

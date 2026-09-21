@@ -1,6 +1,13 @@
 import type { ReactNode } from "react";
 
-import { describe, type Entity, type StateLabel, type Tone } from "@/design/lexicon";
+import {
+  describe,
+  labelStudyType,
+  studyTypeChipTone,
+  type Entity,
+  type StateLabel,
+  type Tone,
+} from "@/design/lexicon";
 
 /**
  * The one badge. Every state in the interface renders through it, so the
@@ -41,4 +48,17 @@ export function StateChip({
       {state.label}
     </Chip>
   );
+}
+
+/**
+ * A study type badge — Morning/Evening/Parallel, each its own colour so the
+ * three are told apart at a glance in a list or search result.
+ *
+ * Not built on Chip/Tone: study type is a distinguishing label, not one of
+ * the five lexicon states, and giving it its own tones keeps "green" meaning
+ * exactly one thing (§05 in lexicon.ts).
+ */
+export function StudyTypeChip({ code }: { code: string | null | undefined }) {
+  if (!code) return null;
+  return <span className={`chip chip--${studyTypeChipTone(code)}`}>{labelStudyType(code)}</span>;
 }

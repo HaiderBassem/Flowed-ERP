@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/domain/student"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/shared"
+	"flowed/internal/domain/student"
+	"flowed/internal/port"
 )
 
 // MergeStudentsInput folds one duplicate person record into another.
@@ -18,8 +18,8 @@ type MergeStudentsInput struct {
 	TargetID shared.ID
 	Reason   string
 	// AcknowledgeDifferentIdentity proceeds when the two records disagree on
-	// name, mother's name or national identifier. Merging two different people
-	// is far worse than leaving two records for one, so the mismatch has to be
+	// name, mother's name or date of birth. Merging two different people is
+	// far worse than leaving two records for one, so the mismatch has to be
 	// confirmed by a human and the confirmation is recorded.
 	AcknowledgeDifferentIdentity bool
 }
@@ -278,9 +278,6 @@ func identityMismatches(a, b *student.Student) []string {
 	}
 	if !sameName(a.MotherName, b.MotherName) {
 		mismatches = append(mismatches, "mother's name")
-	}
-	if a.NationalID != nil && b.NationalID != nil && *a.NationalID != *b.NationalID {
-		mismatches = append(mismatches, "national identifier")
 	}
 	if a.BirthDate != nil && b.BirthDate != nil && *a.BirthDate != *b.BirthDate {
 		mismatches = append(mismatches, "date of birth")

@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/domain/student"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/shared"
+	"flowed/internal/domain/student"
+	"flowed/internal/port"
 )
 
 // ImportService runs the staged student import.
@@ -56,7 +56,6 @@ const (
 	ColFullName       = "full_name"
 	ColMotherName     = "mother_name"
 	ColPhone          = "phone"
-	ColNationalID     = "national_id"
 	ColBirthDate      = "birth_date"
 	ColGender         = "gender"
 	ColDepartmentCode = "department_code"
@@ -67,7 +66,7 @@ const (
 // StudentImportColumns is the expected header of a student spreadsheet, in
 // order.
 var StudentImportColumns = []string{
-	ColStudentNo, ColFullName, ColMotherName, ColPhone, ColNationalID,
+	ColStudentNo, ColFullName, ColMotherName, ColPhone,
 	ColBirthDate, ColGender, ColDepartmentCode, ColStudyTypeCode, ColStage,
 }
 
@@ -1104,10 +1103,9 @@ func (s *ImportService) createPerson(
 		StudentNo:  studentNo,
 		FullName:   rowText(row.RawData, ColFullName),
 		MotherName: rowText(row.RawData, ColMotherName),
-		// Phone and national identity go in exactly as typed. Arabic-Indic
-		// digits are folded by the database's generated columns, so touching
-		// them here would only risk corrupting what the registrar entered.
-		NationalID:            nullableText(rowText(row.RawData, ColNationalID)),
+		// Phone goes in exactly as typed. Arabic-Indic digits are folded by
+		// the database's generated columns, so touching it here would only
+		// risk corrupting what the registrar entered.
 		Phone:                 nullableText(rowText(row.RawData, ColPhone)),
 		AcknowledgeDuplicates: true,
 	}

@@ -17,8 +17,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
 )
 
 // Kind is what a message is about.

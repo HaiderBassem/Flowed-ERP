@@ -158,9 +158,13 @@ export function YearScreen() {
               إغلاق مالي
             </Button>
             <Button
-              disabled={!can("year.administer") || year.status === "closed"}
+              disabled={!can("year.administer") || year.status !== "financially_closed"}
               disabledReason={
-                !can("year.administer") ? reason("year.administer") : year.status === "closed" ? "مغلقة أصلاً" : undefined
+                !can("year.administer")
+                  ? reason("year.administer")
+                  : year.status !== "financially_closed"
+                    ? "الإغلاق الكامل يتطلّب إغلاقاً مالياً أولاً"
+                    : undefined
               }
               busy={act.isPending}
               onClick={() => act.mutate("close")}

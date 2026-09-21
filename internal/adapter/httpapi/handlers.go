@@ -5,15 +5,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/app"
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/discount"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/domain/student"
-	"github.com/swibit/flowed/internal/platform/httpx"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/app"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/discount"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
+	"flowed/internal/domain/student"
+	"flowed/internal/platform/httpx"
+	"flowed/internal/port"
 )
 
 // Handlers holds the services and repositories the routes reach.
@@ -65,12 +65,27 @@ func (h *Handlers) RegisterStudent(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
+	in, ok := buildRegisterStudentInput(c, req)
+	if !ok {
+		return
+	}
 
+	result, err := h.Students.RegisterStudent(requestContext(c), httpx.MustActor(c), in)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	httpx.Created(c, toStudentView(result.Student))
+}
+
+// buildRegisterStudentInput parses the fields RegisterStudent and
+// RegisterStudentWithPlacement share, responding and returning false on the
+// first parse failure.
+func buildRegisterStudentInput(c *gin.Context, req RegisterStudentRequest) (app.RegisterStudentInput, bool) {
 	in := app.RegisterStudentInput{
 		StudentNo:             req.StudentNo,
 		FullName:              req.FullName,
 		MotherName:            req.MotherName,
-		NationalID:            req.NationalID,
 		Phone:                 req.Phone,
 		Email:                 req.Email,
 		Address:               req.Address,
@@ -80,7 +95,7 @@ func (h *Handlers) RegisterStudent(c *gin.Context) {
 		birthDate, err := shared.ParseDate(*req.BirthDate)
 		if err != nil {
 			httpx.Respond(c, err)
-			return
+			return in, false
 		}
 		in.BirthDate = &birthDate
 	}
@@ -88,13 +103,61 @@ func (h *Handlers) RegisterStudent(c *gin.Context) {
 		gender := student.Gender(*req.Gender)
 		in.Gender = &gender
 	}
+	return in, true
+}
 
-	result, err := h.Students.RegisterStudent(requestContext(c), httpx.MustActor(c), in)
+// RegisterStudentWithPlacement is student intake in one submission: identity,
+// academic placement, and — when the actor holds finance authority — initial
+// pricing. See app.StudentService.RegisterStudentWithPlacement.
+func (h *Handlers) RegisterStudentWithPlacement(c *gin.Context) {
+	var req RegisterStudentWithPlacementRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	identity, ok := buildRegisterStudentInput(c, req.RegisterStudentRequest)
+	if !ok {
+		return
+	}
+	yearID, err := shared.ParseID(req.AcademicYearID)
 	if err != nil {
 		httpx.Respond(c, err)
 		return
 	}
-	httpx.Created(c, toStudentView(result.Student))
+	departmentID, err := shared.ParseID(req.DepartmentID)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	studyTypeID, err := shared.ParseID(req.StudyTypeID)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+
+	result, err := h.Students.RegisterStudentWithPlacement(requestContext(c), httpx.MustActor(c),
+		app.RegisterStudentWithPlacementInput{
+			RegisterStudentInput: identity,
+			AcademicYearID:       yearID,
+			DepartmentID:         departmentID,
+			StudyTypeID:          studyTypeID,
+			Stage:                req.Stage,
+		})
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+
+	view := RegisterStudentWithPlacementView{
+		Student:        toStudentView(result.Student),
+		Enrollment:     toEnrollmentView(result.Enrollment),
+		PricingPending: result.PricingPending,
+		PricingNote:    result.PricingNote,
+	}
+	if result.Account != nil {
+		accountView := toAccountView(result.Account)
+		view.Account = &accountView
+	}
+	httpx.Created(c, view)
 }
 
 // GetStudent returns one student identity.
@@ -108,7 +171,16 @@ func (h *Handlers) GetStudent(c *gin.Context) {
 		httpx.Respond(c, err)
 		return
 	}
-	httpx.OK(c, toStudentView(found))
+	view := toStudentView(found)
+	summaries, err := h.StudentRepo.CurrentEnrollmentSummaries(requestContext(c), []shared.ID{found.ID})
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
+	if summary, ok := summaries[found.ID]; ok {
+		applyCurrentEnrollment(&view, summary)
+	}
+	httpx.OK(c, view)
 }
 
 // SearchStudents queries the student index.
@@ -149,9 +221,22 @@ func (h *Handlers) SearchStudents(c *gin.Context) {
 		httpx.Respond(c, err)
 		return
 	}
+	ids := make([]shared.ID, len(found))
+	for i, s := range found {
+		ids[i] = s.ID
+	}
+	summaries, err := h.StudentRepo.CurrentEnrollmentSummaries(requestContext(c), ids)
+	if err != nil {
+		httpx.Respond(c, err)
+		return
+	}
 	views := make([]StudentView, 0, len(found))
 	for _, s := range found {
-		views = append(views, toStudentView(s))
+		view := toStudentView(s)
+		if summary, ok := summaries[s.ID]; ok {
+			applyCurrentEnrollment(&view, summary)
+		}
+		views = append(views, view)
 	}
 	httpx.OKPage(c, views, total, limit, offset)
 }

@@ -33,7 +33,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/swibit/flowed/internal/domain/money"
+	"flowed/internal/domain/money"
 )
 
 func main() {

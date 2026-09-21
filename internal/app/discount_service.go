@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/discount"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/discount"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
 
 // DiscountService handles granting, approving and revoking discounts.

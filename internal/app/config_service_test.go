@@ -4,18 +4,23 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/app"
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/discount"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/app"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/discount"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
+
+// installmentTemplateCodePattern mirrors ck_installment_template_code, the
+// one constraint a fake repository cannot enforce.
+var installmentTemplateCodePattern = regexp.MustCompile(`^[A-Z0-9_]{2,32}$`)
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -111,6 +116,15 @@ func (r *cfgReferenceRepo) CreateStudyType(_ context.Context, s *academic.StudyT
 	return nil
 }
 
+func (r *cfgReferenceRepo) GetStudyType(_ context.Context, id shared.ID) (*academic.StudyType, error) {
+	studyType, ok := r.studyTypes[id]
+	if !ok {
+		return nil, shared.NotFound("study_type.not_found", "no such study type")
+	}
+	clone := *studyType
+	return &clone, nil
+}
+
 func (r *cfgReferenceRepo) GetStudentCategoryByCode(_ context.Context, code string) (*academic.StudentCategory, error) {
 	category, ok := r.categories[code]
 	if !ok {
@@ -162,6 +176,55 @@ func (r *cfgFeePolicyRepo) Publish(_ context.Context, policyID, actor shared.ID,
 		return nil
 	}
 	return shared.PreconditionFailed("fee_policy.not_publishable", "unknown policy")
+}
+
+// Resolve mirrors the real repository's rule closely enough for a test that
+// wants to confirm a policy actually prices something: the highest-specificity
+// published policy whose non-null dimensions all match the scope.
+func (r *cfgFeePolicyRepo) Resolve(_ context.Context, scope port.FeeScope) (*billing.FeePolicy, error) {
+	var best *billing.FeePolicy
+	for _, p := range r.policies {
+		if p.Status != billing.PolicyPublished || p.AcademicYearID != scope.AcademicYearID {
+			continue
+		}
+		if p.CollegeID != nil && *p.CollegeID != scope.CollegeID {
+			continue
+		}
+		if p.DepartmentID != nil && *p.DepartmentID != scope.DepartmentID {
+			continue
+		}
+		if p.Stage != nil && *p.Stage != scope.Stage {
+			continue
+		}
+		if p.StudyTypeID != nil && *p.StudyTypeID != scope.StudyTypeID {
+			continue
+		}
+		if p.StudentCategoryID != nil && *p.StudentCategoryID != scope.StudentCategoryID {
+			continue
+		}
+		if best == nil || p.SpecificityScore > best.SpecificityScore {
+			best = p
+		}
+	}
+	if best == nil {
+		return nil, shared.NotFound("fee_policy.no_match", "no published fee policy matches this scope")
+	}
+	return clonePolicy(best), nil
+}
+
+func (r *cfgFeePolicyRepo) Retire(_ context.Context, policyID shared.ID, at time.Time) error {
+	for _, p := range r.policies {
+		if p.ID != policyID {
+			continue
+		}
+		if p.Status != billing.PolicyPublished {
+			return shared.PreconditionFailed("fee_policy.not_retirable", "not published")
+		}
+		p.Status = billing.PolicyRetired
+		p.RetiredAt = &at
+		return nil
+	}
+	return shared.PreconditionFailed("fee_policy.not_retirable", "unknown policy")
 }
 
 func clonePolicy(p *billing.FeePolicy) *billing.FeePolicy {
@@ -219,6 +282,54 @@ func (r *cfgTemplateRepo) Publish(_ context.Context, templateID, actor shared.ID
 		return nil
 	}
 	return shared.PreconditionFailed("installment_template.not_publishable", "unknown template")
+}
+
+func (r *cfgTemplateRepo) Retire(_ context.Context, templateID shared.ID, at time.Time) error {
+	for _, t := range r.templates {
+		if t.ID != templateID {
+			continue
+		}
+		if t.Status != billing.PolicyPublished {
+			return shared.PreconditionFailed("installment_template.not_retirable", "not published")
+		}
+		t.Status = billing.PolicyRetired
+		t.RetiredAt = &at
+		return nil
+	}
+	return shared.PreconditionFailed("installment_template.not_retirable", "unknown template")
+}
+
+// Resolve mirrors the real repository closely enough for a test: the
+// highest-specificity published template whose non-null dimensions all match.
+func (r *cfgTemplateRepo) Resolve(_ context.Context, scope port.FeeScope) (*billing.InstallmentTemplate, error) {
+	var best *billing.InstallmentTemplate
+	for _, t := range r.templates {
+		if t.Status != billing.PolicyPublished {
+			continue
+		}
+		if t.AcademicYearID != nil && *t.AcademicYearID != scope.AcademicYearID {
+			continue
+		}
+		if t.CollegeID != nil && *t.CollegeID != scope.CollegeID {
+			continue
+		}
+		if t.DepartmentID != nil && *t.DepartmentID != scope.DepartmentID {
+			continue
+		}
+		if t.Stage != nil && *t.Stage != scope.Stage {
+			continue
+		}
+		if t.StudyTypeID != nil && *t.StudyTypeID != scope.StudyTypeID {
+			continue
+		}
+		if best == nil || t.SpecificityScore > best.SpecificityScore {
+			best = t
+		}
+	}
+	if best == nil {
+		return nil, shared.NotFound("installment_template.unresolved", "no published template matches this scope")
+	}
+	return cloneTemplate(best), nil
 }
 
 func cloneTemplate(t *billing.InstallmentTemplate) *billing.InstallmentTemplate {
@@ -360,7 +471,7 @@ func newCfgFixture(t *testing.T) *cfgFixture {
 	otherCollege := &academic.College{ID: shared.NewID(), Code: "MED", NameAr: "الطب", IsActive: true}
 	otherDept := &academic.Department{
 		ID: shared.NewID(), CollegeID: otherCollege.ID, Code: "SURGERY",
-		NameAr: "الجراحة", StageCount: 6, IsActive: true,
+		NameAr: "الجراحة", StageCount: 5, IsActive: true,
 	}
 	studyType := &academic.StudyType{ID: shared.NewID(), Code: academic.StudyTypeMorning, NameAr: "صباحي", IsActive: true}
 	category := &academic.StudentCategory{ID: shared.NewID(), Code: academic.CategoryRegular, NameAr: "نظامي", IsActive: true}
@@ -1177,4 +1288,381 @@ func TestCreateCollegeValidatesItsCode(t *testing.T) {
 		NameAr: "الهندسة",
 	})
 	requireCode(t, err, "college.invalid_code")
+}
+
+// ---------------------------------------------------------------------------
+// Study-type default debt
+// ---------------------------------------------------------------------------
+
+func TestSetStudyTypeInitialDebtPublishesAWildcardPolicy(t *testing.T) {
+	f := newCfgFixture(t)
+	ctx := context.Background()
+
+	policy, err := f.service.SetStudyTypeInitialDebt(ctx, financeManager, app.SetStudyTypeInitialDebtInput{
+		AcademicYearID: f.openYear.ID,
+		StudyTypeID:    f.studyType.ID,
+		Amount:         money.FromInt64(750_000),
+	})
+	if err != nil {
+		t.Fatalf("SetStudyTypeInitialDebt: %v", err)
+	}
+	if policy.Status != billing.PolicyPublished {
+		t.Errorf("status = %s, want published — the point is that it resolves immediately", policy.Status)
+	}
+	// Every other dimension must stay a wildcard: this is what makes it a
+	// default, matched by any enrollment of the study type regardless of
+	// college, department, stage or category.
+	if policy.CollegeID != nil || policy.DepartmentID != nil || policy.Stage != nil || policy.StudentCategoryID != nil {
+		t.Errorf("policy scope = %+v, want every dimension but study type left nil", policy)
+	}
+	if policy.StudyTypeID == nil || *policy.StudyTypeID != f.studyType.ID {
+		t.Errorf("study type = %v, want %s", policy.StudyTypeID, f.studyType.ID)
+	}
+	gross, err := policy.GrossTotal()
+	if err != nil || gross != money.FromInt64(750_000) {
+		t.Errorf("gross total = %s (err %v), want 750000", gross, err)
+	}
+
+	scope := port.FeeScope{
+		AcademicYearID: f.openYear.ID,
+		CollegeID:      f.college.ID,
+		DepartmentID:   f.department.ID,
+		Stage:          1,
+		StudyTypeID:    f.studyType.ID,
+	}
+	resolved, err := f.policies.Resolve(ctx, scope)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolved.ID != policy.ID {
+		t.Errorf("an unpriced enrollment of this study type must resolve to the default, got %s", resolved.PolicyCode)
+	}
+}
+
+func TestSetStudyTypeInitialDebtChangesTheAmountByRetiringTheOldVersion(t *testing.T) {
+	f := newCfgFixture(t)
+	ctx := context.Background()
+
+	first, err := f.service.SetStudyTypeInitialDebt(ctx, financeManager, app.SetStudyTypeInitialDebtInput{
+		AcademicYearID: f.openYear.ID,
+		StudyTypeID:    f.studyType.ID,
+		Amount:         money.FromInt64(750_000),
+	})
+	if err != nil {
+		t.Fatalf("first SetStudyTypeInitialDebt: %v", err)
+	}
+
+	second, err := f.service.SetStudyTypeInitialDebt(ctx, financeManager, app.SetStudyTypeInitialDebtInput{
+		AcademicYearID: f.openYear.ID,
+		StudyTypeID:    f.studyType.ID,
+		Amount:         money.FromInt64(900_000),
+	})
+	if err != nil {
+		t.Fatalf("second SetStudyTypeInitialDebt: %v", err)
+	}
+	if second.VersionNo <= first.VersionNo {
+		t.Errorf("version_no = %d, want greater than the first version's %d", second.VersionNo, first.VersionNo)
+	}
+	if second.PolicyCode != first.PolicyCode {
+		t.Errorf("policy code changed from %q to %q — a changed amount must still be found under the same code",
+			first.PolicyCode, second.PolicyCode)
+	}
+
+	reread, err := f.service.GetFeePolicy(ctx, financeManager, first.ID)
+	if err != nil {
+		t.Fatalf("GetFeePolicy(first): %v", err)
+	}
+	if reread.Status != billing.PolicyRetired {
+		t.Errorf("first policy status = %s, want retired — the old amount must stop resolving once a new one is set",
+			reread.Status)
+	}
+
+	// A published account already priced under the old version is
+	// untouched — that assurance is the entire reason retiring exists rather
+	// than editing. GrossTotal on the retired row must still read the old
+	// figure.
+	gross, err := reread.GrossTotal()
+	if err != nil || gross != money.FromInt64(750_000) {
+		t.Errorf("retired policy's amount = %s (err %v), want the original 750000 unchanged", gross, err)
+	}
+}
+
+func TestSetStudyTypeInitialDebtRequiresFinanceAuthority(t *testing.T) {
+	f := newCfgFixture(t)
+	_, err := f.service.SetStudyTypeInitialDebt(context.Background(), cashier, app.SetStudyTypeInitialDebtInput{
+		AcademicYearID: f.openYear.ID,
+		StudyTypeID:    f.studyType.ID,
+		Amount:         money.FromInt64(750_000),
+	})
+	requireCode(t, err, "insufficient_role")
+}
+
+func TestRetireFeePolicyFreesItsScopeForANewPublication(t *testing.T) {
+	f := newCfgFixture(t)
+	ctx := context.Background()
+
+	policy, err := f.service.DefineFeePolicy(ctx, financeManager, app.DefineFeePolicyInput{
+		PolicyCode:     "ENG_2025",
+		AcademicYearID: f.openYear.ID,
+		CollegeID:      &f.college.ID,
+		Components:     tuition(2_000_000),
+	})
+	if err != nil {
+		t.Fatalf("DefineFeePolicy: %v", err)
+	}
+	if _, err := f.service.PublishFeePolicy(ctx, financeManager, policy.ID); err != nil {
+		t.Fatalf("PublishFeePolicy: %v", err)
+	}
+
+	retired, err := f.service.RetireFeePolicy(ctx, financeManager, policy.ID)
+	if err != nil {
+		t.Fatalf("RetireFeePolicy: %v", err)
+	}
+	if retired.Status != billing.PolicyRetired || retired.RetiredAt == nil {
+		t.Errorf("policy = %+v, want retired with a timestamp", retired)
+	}
+
+	replacement, err := f.service.DefineFeePolicy(ctx, financeManager, app.DefineFeePolicyInput{
+		PolicyCode:     "ENG_2025_V2",
+		AcademicYearID: f.openYear.ID,
+		CollegeID:      &f.college.ID,
+		Components:     tuition(2_200_000),
+	})
+	if err != nil {
+		t.Fatalf("DefineFeePolicy(replacement): %v", err)
+	}
+	if _, err := f.service.PublishFeePolicy(ctx, financeManager, replacement.ID); err != nil {
+		t.Fatalf("a scope vacated by retirement must accept a new publication: %v", err)
+	}
+}
+
+func TestRetireFeePolicyRefusesADraft(t *testing.T) {
+	f := newCfgFixture(t)
+	ctx := context.Background()
+
+	policy, err := f.service.DefineFeePolicy(ctx, financeManager, app.DefineFeePolicyInput{
+		PolicyCode:     "ENG_2025",
+		AcademicYearID: f.openYear.ID,
+		CollegeID:      &f.college.ID,
+		Components:     tuition(2_000_000),
+	})
+	if err != nil {
+		t.Fatalf("DefineFeePolicy: %v", err)
+	}
+
+	_, err = f.service.RetireFeePolicy(ctx, financeManager, policy.ID)
+	requireCode(t, err, "fee_policy.not_published")
+}
+
+// ---------------------------------------------------------------------------
+// Study-type default installment plan
+// ---------------------------------------------------------------------------
+
+func TestSetStudyTypeInstallmentPlanPublishesAWildcardTemplateWithLiteralAmounts(t *testing.T) {
+	f := newCfgFixture(t)
+	ctx := context.Background()
+
+	template, err := f.service.SetStudyTypeInstallmentPlan(ctx, financeManager, app.SetStudyTypeInstallmentPlanInput{
+		AcademicYearID: f.openYear.ID,
+		StudyTypeID:    f.studyType.ID,
+		Lines: []app.StudyTypeInstallmentLineInput{
+			{Amount: money.FromInt64(400_000), DueOffsetDays: 0},
+			{Amount: money.FromInt64(400_000), DueOffsetDays: 60},
+			{Amount: money.FromInt64(350_000), DueOffsetDays: 120},
+			{Amount: money.FromInt64(350_000), DueOffsetDays: 180},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SetStudyTypeInstallmentPlan: %v", err)
+	}
+	if template.Status != billing.PolicyPublished {
+		t.Errorf("status = %s, want published", template.Status)
+	}
+	if template.CollegeID != nil || template.DepartmentID != nil || template.Stage != nil {
+		t.Errorf("template scope = %+v, want every dimension but study type left nil", template)
+	}
+
+	// The whole point of literal amounts: generating a plan against exactly
+	// the net they sum to must reproduce them untouched.
+	plan, err := billing.GeneratePlan(billing.PlanSpec{
+		AccountID: shared.NewID(),
+		NetAmount: money.FromInt64(1_500_000),
+		YearStart: f.openYear.StartDate,
+		Lines:     template.Lines,
+	})
+	if err != nil {
+		t.Fatalf("GeneratePlan: %v", err)
+	}
+	want := []money.Amount{400_000, 400_000, 350_000, 350_000}
+	if len(plan) != len(want) {
+		t.Fatalf("got %d installments, want %d", len(plan), len(want))
+	}
+	for i, inst := range plan {
+		if inst.Amount != want[i] {
+			t.Errorf("installment %d = %s, want %s", i+1, inst.Amount, want[i])
+		}
+	}
+
+	resolved, err := f.templates.Resolve(ctx, port.FeeScope{
+		AcademicYearID: f.openYear.ID,
+		CollegeID:      f.college.ID,
+		DepartmentID:   f.department.ID,
+		Stage:          1,
+		StudyTypeID:    f.studyType.ID,
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolved.ID != template.ID {
+		t.Errorf("an unpriced enrollment of this study type must resolve to the default plan, got %s", resolved.Code)
+	}
+}
+
+func TestSetStudyTypeInstallmentPlanChangesLinesByRetiringTheOldVersion(t *testing.T) {
+	f := newCfgFixture(t)
+	ctx := context.Background()
+
+	first, err := f.service.SetStudyTypeInstallmentPlan(ctx, financeManager, app.SetStudyTypeInstallmentPlanInput{
+		AcademicYearID: f.openYear.ID,
+		StudyTypeID:    f.studyType.ID,
+		Lines: []app.StudyTypeInstallmentLineInput{
+			{Amount: money.FromInt64(750_000), DueOffsetDays: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("first SetStudyTypeInstallmentPlan: %v", err)
+	}
+
+	second, err := f.service.SetStudyTypeInstallmentPlan(ctx, financeManager, app.SetStudyTypeInstallmentPlanInput{
+		AcademicYearID: f.openYear.ID,
+		StudyTypeID:    f.studyType.ID,
+		Lines: []app.StudyTypeInstallmentLineInput{
+			{Amount: money.FromInt64(500_000), DueOffsetDays: 0},
+			{Amount: money.FromInt64(400_000), DueOffsetDays: 90},
+		},
+	})
+	if err != nil {
+		t.Fatalf("second SetStudyTypeInstallmentPlan: %v", err)
+	}
+	// Unlike a fee policy, installment_template has no version_no column of
+	// its own — uq_installment_template_code is unique on the bare code,
+	// retired rows included — so a second call cannot reuse the first call's
+	// code; each gets a fresh one carrying its own version suffix.
+	if second.Code == first.Code {
+		t.Errorf("second call reused code %q — installment_template's code is unique even across retired rows",
+			first.Code)
+	}
+	if !strings.HasPrefix(second.Code, "PLAN_") {
+		t.Errorf("code %q does not carry the expected prefix", second.Code)
+	}
+	// A fake repository does not enforce ck_installment_template_code, so this
+	// is the only place that would catch a code the real database refuses.
+	if !installmentTemplateCodePattern.MatchString(second.Code) {
+		t.Errorf("code %q does not satisfy ck_installment_template_code (%s)",
+			second.Code, installmentTemplateCodePattern)
+	}
+
+	reread, err := f.service.GetInstallmentTemplate(ctx, financeManager, first.ID)
+	if err != nil {
+		t.Fatalf("GetInstallmentTemplate(first): %v", err)
+	}
+	if reread.Status != billing.PolicyRetired {
+		t.Errorf("first template status = %s, want retired — the old plan must stop resolving once a new one is set",
+			reread.Status)
+	}
+	if len(reread.Lines) != 1 || *reread.Lines[0].Amount != money.FromInt64(750_000) {
+		t.Errorf("retired template's lines = %+v, want the original single 750000 line unchanged", reread.Lines)
+	}
+}
+
+func TestSetStudyTypeInstallmentPlanRefusesLinesWithoutAPositiveAmount(t *testing.T) {
+	f := newCfgFixture(t)
+	_, err := f.service.SetStudyTypeInstallmentPlan(context.Background(), financeManager, app.SetStudyTypeInstallmentPlanInput{
+		AcademicYearID: f.openYear.ID,
+		StudyTypeID:    f.studyType.ID,
+		Lines: []app.StudyTypeInstallmentLineInput{
+			{Amount: money.FromInt64(400_000), DueOffsetDays: 0},
+			{Amount: 0, DueOffsetDays: 60},
+		},
+	})
+	requireCode(t, err, "installment_template.invalid_amount")
+}
+
+func TestSetStudyTypeInstallmentPlanRequiresFinanceAuthority(t *testing.T) {
+	f := newCfgFixture(t)
+	_, err := f.service.SetStudyTypeInstallmentPlan(context.Background(), cashier, app.SetStudyTypeInstallmentPlanInput{
+		AcademicYearID: f.openYear.ID,
+		StudyTypeID:    f.studyType.ID,
+		Lines:          []app.StudyTypeInstallmentLineInput{{Amount: money.FromInt64(750_000)}},
+	})
+	requireCode(t, err, "insufficient_role")
+}
+
+func TestRetireInstallmentTemplateFreesItsScopeForANewPublication(t *testing.T) {
+	f := newCfgFixture(t)
+	ctx := context.Background()
+
+	template, err := f.service.DefineInstallmentTemplate(ctx, financeManager, app.DefineInstallmentTemplateInput{
+		Code:           "STD4",
+		NameAr:         "أربعة أقساط",
+		AcademicYearID: &f.openYear.ID,
+		CollegeID:      &f.college.ID,
+		Lines: []app.TemplateLineInput{
+			{ShareBP: 5000},
+			{ShareBP: 5000},
+		},
+	})
+	if err != nil {
+		t.Fatalf("DefineInstallmentTemplate: %v", err)
+	}
+	if _, err := f.service.PublishInstallmentTemplate(ctx, financeManager, template.ID); err != nil {
+		t.Fatalf("PublishInstallmentTemplate: %v", err)
+	}
+
+	retired, err := f.service.RetireInstallmentTemplate(ctx, financeManager, template.ID)
+	if err != nil {
+		t.Fatalf("RetireInstallmentTemplate: %v", err)
+	}
+	if retired.Status != billing.PolicyRetired || retired.RetiredAt == nil {
+		t.Errorf("template = %+v, want retired with a timestamp", retired)
+	}
+
+	replacement, err := f.service.DefineInstallmentTemplate(ctx, financeManager, app.DefineInstallmentTemplateInput{
+		Code:           "STD4_V2",
+		NameAr:         "أربعة أقساط",
+		AcademicYearID: &f.openYear.ID,
+		CollegeID:      &f.college.ID,
+		Lines: []app.TemplateLineInput{
+			{ShareBP: 6000},
+			{ShareBP: 4000},
+		},
+	})
+	if err != nil {
+		t.Fatalf("DefineInstallmentTemplate(replacement): %v", err)
+	}
+	if _, err := f.service.PublishInstallmentTemplate(ctx, financeManager, replacement.ID); err != nil {
+		t.Fatalf("a scope vacated by retirement must accept a new publication: %v", err)
+	}
+}
+
+func TestRetireInstallmentTemplateRefusesADraft(t *testing.T) {
+	f := newCfgFixture(t)
+	ctx := context.Background()
+
+	template, err := f.service.DefineInstallmentTemplate(ctx, financeManager, app.DefineInstallmentTemplateInput{
+		Code:           "STD4",
+		NameAr:         "أربعة أقساط",
+		AcademicYearID: &f.openYear.ID,
+		CollegeID:      &f.college.ID,
+		Lines: []app.TemplateLineInput{
+			{ShareBP: 5000},
+			{ShareBP: 5000},
+		},
+	})
+	if err != nil {
+		t.Fatalf("DefineInstallmentTemplate: %v", err)
+	}
+
+	_, err = f.service.RetireInstallmentTemplate(ctx, financeManager, template.ID)
+	requireCode(t, err, "installment_template.not_published")
 }

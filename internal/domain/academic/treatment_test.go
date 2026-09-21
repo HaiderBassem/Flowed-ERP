@@ -3,9 +3,9 @@ package academic_test
 import (
 	"testing"
 
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
 )
 
 // A student who paid two of four installments and then withdrew owes exactly

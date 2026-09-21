@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/payment"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/payment"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
 
 // MasterDataService administers the reference tables the rest of the system
@@ -128,9 +128,9 @@ func (s *MasterDataService) UpdateDepartment(ctx context.Context, actor shared.A
 			department.IsActive = *in.IsActive
 		}
 		if in.StageCount != nil && *in.StageCount != department.StageCount {
-			if *in.StageCount < 1 || *in.StageCount > 8 {
+			if *in.StageCount < 1 || *in.StageCount > 5 {
 				return shared.Validation("department.stage_count_range",
-					"a programme runs between 1 and 8 stages, got %d", *in.StageCount)
+					"a programme runs between 1 and 5 stages, got %d", *in.StageCount)
 			}
 			highest, err := s.deps.Reference.HighestStageInUse(ctx, department.ID)
 			if err != nil {

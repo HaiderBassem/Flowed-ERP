@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/payment"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/payment"
+	"flowed/internal/domain/shared"
 )
 
 const testSecret = "a-callback-secret-shared-with-the-provider"

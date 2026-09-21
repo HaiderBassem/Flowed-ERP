@@ -159,7 +159,7 @@ services:
       options: { max-size: "50m", max-file: "5" }
 
   migrate:
-    image: ${FLOWED_IMAGE:-ghcr.io/swibit/flowed}:${FLOWED_VERSION:?set FLOWED_VERSION to the release being deployed}
+    image: ${FLOWED_IMAGE:-ghcr.io/flowed/flowed}:${FLOWED_VERSION:?set FLOWED_VERSION to the release being deployed}
     entrypoint: ["/app/migrate", "up"]
     restart: "no"
     depends_on:
@@ -178,7 +178,7 @@ services:
     cap_drop: [ALL]
 
   api:
-    image: ${FLOWED_IMAGE:-ghcr.io/swibit/flowed}:${FLOWED_VERSION:?set FLOWED_VERSION to the release being deployed}
+    image: ${FLOWED_IMAGE:-ghcr.io/flowed/flowed}:${FLOWED_VERSION:?set FLOWED_VERSION to the release being deployed}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -240,7 +240,7 @@ services:
       options: { max-size: "50m", max-file: "5" }
 
   backup:
-    image: ${FLOWED_IMAGE:-ghcr.io/swibit/flowed}:${FLOWED_VERSION:?set FLOWED_VERSION}
+    image: ${FLOWED_IMAGE:-ghcr.io/flowed/flowed}:${FLOWED_VERSION:?set FLOWED_VERSION}
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c"]
     command:

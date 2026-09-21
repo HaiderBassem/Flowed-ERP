@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/shared"
 )
 
 // YearStatus is the lifecycle state of an academic year.

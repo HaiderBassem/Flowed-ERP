@@ -56,6 +56,23 @@
   border-color: var(--rule-strong);
   background: var(--surface-2);
 }
+/* Study type — a distinguishing label, not a lexicon state; see the tokens
+   these read from in tokens.css for why they are not chip--live/pending/etc. */
+.chip--study-morning {
+  color: var(--study-morning);
+  border-color: color-mix(in oklab, var(--study-morning) 40%, transparent);
+  background: var(--study-morning-soft);
+}
+.chip--study-evening {
+  color: var(--study-evening);
+  border-color: color-mix(in oklab, var(--study-evening) 40%, transparent);
+  background: var(--study-evening-soft);
+}
+.chip--study-parallel {
+  color: var(--study-parallel);
+  border-color: color-mix(in oklab, var(--study-parallel) 40%, transparent);
+  background: var(--study-parallel-soft);
+}
 .chip[data-hint] {
   cursor: help;
 }
@@ -273,6 +290,26 @@
 }
 select.input {
   cursor: pointer;
+}
+.phone-input {
+  display: flex;
+  align-items: stretch;
+  direction: ltr;
+}
+.phone-input__prefix {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--rule-strong);
+  border-inline-end: none;
+  border-radius: 6px 0 0 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--numeric);
+  font-weight: 700;
+}
+.phone-input .input {
+  border-radius: 0 6px 6px 0;
 }
 
 /* ------------------------------------------------------------- waterfall -- */

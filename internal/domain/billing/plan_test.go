@@ -3,9 +3,9 @@ package billing_test
 import (
 	"testing"
 
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
 )
 
 func quarterlyTemplate() []billing.TemplateLine {
@@ -167,6 +167,117 @@ func TestTemplatePublishValidatesShares(t *testing.T) {
 	tooMany.MaxInstallments = 2
 	if err := tooMany.Publish(actor, now); err == nil {
 		t.Error("a template with more lines than its own maximum must not publish")
+	}
+}
+
+// Retiring is what makes a published template's amount changeable at all:
+// publishing a second version over the same scope is refused while the first
+// still holds it (uq_installment_template_scope), so a changed figure is
+// retire-then-publish, never an edit.
+func TestInstallmentTemplateRetire(t *testing.T) {
+	now := shared.SystemClock{}.Now()
+
+	draft := &billing.InstallmentTemplate{
+		Code: "STD4", NameAr: "أربعة أقساط", MaxInstallments: 4,
+		Status: billing.PolicyDraft, Lines: quarterlyTemplate(),
+	}
+	if err := draft.Retire(now); err == nil {
+		t.Error("a draft template must not be retirable — it was never in force")
+	}
+
+	published := &billing.InstallmentTemplate{
+		Code: "STD4", NameAr: "أربعة أقساط", MaxInstallments: 4,
+		Status: billing.PolicyPublished, Lines: quarterlyTemplate(),
+	}
+	if err := published.Retire(now); err != nil {
+		t.Fatalf("retiring a published template: %v", err)
+	}
+	if published.Status != billing.PolicyRetired || published.RetiredAt == nil {
+		t.Errorf("template = %+v, want retired with a timestamp", published)
+	}
+
+	if err := published.Retire(now); err == nil {
+		t.Error("an already-retired template must not retire again")
+	}
+}
+
+// A template authored in literal amounts must reproduce them exactly — that
+// is the entire point of typing "400,000" instead of a percentage — and the
+// four figures must still sum to the net, the same invariant a percentage
+// template is held to.
+func TestGeneratePlanPrefersLiteralAmountsWhenEveryLineHasOne(t *testing.T) {
+	lines := []billing.TemplateLine{
+		{LineNo: 1, ShareBP: 2667, DueOffsetDays: 0, Amount: amt(400_000)},
+		{LineNo: 2, ShareBP: 2667, DueOffsetDays: 60, Amount: amt(400_000)},
+		{LineNo: 3, ShareBP: 2333, DueOffsetDays: 120, Amount: amt(350_000)},
+		{LineNo: 4, ShareBP: 2333, DueOffsetDays: 180, Amount: amt(350_000)},
+	}
+
+	plan, err := billing.GeneratePlan(billing.PlanSpec{
+		AccountID: shared.NewID(),
+		NetAmount: money.FromInt64(1_500_000),
+		YearStart: shared.NewDate(2026, 9, 1),
+		Lines:     lines,
+	})
+	if err != nil {
+		t.Fatalf("GeneratePlan: %v", err)
+	}
+	want := []money.Amount{400_000, 400_000, 350_000, 350_000}
+	if len(plan) != len(want) {
+		t.Fatalf("got %d installments, want %d", len(plan), len(want))
+	}
+	for i, inst := range plan {
+		if inst.Amount != want[i] {
+			t.Errorf("installment %d = %s, want %s (literal amounts must not be re-derived from share_bp)",
+				i+1, inst.Amount, want[i])
+		}
+	}
+}
+
+// The whole reason VerifyPlanSum runs after amountsFor: literal amounts that
+// do not sum to the actual net must be refused, exactly like a bad
+// percentage template — never silently trimmed or padded.
+func TestGeneratePlanRefusesLiteralAmountsThatDoNotSumToNet(t *testing.T) {
+	lines := []billing.TemplateLine{
+		{LineNo: 1, ShareBP: 5000, DueOffsetDays: 0, Amount: amt(400_000)},
+		{LineNo: 2, ShareBP: 5000, DueOffsetDays: 60, Amount: amt(400_000)},
+	}
+	_, err := billing.GeneratePlan(billing.PlanSpec{
+		AccountID: shared.NewID(),
+		NetAmount: money.FromInt64(1_500_000), // the lines only sum to 800,000
+		YearStart: shared.NewDate(2026, 9, 1),
+		Lines:     lines,
+	})
+	if err == nil {
+		t.Fatal("literal amounts that fall short of the net must be refused, not padded onto the first line")
+	}
+}
+
+// A template with only some lines carrying a literal amount is not a
+// coherent request — the application layer refuses that combination before
+// publication — but GeneratePlan must still behave predictably rather than
+// silently mixing the two: it falls through to the percentage split.
+func TestGeneratePlanTreatsAPartialAmountSetAsNone(t *testing.T) {
+	lines := []billing.TemplateLine{
+		{LineNo: 1, ShareBP: 5000, DueOffsetDays: 0, Amount: amt(999)},
+		{LineNo: 2, ShareBP: 5000, DueOffsetDays: 60},
+	}
+	plan, err := billing.GeneratePlan(billing.PlanSpec{
+		AccountID: shared.NewID(),
+		NetAmount: money.FromInt64(1_000_000),
+		YearStart: shared.NewDate(2026, 9, 1),
+		Lines:     lines,
+	})
+	if err != nil {
+		t.Fatalf("GeneratePlan: %v", err)
+	}
+	if err := billing.VerifyPlanSum(plan, money.FromInt64(1_000_000)); err != nil {
+		t.Errorf("a partial amount set should fall through to the percentage split, which must still sum: %v", err)
+	}
+	for _, inst := range plan {
+		if inst.Amount == 999 {
+			t.Error("the lone literal amount must not have been used once the set was incomplete")
+		}
 	}
 }
 

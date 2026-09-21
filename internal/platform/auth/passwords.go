@@ -16,8 +16,8 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/config"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/config"
 )
 
 const (

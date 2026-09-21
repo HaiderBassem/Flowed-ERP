@@ -5,9 +5,12 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { isRefusal } from "@/api/errors";
 import type { Page, StudentView } from "@/api/types";
+import { useStudyTypes } from "@/api/reference";
 import { RefusalPanel } from "@/components/RefusalPanel";
+import { StudyTypeChip } from "@/components/Chip";
 import { EmptyState, Panel, Skeleton } from "@/components/primitives";
 import { useSession } from "@/app/session";
+import { useWorkingContext } from "@/app/working-context";
 import { fold, formatPhone } from "@/lib/text";
 import { labelStudentStatus } from "@/design/lexicon";
 
@@ -24,21 +27,43 @@ import { labelStudentStatus } from "@/design/lexicon";
 export function StudentSearchScreen() {
   const [params, setParams] = useSearchParams();
   const { user, can } = useSession();
+  const { years } = useWorkingContext();
+  const studyTypes = useStudyTypes();
   const [term, setTerm] = useState(params.get("q") ?? "");
+  const [academicYearId, setAcademicYearId] = useState(params.get("academic_year_id") ?? "");
+  const [studyTypeId, setStudyTypeId] = useState(params.get("study_type_id") ?? "");
+  const [stage, setStage] = useState(params.get("stage") ?? "");
   const debounced = useDebounced(term, 250);
 
   useEffect(() => {
     const next = new URLSearchParams(params);
     if (debounced) next.set("q", debounced);
     else next.delete("q");
+    if (academicYearId) next.set("academic_year_id", academicYearId);
+    else next.delete("academic_year_id");
+    if (studyTypeId) next.set("study_type_id", studyTypeId);
+    else next.delete("study_type_id");
+    if (stage) next.set("stage", stage);
+    else next.delete("stage");
     setParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced]);
+  }, [debounced, academicYearId, studyTypeId, stage]);
+
+  const filtersActive = Boolean(academicYearId || studyTypeId || stage);
 
   const results = useQuery({
-    queryKey: ["students", "index", debounced],
-    queryFn: () => api.get<Page<StudentView>>("/students", { query: { q: debounced, limit: 50 } }),
-    enabled: debounced.trim().length >= 2,
+    queryKey: ["students", "index", debounced, academicYearId, studyTypeId, stage],
+    queryFn: () =>
+      api.get<Page<StudentView>>("/students", {
+        query: {
+          q: debounced,
+          limit: 50,
+          ...(academicYearId ? { academic_year_id: academicYearId } : {}),
+          ...(studyTypeId ? { study_type_id: studyTypeId } : {}),
+          ...(stage ? { stage } : {}),
+        },
+      }),
+    enabled: debounced.trim().length >= 2 || filtersActive,
   });
 
   const rows = results.data?.data ?? [];
@@ -64,6 +89,49 @@ export function StudentSearchScreen() {
           value={term}
           onChange={(e) => setTerm(e.target.value)}
         />
+        <div className="cols cols--thirds" style={{ marginTop: 10 }}>
+          <label className="field">
+            <span className="field__label">السنة الدراسية</span>
+            <select
+              className="input"
+              value={academicYearId}
+              onChange={(e) => setAcademicYearId(e.target.value)}
+            >
+              <option value="">الكل</option>
+              {years.map((y) => (
+                <option key={y.id} value={y.id}>
+                  {y.code}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span className="field__label">نوع الدراسة</span>
+            <select
+              className="input"
+              value={studyTypeId}
+              onChange={(e) => setStudyTypeId(e.target.value)}
+            >
+              <option value="">الكل</option>
+              {(studyTypes.data ?? []).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name_ar}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span className="field__label">المرحلة</span>
+            <select className="input" value={stage} onChange={(e) => setStage(e.target.value)}>
+              <option value="">الكل</option>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         {debounced.trim().length >= 2 && fold(debounced) !== debounced.trim() && (
           <p className="note" style={{ marginTop: 6 }}>
             طُبِّع البحث إلى <span className="ltr">{fold(debounced)}</span> — النتائج تشمل الصيغتين
@@ -87,8 +155,8 @@ export function StudentSearchScreen() {
             <EmptyState kind="no-results" title="تعذّر البحث" />
           ))}
 
-        {debounced.trim().length < 2 && (
-          <EmptyState kind="not-yet" title="اكتب حرفين على الأقل للبحث" />
+        {debounced.trim().length < 2 && !filtersActive && (
+          <EmptyState kind="not-yet" title="اكتب حرفين على الأقل للبحث، أو استخدم الفلاتر" />
         )}
 
         {results.isSuccess && rows.length === 0 && (
@@ -108,6 +176,8 @@ export function StudentSearchScreen() {
                   <th>الاسم</th>
                   <th>اسم الأم</th>
                   <th>الهاتف</th>
+                  <th>نوع الدراسة</th>
+                  <th>السنة الدراسية</th>
                   <th>الحالة</th>
                 </tr>
               </thead>
@@ -122,6 +192,12 @@ export function StudentSearchScreen() {
                     </td>
                     <td>{student.mother_name}</td>
                     <td className="num">{formatPhone(student.phone)}</td>
+                    <td>
+                      <StudyTypeChip code={student.current_study_type_code} />
+                    </td>
+                    <td className="num">
+                      {years.find((y) => y.id === student.current_academic_year_id)?.code ?? "—"}
+                    </td>
                     <td>{labelStudentStatus(student.status)}</td>
                   </tr>
                 ))}

@@ -40,6 +40,7 @@ export type Capability =
   | "shift.close"
   | "shift.approve"
   | "student.register"
+  | "student.contact"
   | "enrollment.write"
   | "enrollment.result"
   | "discount.assign"
@@ -51,6 +52,7 @@ export type Capability =
   | "statement.export"
   | "oversight.read"
   | "operators.administer"
+  | "backup.manage"
   | "sponsor.manage"
   | "sponsorship.create"
   | "settlement.read"
@@ -107,6 +109,10 @@ const GRANTS: Record<Capability, { roles: Role[]; refusal: string }> = {
     roles: ["registrar", "admin"],
     refusal: "تسجيل الطلبة صلاحية المسجّل",
   },
+  "student.contact": {
+    roles: ["registrar", "academic_officer", "admin"],
+    refusal: "تعديل بيانات التواصل صلاحية المسجّل أو الموظف الأكاديمي",
+  },
   "enrollment.write": {
     roles: ["registrar", "academic_officer", "admin"],
     refusal: "التسجيل في سنة صلاحية المسجّل أو الموظف الأكاديمي",
@@ -153,6 +159,10 @@ const GRANTS: Record<Capability, { roles: Role[]; refusal: string }> = {
   "operators.administer": {
     roles: ["admin"],
     refusal: "إدارة المستخدمين صلاحية المدير الإداري",
+  },
+  "backup.manage": {
+    roles: ["admin"],
+    refusal: "النسخ الاحتياطي والاسترجاع صلاحية المدير الإداري",
   },
   "sponsor.manage": {
     roles: ["finance_manager", "admin"],

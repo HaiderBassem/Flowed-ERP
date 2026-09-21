@@ -3,9 +3,9 @@ package settlement_test
 import (
 	"testing"
 
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/settlement"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/settlement"
+	"flowed/internal/domain/shared"
 )
 
 func line(ref string, amount money.Amount) settlement.Line {

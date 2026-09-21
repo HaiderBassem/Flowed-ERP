@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swibit/flowed/internal/platform/buildinfo"
+	"flowed/internal/platform/buildinfo"
 )
 
 // Config is the complete runtime configuration.
@@ -27,6 +27,7 @@ type Config struct {
 	Payments      Payments
 	Notifications Notifications
 	AuditArchive  AuditArchive
+	Backup        Backup
 	Log           Log
 	Observability Observability
 }
@@ -86,6 +87,12 @@ type HTTP struct {
 	// sweeper deletes it. A bucket refills fully within its window, so one idle
 	// for several windows carries no information.
 	RateLimitIdleTTL time.Duration
+	// MaxBackupUploadBytes overrides MaxRequestBodyBytes for the one route
+	// that legitimately carries far more than everything else this API
+	// accepts: importing a backup file. A database dump is not a form
+	// submission, and capping it at the same size would make Import Backup
+	// fail on any database past a few tens of megabytes.
+	MaxBackupUploadBytes int64
 }
 
 // Addr returns the listen address.
@@ -274,6 +281,33 @@ type AuditArchive struct {
 // Enabled reports whether a destination was configured.
 func (a AuditArchive) Enabled() bool { return a.Dir != "" || a.Endpoint != "" }
 
+// Backup configures where backup artifacts live and the administrative
+// database used to create, drop and rename them.
+//
+// The schedule itself — on/off, interval, retention count — is deliberately
+// not here: it lives in the backup_schedule table, read by the scheduler job
+// every tick, so an administrator changing it through the UI takes effect
+// without a restart. What stays in process configuration is what only an
+// operator with shell access to this host could reasonably set in the first
+// place.
+type Backup struct {
+	// Dir is where backup artifacts are written. Created on first use if it
+	// does not exist.
+	Dir string
+	// MaintenanceDatabase is the database CREATE DATABASE, DROP DATABASE and
+	// the live-database rename connect through — never the live database
+	// itself, which cannot rename itself while a connection to it is open.
+	// "postgres" on every standard install; only worth changing if this
+	// deployment's PostgreSQL genuinely lacks it.
+	MaintenanceDatabase string
+	// RetentionMinKeep bounds how aggressively retention prunes regardless of
+	// the configured count: a system quiet for a month must not be swept down
+	// to nothing.
+	RetentionMinKeep int
+	// Timeout bounds a single pg_dump or pg_restore invocation.
+	Timeout time.Duration
+}
+
 // Receipt holds what a printed receipt says about the institution issuing it.
 //
 // Configuration rather than constants: one binary should serve any university,
@@ -343,18 +377,19 @@ func Load() (*Config, error) {
 			DefaultTimezone: env("APP_TIMEZONE", "Asia/Baghdad"),
 		},
 		HTTP: HTTP{
-			Host:                env("HTTP_HOST", "0.0.0.0"),
-			Port:                envInt("HTTP_PORT", 8080),
-			ReadTimeout:         envDuration("HTTP_READ_TIMEOUT", 15*time.Second),
-			WriteTimeout:        envDuration("HTTP_WRITE_TIMEOUT", 30*time.Second),
-			IdleTimeout:         envDuration("HTTP_IDLE_TIMEOUT", 120*time.Second),
-			ShutdownTimeout:     envDuration("HTTP_SHUTDOWN_TIMEOUT", 30*time.Second),
-			MaxRequestBodyBytes: int64(envInt("HTTP_MAX_BODY_BYTES", 32<<20)),
-			TrustedProxies:      envList("HTTP_TRUSTED_PROXIES", nil),
-			CORSAllowedOrigins:  envList("HTTP_CORS_ORIGINS", []string{"*"}),
-			RateLimitPerMinute:  envInt("HTTP_RATE_LIMIT_PER_MINUTE", 600),
-			RateLimitShared:     envBool("HTTP_RATE_LIMIT_SHARED", true),
-			RateLimitIdleTTL:    envDuration("HTTP_RATE_LIMIT_IDLE_TTL", 10*time.Minute),
+			Host:                 env("HTTP_HOST", "0.0.0.0"),
+			Port:                 envInt("HTTP_PORT", 8080),
+			ReadTimeout:          envDuration("HTTP_READ_TIMEOUT", 15*time.Second),
+			WriteTimeout:         envDuration("HTTP_WRITE_TIMEOUT", 30*time.Second),
+			IdleTimeout:          envDuration("HTTP_IDLE_TIMEOUT", 120*time.Second),
+			ShutdownTimeout:      envDuration("HTTP_SHUTDOWN_TIMEOUT", 30*time.Second),
+			MaxRequestBodyBytes:  int64(envInt("HTTP_MAX_BODY_BYTES", 32<<20)),
+			TrustedProxies:       envList("HTTP_TRUSTED_PROXIES", nil),
+			CORSAllowedOrigins:   envList("HTTP_CORS_ORIGINS", []string{"*"}),
+			RateLimitPerMinute:   envInt("HTTP_RATE_LIMIT_PER_MINUTE", 600),
+			RateLimitShared:      envBool("HTTP_RATE_LIMIT_SHARED", true),
+			RateLimitIdleTTL:     envDuration("HTTP_RATE_LIMIT_IDLE_TTL", 10*time.Minute),
+			MaxBackupUploadBytes: int64(envInt("HTTP_MAX_BACKUP_UPLOAD_BYTES", 4<<30)),
 		},
 		Database: Database{
 			Host:                     env("DB_HOST", "localhost"),
@@ -408,6 +443,12 @@ func Load() (*Config, error) {
 			Batch:    envInt("AUDIT_ARCHIVE_BATCH", 500),
 			Interval: envDuration("AUDIT_ARCHIVE_INTERVAL", 15*time.Minute),
 			Timeout:  envDuration("AUDIT_ARCHIVE_TIMEOUT", 30*time.Second),
+		},
+		Backup: Backup{
+			Dir:                 env("BACKUP_DIR", "./backups"),
+			MaintenanceDatabase: env("BACKUP_MAINTENANCE_DB", "postgres"),
+			RetentionMinKeep:    envInt("BACKUP_RETENTION_MIN_KEEP", 3),
+			Timeout:             envDuration("BACKUP_TIMEOUT", 10*time.Minute),
 		},
 		Receipt: Receipt{
 			UniversityNameAr: env("RECEIPT_UNIVERSITY_NAME", "الجامعة"),

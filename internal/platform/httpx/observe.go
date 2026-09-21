@@ -11,7 +11,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/swibit/flowed/internal/platform/observability"
+	"flowed/internal/platform/observability"
 )
 
 // unmatchedRoute stands in for the route template of a request that matched no

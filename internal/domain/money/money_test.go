@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/swibit/flowed/internal/domain/money"
+	"flowed/internal/domain/money"
 )
 
 func TestApplyRateIsExactAndHalfUp(t *testing.T) {

@@ -3,9 +3,9 @@ package port
 import (
 	"context"
 
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
 )
 
 // SponsorRepository stores sponsoring bodies, their agreements and what those

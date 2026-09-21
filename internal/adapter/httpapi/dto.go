@@ -10,13 +10,14 @@ package httpapi
 import (
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/billing"
-	"github.com/swibit/flowed/internal/domain/discount"
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/payment"
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/domain/student"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/billing"
+	"flowed/internal/domain/discount"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/payment"
+	"flowed/internal/domain/shared"
+	"flowed/internal/domain/student"
+	"flowed/internal/port"
 )
 
 // ---------------------------------------------------------------------------
@@ -42,7 +43,6 @@ type RegisterStudentRequest struct {
 	StudentNo  string  `json:"student_no" binding:"required"`
 	FullName   string  `json:"full_name" binding:"required"`
 	MotherName string  `json:"mother_name" binding:"required"`
-	NationalID *string `json:"national_id"`
 	BirthDate  *string `json:"birth_date"`
 	Gender     *string `json:"gender" binding:"omitempty,oneof=male female"`
 	Phone      *string `json:"phone"`
@@ -52,6 +52,18 @@ type RegisterStudentRequest struct {
 	// override is recorded, so a wrongly created second record for one person
 	// can be traced to the decision that made it.
 	AcknowledgeDuplicates bool `json:"acknowledge_duplicates"`
+}
+
+// RegisterStudentWithPlacementRequest is identity registration extended with
+// the academic placement — and, when the actor holds finance authority, the
+// pricing that follows from it — in one submission.
+type RegisterStudentWithPlacementRequest struct {
+	RegisterStudentRequest
+
+	AcademicYearID string `json:"academic_year_id" binding:"required,uuid"`
+	DepartmentID   string `json:"department_id" binding:"required,uuid"`
+	StudyTypeID    string `json:"study_type_id" binding:"required,uuid"`
+	Stage          int16  `json:"stage" binding:"required,min=1,max=5"`
 }
 
 // UpdateContactRequest changes how a student is reached.
@@ -70,7 +82,7 @@ type EnrollStudentRequest struct {
 	AcademicYearID string `json:"academic_year_id" binding:"required,uuid"`
 	DepartmentID   string `json:"department_id" binding:"required,uuid"`
 	StudyTypeID    string `json:"study_type_id" binding:"required,uuid"`
-	Stage          int16  `json:"stage" binding:"required,min=1,max=8"`
+	Stage          int16  `json:"stage" binding:"required,min=1,max=5"`
 	// CategoryCode is derived when omitted: a second or later attempt at a
 	// stage makes the student a repeat student, which usually prices
 	// differently.
@@ -85,7 +97,7 @@ type EnrollStudentRequest struct {
 type SupersedeEnrollmentRequest struct {
 	NewDepartmentID *string `json:"new_department_id" binding:"omitempty,uuid"`
 	NewStudyTypeID  *string `json:"new_study_type_id" binding:"omitempty,uuid"`
-	NewStage        *int16  `json:"new_stage" binding:"omitempty,min=1,max=8"`
+	NewStage        *int16  `json:"new_stage" binding:"omitempty,min=1,max=5"`
 	NewCategoryCode *string `json:"new_category_code"`
 	Reason          string  `json:"reason" binding:"required"`
 	EffectiveDate   string  `json:"effective_date" binding:"required"`
@@ -267,16 +279,42 @@ type UserView struct {
 
 // StudentView is a student identity.
 type StudentView struct {
-	ID         string  `json:"id"`
-	StudentNo  string  `json:"student_no"`
-	FullName   string  `json:"full_name"`
-	MotherName string  `json:"mother_name"`
-	NationalID *string `json:"national_id,omitempty"`
-	BirthDate  *string `json:"birth_date,omitempty"`
-	Gender     *string `json:"gender,omitempty"`
-	Phone      *string `json:"phone,omitempty"`
-	Email      *string `json:"email,omitempty"`
-	Status     string  `json:"status"`
+	ID            string  `json:"id"`
+	StudentNo     string  `json:"student_no"`
+	FullName      string  `json:"full_name"`
+	MotherName    string  `json:"mother_name"`
+	BirthDate     *string `json:"birth_date,omitempty"`
+	Gender        *string `json:"gender,omitempty"`
+	Phone         *string `json:"phone,omitempty"`
+	PhoneAlt      *string `json:"phone_alt,omitempty"`
+	Email         *string `json:"email,omitempty"`
+	Address       *string `json:"address,omitempty"`
+	GuardianName  *string `json:"guardian_name,omitempty"`
+	GuardianPhone *string `json:"guardian_phone,omitempty"`
+	Status        string  `json:"status"`
+
+	// Current* is a read-time convenience from the student's most recent
+	// non-superseded enrollment, not a stored student attribute — study type
+	// and stage still live only on enrollment (§ "the enrollment, not the
+	// student"). Absent when the student has no non-superseded enrollment.
+	CurrentStudyTypeID    *string `json:"current_study_type_id,omitempty"`
+	CurrentStudyTypeCode  *string `json:"current_study_type_code,omitempty"`
+	CurrentStage          *int16  `json:"current_stage,omitempty"`
+	CurrentAcademicYearID *string `json:"current_academic_year_id,omitempty"`
+}
+
+// RegisterStudentWithPlacementView is the outcome of combined student intake:
+// the identity, the enrollment it was placed into, and — when pricing
+// happened — the account it was priced onto.
+type RegisterStudentWithPlacementView struct {
+	Student    StudentView    `json:"student"`
+	Enrollment EnrollmentView `json:"enrollment"`
+	Account    *AccountView   `json:"account,omitempty"`
+	// PricingPending and PricingNote explain a nil Account: the actor may
+	// lack finance authority, or no fee policy matched this scope. See
+	// app.RegisterStudentWithPlacementResult.
+	PricingPending bool   `json:"pricing_pending"`
+	PricingNote    string `json:"pricing_note,omitempty"`
 }
 
 // EnrollmentView is a registration for one year.
@@ -456,14 +494,17 @@ type AccountDetailView struct {
 
 func toStudentView(s *student.Student) StudentView {
 	v := StudentView{
-		ID:         s.ID.String(),
-		StudentNo:  s.StudentNo,
-		FullName:   s.FullName,
-		MotherName: s.MotherName,
-		NationalID: s.NationalID,
-		Phone:      s.Phone,
-		Email:      s.Email,
-		Status:     string(s.Status),
+		ID:            s.ID.String(),
+		StudentNo:     s.StudentNo,
+		FullName:      s.FullName,
+		MotherName:    s.MotherName,
+		Phone:         s.Phone,
+		PhoneAlt:      s.PhoneAlt,
+		Email:         s.Email,
+		Address:       s.Address,
+		GuardianName:  s.GuardianName,
+		GuardianPhone: s.GuardianPhone,
+		Status:        string(s.Status),
 	}
 	if s.BirthDate != nil {
 		v.BirthDate = ptrString(s.BirthDate.String())
@@ -472,6 +513,17 @@ func toStudentView(s *student.Student) StudentView {
 		v.Gender = ptrString(string(*s.Gender))
 	}
 	return v
+}
+
+// applyCurrentEnrollment attaches the read-time enrollment summary to a
+// student view. Kept separate from toStudentView because the summary comes
+// from a second, batched query — see port.CurrentEnrollmentSummary.
+func applyCurrentEnrollment(v *StudentView, summary port.CurrentEnrollmentSummary) {
+	v.CurrentStudyTypeID = ptrString(summary.StudyTypeID.String())
+	v.CurrentStudyTypeCode = ptrString(summary.StudyTypeCode)
+	stage := summary.Stage
+	v.CurrentStage = &stage
+	v.CurrentAcademicYearID = ptrString(summary.AcademicYearID.String())
 }
 
 func toEnrollmentView(e *academic.Enrollment) EnrollmentView {
@@ -657,6 +709,8 @@ func toYearView(y *academic.Year) YearView {
 
 func ptrString(s string) *string { return &s }
 
+func ptrInt64(v int64) *int64 { return &v }
+
 // ---------------------------------------------------------------------------
 // Operator administration
 // ---------------------------------------------------------------------------
@@ -830,7 +884,6 @@ type HostingView struct {
 type RecordIdentityChangeRequest struct {
 	FullName          *string `json:"full_name"`
 	MotherName        *string `json:"mother_name"`
-	NationalID        *string `json:"national_id"`
 	BirthDate         *string `json:"birth_date"`
 	CourtDecisionNo   string  `json:"court_decision_no" binding:"required"`
 	CourtDecisionDate string  `json:"court_decision_date" binding:"required"`
@@ -844,8 +897,8 @@ type MergeStudentsRequest struct {
 	SourceStudentID string `json:"source_student_id" binding:"required,uuid"`
 	Reason          string `json:"reason" binding:"required"`
 	// AcknowledgeDifferentIdentity confirms a merge whose two records disagree
-	// on name, mother's name or national identifier. Merging two people is far
-	// worse than leaving two records for one, so it must be said explicitly.
+	// on name or mother's name. Merging two people is far worse than leaving
+	// two records for one, so it must be said explicitly.
 	AcknowledgeDifferentIdentity bool `json:"acknowledge_different_identity"`
 }
 
@@ -904,7 +957,6 @@ type IdentityVersionView struct {
 	VersionNo         int32     `json:"version_no"`
 	FullName          string    `json:"full_name"`
 	MotherName        string    `json:"mother_name"`
-	NationalID        *string   `json:"national_id,omitempty"`
 	EffectiveFrom     *string   `json:"effective_from,omitempty"`
 	CourtDecisionNo   *string   `json:"court_decision_no,omitempty"`
 	CourtDecisionDate *string   `json:"court_decision_date,omitempty"`

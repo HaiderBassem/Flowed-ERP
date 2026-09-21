@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/academic"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/academic"
+	"flowed/internal/domain/shared"
 )
 
 func newActiveEnrollment(t *testing.T, stage, attempt int16) *academic.Enrollment {
@@ -219,7 +219,8 @@ func TestStageIsValidatedAgainstTheProgrammeLength(t *testing.T) {
 		t.Errorf("error code = %q, want enrollment.stage_out_of_range", code)
 	}
 
-	// Six-year programmes exist; the limit is the department's, not a constant.
+	// Five is the university-wide ceiling; a stage above it is refused even
+	// before the department's own stage count is consulted.
 	if _, err := academic.NewEnrollment(academic.NewEnrollmentParams{
 		StudentID:            shared.NewID(),
 		AcademicYearID:       shared.NewID(),
@@ -230,8 +231,23 @@ func TestStageIsValidatedAgainstTheProgrammeLength(t *testing.T) {
 		Stage:                6,
 		AttemptNumber:        1,
 		DepartmentStageCount: 6,
+	}); err == nil {
+		t.Error("stage 6 must be refused; five is the university-wide ceiling")
+	}
+
+	// A five-year programme's fifth stage is still accepted.
+	if _, err := academic.NewEnrollment(academic.NewEnrollmentParams{
+		StudentID:            shared.NewID(),
+		AcademicYearID:       shared.NewID(),
+		CollegeID:            shared.NewID(),
+		DepartmentID:         shared.NewID(),
+		StudyTypeID:          shared.NewID(),
+		StudentCategoryID:    shared.NewID(),
+		Stage:                5,
+		AttemptNumber:        1,
+		DepartmentStageCount: 5,
 	}); err != nil {
-		t.Errorf("stage 6 in a six-year programme should be accepted: %v", err)
+		t.Errorf("stage 5 in a five-year programme should be accepted: %v", err)
 	}
 }
 

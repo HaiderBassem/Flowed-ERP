@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/auth"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/auth"
+	"flowed/internal/port"
 )
 
 // PasswordHasher is the subset of the platform hasher the user commands need.

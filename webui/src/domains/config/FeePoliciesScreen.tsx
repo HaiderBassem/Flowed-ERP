@@ -10,13 +10,14 @@ import {
   useDepartments,
   useStudyTypes,
 } from "@/api/reference";
-import type { FeePolicyView, FeeResolutionPreviewView } from "@/api/types";
+import type { FeePolicyView, FeeResolutionPreviewView, InstallmentTemplateView } from "@/api/types";
 import { Chip } from "@/components/Chip";
-import { Money } from "@/components/Money";
+import { Money, MoneyField } from "@/components/Money";
 import { RefusalPanel } from "@/components/RefusalPanel";
 import { Button, EmptyState, Panel, Row, Skeleton } from "@/components/primitives";
 import { useSession } from "@/app/session";
 import { useWorkingContext } from "@/app/working-context";
+import { amount, parseInput, type Amount } from "@/lib/money";
 
 /**
  * Fee policies, and the resolution tester — §09 calls this the hardest screen
@@ -44,12 +45,43 @@ export function FeePoliciesScreen() {
     enabled: Boolean(activeYear),
   });
 
+  const templates = useQuery({
+    queryKey: ["installment-templates", activeYear?.id],
+    queryFn: () =>
+      api.get<InstallmentTemplateView[]>("/installment-templates", {
+        query: { academic_year_id: activeYear?.id },
+      }),
+    enabled: Boolean(activeYear),
+  });
+
   return (
     <main className="screen">
       <div className="screen__head">
         <h1 className="screen__title">سياسات الرسوم</h1>
         {activeYear && <span className="num">{activeYear.code}</span>}
       </div>
+
+      {activeYear && (
+        <div style={{ marginTop: 12 }}>
+          <StudyTypeDefaultDebt
+            yearId={activeYear.id}
+            policies={policies.data ?? []}
+            canWrite={can("config.write")}
+            writeReason={reason("config.write")}
+          />
+        </div>
+      )}
+
+      {activeYear && (
+        <div style={{ marginTop: 12 }}>
+          <StudyTypeInstallmentPlans
+            yearId={activeYear.id}
+            templates={templates.data ?? []}
+            canWrite={can("config.write")}
+            writeReason={reason("config.write")}
+          />
+        </div>
+      )}
 
       <div className="cols" style={{ gridTemplateColumns: "minmax(0,1.4fr) minmax(340px,1fr)", marginTop: 12 }}>
         <div className="stack">
@@ -123,6 +155,355 @@ export function FeePoliciesScreen() {
         />
       </div>
     </main>
+  );
+}
+
+/**
+ * Configuration surface for a study type's default debt on creation: one row
+ * per study type, each backed by an ordinary wildcard fee policy (every
+ * dimension but study type left null) through
+ * POST /fee-policies/study-type-defaults — defining, publishing, and retiring
+ * the previous amount all happen server-side in one call, so there is never a
+ * moment with two published defaults for one study type, nor a moment with
+ * none.
+ *
+ * This is the number a newly created student is priced at automatically when
+ * intake generates their account and no more specific policy — a named
+ * college, department, stage or category — exists to override it.
+ */
+function StudyTypeDefaultDebt({
+  yearId,
+  policies,
+  canWrite,
+  writeReason,
+}: {
+  yearId: string;
+  policies: FeePolicyView[];
+  canWrite: boolean;
+  writeReason: string | undefined;
+}) {
+  const studyTypes = useStudyTypes();
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState<string | null>(null);
+  const [raw, setRaw] = useState("");
+  const [refusal, setRefusal] = useState<Refusal | null>(null);
+
+  const currentFor = (studyTypeId: string) =>
+    policies.find(
+      (p) =>
+        p.status === "published" &&
+        p.study_type_id === studyTypeId &&
+        !p.college_id &&
+        !p.department_id &&
+        !p.stage &&
+        !p.student_category_id,
+    );
+
+  const save = useMutation({
+    mutationFn: (input: { studyTypeId: string; value: Amount }) =>
+      api.post("/fee-policies/study-type-defaults", {
+        academic_year_id: yearId,
+        study_type_id: input.studyTypeId,
+        amount: Number(input.value),
+      }),
+    onSuccess: () => {
+      setEditing(null);
+      setRaw("");
+      setRefusal(null);
+      void queryClient.invalidateQueries({ queryKey: ["fee-policies"] });
+    },
+    onError: (error) => {
+      if (isRefusal(error)) setRefusal(error);
+    },
+  });
+
+  const parsed = parseInput(raw);
+
+  return (
+    <Panel
+      title="الديون الافتراضية حسب نوع الدراسة"
+      aside={<span className="label">تُطبَّق تلقائياً عند تسجيل طالب جديد بلا سياسة أخص</span>}
+    >
+      <p className="note" style={{ marginBottom: 10 }}>
+        كل رقم هنا سياسة رسوم عادية بنطاق نوع الدراسة وحده — أي تسجيل جديد من هذا النوع يُسعَّر
+        عليه تلقائياً، ما لم تُنشَر سياسة أخص (كلية أو قسم أو مرحلة أو فئة بعينها)، وتلك تفوز
+        كعادتها بدرجة التخصيص الأعلى.
+      </p>
+      <table className="grid">
+        <thead>
+          <tr>
+            <th>نوع الدراسة</th>
+            <th className="n col-group-money">المبلغ الحالي</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {(studyTypes.data ?? []).map((studyType) => {
+            const current = currentFor(studyType.id);
+            const isEditing = editing === studyType.id;
+            return (
+              <tr key={studyType.id}>
+                <td>{studyType.name_ar}</td>
+                <td className="n col-group-money">
+                  {isEditing ? (
+                    <MoneyField
+                      value={raw}
+                      onChange={setRaw}
+                      label={`مبلغ ${studyType.name_ar}`}
+                      autoFocus
+                      onEnter={() => {
+                        if (parsed.ok) save.mutate({ studyTypeId: studyType.id, value: parsed.value });
+                      }}
+                    />
+                  ) : current ? (
+                    <Money value={amount(current.gross_total)} tone="plain" />
+                  ) : (
+                    <span className="label">لم يُعيَّن بعد</span>
+                  )}
+                </td>
+                <td>
+                  {isEditing ? (
+                    <div className="cluster">
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        disabled={!parsed.ok}
+                        busy={save.isPending}
+                        onClick={() => {
+                          if (parsed.ok) save.mutate({ studyTypeId: studyType.id, value: parsed.value });
+                        }}
+                      >
+                        حفظ
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
+                        إلغاء
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="sm"
+                      disabled={!canWrite}
+                      disabledReason={writeReason}
+                      onClick={() => {
+                        setEditing(studyType.id);
+                        setRaw(current ? String(amount(current.gross_total)) : "");
+                      }}
+                    >
+                      {current ? "تغيير" : "تعيين"}
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {refusal && (
+        <div style={{ marginTop: 10 }}>
+          <RefusalPanel refusal={refusal} />
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+/**
+ * Configuration surface for a study type's default installment plan: one row
+ * per study type, each backed by an ordinary wildcard installment template
+ * (every dimension but study type left null), authored in literal amounts
+ * rather than percentages, through POST /installment-templates/study-type-defaults
+ * — defining, publishing, and retiring the previous version all happen
+ * server-side in one call, mirroring how the default debt above is managed.
+ *
+ * This is the plan a newly created student of this study type is split into
+ * automatically when intake generates their account, provided the lines sum
+ * to exactly that account's net — otherwise generation refuses cleanly
+ * rather than charge the wrong amounts.
+ */
+function StudyTypeInstallmentPlans({
+  yearId,
+  templates,
+  canWrite,
+  writeReason,
+}: {
+  yearId: string;
+  templates: InstallmentTemplateView[];
+  canWrite: boolean;
+  writeReason: string | undefined;
+}) {
+  const studyTypes = useStudyTypes();
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState<string | null>(null);
+  const [rows, setRows] = useState<{ amount: string; dueOffsetDays: string }[]>([]);
+  const [refusal, setRefusal] = useState<Refusal | null>(null);
+
+  const currentFor = (studyTypeId: string) =>
+    templates.find(
+      (t) =>
+        t.status === "published" &&
+        t.study_type_id === studyTypeId &&
+        !t.college_id &&
+        !t.department_id &&
+        !t.stage,
+    );
+
+  const save = useMutation({
+    mutationFn: (studyTypeId: string) =>
+      api.post("/installment-templates/study-type-defaults", {
+        academic_year_id: yearId,
+        study_type_id: studyTypeId,
+        lines: rows.map((r) => ({
+          amount: Number(amount(r.amount || "0")),
+          due_offset_days: Number(r.dueOffsetDays || "0"),
+        })),
+      }),
+    onSuccess: () => {
+      setEditing(null);
+      setRows([]);
+      setRefusal(null);
+      void queryClient.invalidateQueries({ queryKey: ["installment-templates"] });
+    },
+    onError: (error) => {
+      if (isRefusal(error)) setRefusal(error);
+    },
+  });
+
+  const total = rows.reduce((sum, r) => sum + amount(r.amount || "0"), 0n);
+  const ready = rows.length > 0 && rows.every((r) => parseInput(r.amount).ok && amount(r.amount) > 0n);
+
+  return (
+    <Panel
+      title="خطط الأقساط الافتراضية حسب نوع الدراسة"
+      aside={<span className="label">تُطبَّق تلقائياً عند توليد حساب طالب جديد بلا خطة أخص</span>}
+    >
+      <p className="note" style={{ marginBottom: 10 }}>
+        المبالغ هنا حرفية لا نسبية — القسط الأول 400,000 يبقى 400,000 مهما كان صافي الحساب،
+        بشرط أن يساوي مجموع الأقساط الصافي فعلاً؛ غير ذلك يُرفض التوليد بدل تسعير خاطئ.
+      </p>
+      <table className="grid">
+        <thead>
+          <tr>
+            <th>نوع الدراسة</th>
+            <th>الأقساط الحالية</th>
+            <th className="n col-group-money">الإجمالي</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {(studyTypes.data ?? []).map((studyType) => {
+            const current = currentFor(studyType.id);
+            const currentTotal = current
+              ? current.lines.reduce((sum, l) => sum + amount(l.amount ?? 0), 0n)
+              : 0n;
+            const isEditing = editing === studyType.id;
+            return (
+              <tr key={studyType.id}>
+                <td>{studyType.name_ar}</td>
+                <td>
+                  {isEditing ? (
+                    <div className="stack">
+                      {rows.map((row, i) => (
+                        <div key={i} className="cluster" style={{ alignItems: "center" }}>
+                          <MoneyField
+                            value={row.amount}
+                            onChange={(v) =>
+                              setRows((prev) => prev.map((r, j) => (j === i ? { ...r, amount: v } : r)))
+                            }
+                            label={`القسط ${i + 1}`}
+                          />
+                          <label className="field" style={{ marginBottom: 0 }}>
+                            <span className="field__label">أيام بعد بدء السنة</span>
+                            <input
+                              className="input num"
+                              value={row.dueOffsetDays}
+                              onChange={(e) =>
+                                setRows((prev) =>
+                                  prev.map((r, j) => (j === i ? { ...r, dueOffsetDays: e.target.value } : r)),
+                                )
+                              }
+                            />
+                          </label>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))}
+                          >
+                            حذف
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        size="sm"
+                        onClick={() => setRows((prev) => [...prev, { amount: "", dueOffsetDays: "0" }])}
+                      >
+                        + إضافة قسط
+                      </Button>
+                    </div>
+                  ) : current ? (
+                    <span className="label">
+                      {current.lines.map((l) => amount(l.amount ?? 0).toLocaleString("en-US")).join(" + ")}
+                    </span>
+                  ) : (
+                    <span className="label">لم تُعيَّن بعد</span>
+                  )}
+                </td>
+                <td className="n col-group-money">
+                  {isEditing ? (
+                    <Money value={total} tone="plain" />
+                  ) : current ? (
+                    <Money value={currentTotal} tone="plain" />
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td>
+                  {isEditing ? (
+                    <div className="cluster">
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        disabled={!ready}
+                        busy={save.isPending}
+                        onClick={() => save.mutate(studyType.id)}
+                      >
+                        حفظ
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
+                        إلغاء
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="sm"
+                      disabled={!canWrite}
+                      disabledReason={writeReason}
+                      onClick={() => {
+                        setEditing(studyType.id);
+                        setRows(
+                          current
+                            ? current.lines.map((l) => ({
+                                amount: String(amount(l.amount ?? 0)),
+                                dueOffsetDays: String(l.due_offset_days),
+                              }))
+                            : [{ amount: "", dueOffsetDays: "0" }],
+                        );
+                      }}
+                    >
+                      {current ? "تغيير" : "تعيين"}
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {refusal && (
+        <div style={{ marginTop: 10 }}>
+          <RefusalPanel refusal={refusal} />
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -263,7 +644,7 @@ function ResolutionTester({
           <label className="field">
             <span className="field__label">المرحلة</span>
             <select className="input" value={stage} onChange={(e) => setStage(e.target.value)}>
-              {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
+              {[1, 2, 3, 4, 5].map((s) => (
                 <option key={s} value={s}>
                   {s}
                 </option>

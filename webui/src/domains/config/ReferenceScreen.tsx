@@ -215,7 +215,7 @@ function ReferenceForm({
               onChange={(e) => setStageCount(e.target.value)}
             />
             <span className="field__hint">
-              الترقية تُكمل التسجيل عند النجاح في هذه المرحلة بدل اختراع مرحلة تالية.
+              من 1 إلى 5. الترقية تُكمل التسجيل عند النجاح في هذه المرحلة بدل اختراع مرحلة تالية.
             </span>
           </label>
         </div>

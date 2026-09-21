@@ -44,7 +44,7 @@ ARG TREE_STATE=unknown
 # and what production checks — an unidentified build refuses to serve, so a
 # mis-stamped image failed at start-up with a message about a build nobody
 # could trace.
-ENV BUILDINFO=github.com/swibit/flowed/internal/platform/buildinfo
+ENV BUILDINFO=flowed/internal/platform/buildinfo
 
 # CGO is off so the result runs on a minimal base. The migrations are embedded
 # into the binary, so the deployed artifact carries exactly the schema it was

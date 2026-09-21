@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/domain/shared"
+	"flowed/internal/port"
 )
 
 // scopeFixture builds two colleges with a student enrolled in each, so a scope

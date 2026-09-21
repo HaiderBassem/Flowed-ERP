@@ -11,9 +11,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/platform/httpx"
-	"github.com/swibit/flowed/internal/platform/logger"
-	"github.com/swibit/flowed/internal/port"
+	"flowed/internal/platform/httpx"
+	"flowed/internal/platform/logger"
+	"flowed/internal/port"
 )
 
 // fakeSharedLimiter stands in for the PostgreSQL bucket. It counts calls,

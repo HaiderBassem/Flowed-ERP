@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -11,7 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/swibit/flowed/internal/platform/config"
+	"flowed/internal/platform/config"
 )
 
 // OpenAPI generation.
@@ -117,6 +118,48 @@ type Schema struct {
 	Required    []string          `json:"required,omitempty" yaml:"required,omitempty"`
 	Enum        []string          `json:"enum,omitempty" yaml:"enum,omitempty"`
 	Nullable    bool              `json:"nullable,omitempty" yaml:"nullable,omitempty"`
+}
+
+// MarshalJSON writes the schema as OpenAPI 3.1 rather than 3.0.
+//
+// 3.1 is JSON Schema 2020-12, which has no `nullable` keyword: an optional
+// value is a union with "null". A nullable $ref has to be wrapped rather than
+// widened in place, because $ref admits no sibling that would apply to it.
+// Emitting `nullable` into a document whose own version field says 3.1 is what
+// made the published contract fail validation against its own specification.
+func (s Schema) MarshalJSON() ([]byte, error) {
+	// A distinct type: methods do not come with it, so this cannot recurse.
+	type wire struct {
+		Ref         string            `json:"$ref,omitempty"`
+		AnyOf       []Schema          `json:"anyOf,omitempty"`
+		Type        any               `json:"type,omitempty"`
+		Format      string            `json:"format,omitempty"`
+		Description string            `json:"description,omitempty"`
+		Items       *Schema           `json:"items,omitempty"`
+		Properties  map[string]Schema `json:"properties,omitempty"`
+		Required    []string          `json:"required,omitempty"`
+		Enum        []string          `json:"enum,omitempty"`
+	}
+
+	out := wire{
+		Ref:         s.Ref,
+		Format:      s.Format,
+		Description: s.Description,
+		Items:       s.Items,
+		Properties:  s.Properties,
+		Required:    s.Required,
+		Enum:        s.Enum,
+	}
+	switch {
+	case s.Nullable && s.Ref != "":
+		out.Ref = ""
+		out.AnyOf = []Schema{{Ref: s.Ref}, {Type: "null"}}
+	case s.Nullable && s.Type != "":
+		out.Type = []string{s.Type, "null"}
+	case s.Type != "":
+		out.Type = s.Type
+	}
+	return json.Marshal(out)
 }
 
 // Components holds reusable schemas and the security scheme.
@@ -251,12 +294,16 @@ refused by either, and the codes differ (` + "`insufficient_role`" + ` and
 		}
 
 		seenTags[operation.Tags[0]] = true
-		item, ok := spec.Paths[route.Path]
+		// Keyed by the OpenAPI template rather than gin's own syntax: a reader
+		// of the contract matches parameters against "{id}", and "/:id" leaves
+		// every path parameter looking undeclared.
+		templated := templatePath(route.Path)
+		item, ok := spec.Paths[templated]
 		if !ok {
 			item = PathItem{}
 		}
 		item[strings.ToLower(route.Method)] = operation
-		spec.Paths[route.Path] = item
+		spec.Paths[templated] = item
 	}
 
 	tags := make([]string, 0, len(seenTags))
@@ -311,6 +358,22 @@ func operationID(method, path string) string {
 		}
 	}
 	return b.String()
+}
+
+// templatePath rewrites gin's ":id" as OpenAPI's "{id}". Only the path key is
+// translated; the metadata tables and the route lookups stay in gin's syntax,
+// which is what the router itself is keyed by.
+func templatePath(path string) string {
+	if !strings.Contains(path, ":") {
+		return path
+	}
+	segments := strings.Split(path, "/")
+	for i, segment := range segments {
+		if name, ok := strings.CutPrefix(segment, ":"); ok {
+			segments[i] = "{" + name + "}"
+		}
+	}
+	return strings.Join(segments, "/")
 }
 
 // tagFor groups an operation by the resource its path names.

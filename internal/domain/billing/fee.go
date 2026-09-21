@@ -3,8 +3,8 @@ package billing
 import (
 	"time"
 
-	"github.com/swibit/flowed/internal/domain/money"
-	"github.com/swibit/flowed/internal/domain/shared"
+	"flowed/internal/domain/money"
+	"flowed/internal/domain/shared"
 )
 
 // PolicyStatus is the lifecycle of a fee policy or installment template.
@@ -152,6 +152,23 @@ func (p *FeePolicy) Publish(actor shared.ID, at time.Time) error {
 	return nil
 }
 
+// Retire takes a published policy out of resolution, freeing its scope for a
+// new version.
+//
+// Safe on a policy that has already priced accounts: an account holds copied
+// snapshot lines and a pointer to this exact version, never to "whichever
+// policy currently resolves this scope", so retiring changes nothing about
+// what already exists — only what a future generation would resolve to.
+func (p *FeePolicy) Retire(at time.Time) error {
+	if p.Status != PolicyPublished {
+		return shared.PreconditionFailed("fee_policy.not_published",
+			"only a published policy can be retired; %s is %s", p.PolicyCode, p.Status)
+	}
+	p.Status = PolicyRetired
+	p.RetiredAt = &at
+	return nil
+}
+
 // SnapshotLine is a fee component copied into an account and frozen there.
 //
 // The amount here is authoritative even if the source component is later
@@ -211,6 +228,7 @@ type InstallmentTemplate struct {
 
 	PublishedAt *time.Time
 	PublishedBy *shared.ID
+	RetiredAt   *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -260,6 +278,21 @@ func (t *InstallmentTemplate) Publish(actor shared.ID, at time.Time) error {
 	t.Status = PolicyPublished
 	t.PublishedAt = &at
 	t.PublishedBy = &actor
+	return nil
+}
+
+// Retire takes a published template out of resolution, freeing its scope for
+// a new version — the same reason FeePolicy.Retire exists, and safe for the
+// same reason: an account's installments are generated rows, not a pointer
+// back to the template that shaped them, so retiring changes nothing about a
+// plan already in force.
+func (t *InstallmentTemplate) Retire(at time.Time) error {
+	if t.Status != PolicyPublished {
+		return shared.PreconditionFailed("installment_template.not_published",
+			"only a published template can be retired; %s is %s", t.Code, t.Status)
+	}
+	t.Status = PolicyRetired
+	t.RetiredAt = &at
 	return nil
 }
 

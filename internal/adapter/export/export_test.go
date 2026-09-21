@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swibit/flowed/internal/adapter/export"
+	"flowed/internal/adapter/export"
 )
 
 func table() export.Table {

@@ -33,8 +33,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/swibit/flowed/internal/domain/shared"
-	"github.com/swibit/flowed/internal/platform/pg"
+	"flowed/internal/domain/shared"
+	"flowed/internal/platform/pg"
 )
 
 // dateOrNil projects a nullable DATE column onto a calendar date. shared.Date

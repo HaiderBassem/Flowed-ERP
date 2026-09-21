@@ -21,14 +21,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/swibit/flowed/internal/bootstrap"
-	"github.com/swibit/flowed/internal/platform/buildinfo"
-	"github.com/swibit/flowed/internal/platform/config"
-	"github.com/swibit/flowed/internal/platform/logger"
-	"github.com/swibit/flowed/internal/platform/migrate"
-	"github.com/swibit/flowed/internal/platform/observability"
-	"github.com/swibit/flowed/internal/platform/pg"
-	"github.com/swibit/flowed/migrations"
+	"flowed/internal/bootstrap"
+	"flowed/internal/platform/buildinfo"
+	"flowed/internal/platform/config"
+	"flowed/internal/platform/logger"
+	"flowed/internal/platform/migrate"
+	"flowed/internal/platform/observability"
+	"flowed/internal/platform/pg"
+	"flowed/migrations"
 )
 
 // version is the resolved build identity: the release stamp when the pipeline
