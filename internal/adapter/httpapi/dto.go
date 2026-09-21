@@ -67,6 +67,14 @@ type RegisterStudentWithPlacementRequest struct {
 	DepartmentID   string `json:"department_id" binding:"required,uuid"`
 	StudyTypeID    string `json:"study_type_id" binding:"required,uuid"`
 	Stage          int16  `json:"stage" binding:"required,min=1,max=5"`
+	// CategoryCode is what prices a hosted student. Without it here, the one
+	// call that registers and prices in a single step could only ever produce
+	// a regular student, and the hosting fee policies would have been
+	// unreachable from the screen the office actually uses.
+	//
+	// Derived when omitted: a second attempt at a stage makes a repeat
+	// student, which usually prices differently.
+	CategoryCode string `json:"category_code"`
 }
 
 // UpdateContactRequest changes how a student is reached.

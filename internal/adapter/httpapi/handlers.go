@@ -149,6 +149,7 @@ func (h *Handlers) RegisterStudentWithPlacement(c *gin.Context) {
 			DepartmentID:         departmentID,
 			StudyTypeID:          studyTypeID,
 			Stage:                req.Stage,
+			CategoryCode:         req.CategoryCode,
 		})
 	if err != nil {
 		httpx.Respond(c, err)

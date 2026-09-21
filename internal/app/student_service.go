@@ -166,6 +166,9 @@ type RegisterStudentWithPlacementInput struct {
 	DepartmentID   shared.ID
 	StudyTypeID    shared.ID
 	Stage          int16
+	// CategoryCode selects the fee category — the one that makes a hosted
+	// student cost what hosting costs. Derived when empty.
+	CategoryCode string
 }
 
 // RegisterStudentWithPlacementResult carries every row the request produced.
@@ -236,6 +239,7 @@ func (s *StudentService) RegisterStudentWithPlacement(
 			DepartmentID:   in.DepartmentID,
 			StudyTypeID:    in.StudyTypeID,
 			Stage:          in.Stage,
+			CategoryCode:   in.CategoryCode,
 		})
 		if err != nil {
 			return err
