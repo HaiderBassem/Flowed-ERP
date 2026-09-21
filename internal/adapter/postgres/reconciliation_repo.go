@@ -507,13 +507,15 @@ func (r *ReconciliationRepository) recordVerification(
 		kind = "full"
 	}
 
+	// No WHERE EXISTS guard: a pass over an empty trail is still a pass, and
+	// recordVerification must leave a row behind it or the first-ever check
+	// looks identical to a check that never ran.
 	const query = `
 		INSERT INTO audit_verification (
 			id, sequence_no, entry_hash, entries, kind, problems, took_ms)
 		SELECT $1, $2, coalesce(
 			(SELECT entry_hash FROM audit_log WHERE sequence_no = $2),
-			'empty'), $3, $4, $5, $6
-		WHERE EXISTS (SELECT 1 FROM audit_log)`
+			'empty'), $3, $4, $5, $6`
 
 	q := r.db.Conn(ctx)
 	_, err := q.Exec(ctx, query,
