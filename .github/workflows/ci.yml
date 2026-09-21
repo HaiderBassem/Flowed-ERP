@@ -206,4 +206,6 @@ jobs:
       - name: Build UI
         run: make ui-build
       - name: UI tests
-        run: node --test web/test/
+        # A bare directory argument no longer auto-discovers test files on
+        # current Node; it needs a glob that actually matches them.
+        run: node --test web/test/*.test.js
