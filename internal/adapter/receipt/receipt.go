@@ -48,6 +48,13 @@ type Institution struct {
 	// LogoDataURI is an optional inline image. Inlined rather than linked
 	// because a receipt must print identically from a machine with no network.
 	LogoDataURI string
+	// FooterAr is a line the office chooses — an opening-hours note, a refund
+	// policy, a thank-you. Printed below the total and above the signature.
+	FooterAr string
+	// CurrencyNameAr names the currency in words, for the amount-in-words line
+	// (التفقيط). Configurable because the receipt says "دينار عراقي" and a
+	// hard-coded currency is the one thing a second deployment cannot change.
+	CurrencyNameAr string
 }
 
 // Line is one row of the receipt's itemisation: which installment the money

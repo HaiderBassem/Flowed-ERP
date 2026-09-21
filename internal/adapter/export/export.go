@@ -28,6 +28,8 @@ import (
 	"archive/zip"
 	"encoding/csv"
 	"encoding/xml"
+	"flowed/internal/adapter/pdf"
+	"flowed/internal/adapter/receipt"
 	"fmt"
 	"html"
 	"io"
@@ -44,9 +46,15 @@ type Format string
 const (
 	FormatCSV  Format = "csv"
 	FormatXLSX Format = "xlsx"
-	// FormatPDF renders a print-ready page. See the package comment for why it
-	// is HTML rather than a PDF byte stream.
+	// FormatPDF renders a real PDF: page geometry, an embedded Arabic font and
+	// the same document on every machine. It used to render HTML and leave the
+	// operator to press print, which produced a different page on every
+	// browser — margins, the URL across the header, background colours dropped.
 	FormatPDF Format = "pdf"
+	// FormatHTML is that print-ready page, still available for a screen
+	// preview where opening a PDF viewer is more friction than the reader
+	// wants.
+	FormatHTML Format = "html"
 )
 
 // Parse reads a requested format, defaulting to CSV.
@@ -58,9 +66,11 @@ func Parse(raw string) (Format, error) {
 		return FormatXLSX, nil
 	case "pdf", "print":
 		return FormatPDF, nil
+	case "html":
+		return FormatHTML, nil
 	default:
 		return "", shared.Validation("export.unknown_format",
-			"%q is not a format; use csv, xlsx or pdf", raw)
+			"%q is not a format; use csv, xlsx, pdf or html", raw)
 	}
 }
 
@@ -70,6 +80,8 @@ func (f Format) ContentType() string {
 	case FormatXLSX:
 		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 	case FormatPDF:
+		return "application/pdf"
+	case FormatHTML:
 		return "text/html; charset=utf-8"
 	default:
 		return "text/csv; charset=utf-8"
@@ -82,6 +94,8 @@ func (f Format) Extension() string {
 	case FormatXLSX:
 		return "xlsx"
 	case FormatPDF:
+		return "pdf"
+	case FormatHTML:
 		return "html"
 	default:
 		return "csv"
@@ -114,6 +128,15 @@ type Table struct {
 	GeneratedAt time.Time
 	GeneratedBy string
 	Institution string
+	// Letterhead is the full institution record, used by the PDF renderer to
+	// draw a crest and a contact line. Institution above is the one-line form
+	// the HTML and spreadsheet writers use; both are filled from the same
+	// settings, so they cannot disagree about the university's name.
+	Letterhead receipt.Institution
+	// Location is the timezone the generated-at stamp prints in. A report
+	// stamped in UTC and read in Baghdad is three hours wrong, which matters on
+	// a cashier's daily sheet run near midnight.
+	Location *time.Location
 }
 
 // Write renders the table in the requested format.
@@ -122,6 +145,8 @@ func (t Table) Write(w io.Writer, format Format) error {
 	case FormatXLSX:
 		return t.writeXLSX(w)
 	case FormatPDF:
+		return t.writePDF(w)
+	case FormatHTML:
 		return t.writeHTML(w)
 	default:
 		return t.writeCSV(w)
@@ -259,6 +284,39 @@ func (t Table) sheetXML() string {
 // A finance office prints this and files it; a page that needed a stylesheet
 // from somewhere else would print as a column of unformatted text, which is the
 // same reasoning the receipts already follow.
+// writePDF renders a real PDF.
+//
+// It used to render HTML and call it a PDF, which left the operator to press
+// print and hope. A browser's print dialogue produces a different page on every
+// machine — different margins, the URL across the header, the background
+// colours dropped — and none of that is acceptable on a paper somebody files.
+func (t Table) writePDF(w io.Writer) error {
+	columns := make([]pdf.ReportColumn, 0, len(t.Columns))
+	for _, column := range t.Columns {
+		columns = append(columns, pdf.ReportColumn{Header: column.Header, Numeric: column.Numeric})
+	}
+
+	letterhead := t.Letterhead
+	if letterhead.UniversityNameAr == "" {
+		letterhead.UniversityNameAr = t.Institution
+	}
+
+	rendered, err := pdf.Report(pdf.ReportDoc{
+		Title:       t.Title,
+		Subtitle:    t.Subtitle,
+		Columns:     columns,
+		Rows:        t.Rows,
+		Letterhead:  letterhead,
+		GeneratedAt: t.GeneratedAt,
+		GeneratedBy: t.GeneratedBy,
+	}, t.Location)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(rendered)
+	return err
+}
+
 func (t Table) writeHTML(w io.Writer) error {
 	var b strings.Builder
 	b.WriteString(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">`)

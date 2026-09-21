@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"flowed/internal/adapter/pdf"
 	"flowed/internal/adapter/receipt"
 	"flowed/internal/domain/money"
 	"flowed/internal/domain/payment"
@@ -21,7 +22,10 @@ import (
 type ReceiptService struct {
 	deps        Deps
 	institution receipt.Institution
-	location    *time.Location
+	// settings supplies the letterhead when the office has set one. Nil-safe:
+	// see WithSettings.
+	settings *SettingsService
+	location *time.Location
 	auditor
 }
 
@@ -42,12 +46,37 @@ func NewReceiptService(d Deps, institution receipt.Institution, loc *time.Locati
 	}
 }
 
+// WithSettings makes the letterhead come from the settings table rather than
+// from start-up configuration.
+//
+// Attached after construction because the settings service needs the same Deps
+// this one does, and threading both through one constructor would make the
+// wiring order load-bearing. Left unset — as every test leaves it — the
+// configured institution is used, which is what receipts printed before the
+// settings screen existed.
+func (s *ReceiptService) WithSettings(settings *SettingsService) *ReceiptService {
+	s.settings = settings
+	return s
+}
+
+// letterhead is the institution a receipt prints, preferring what the office
+// typed into the settings screen.
+func (s *ReceiptService) letterhead(ctx context.Context) receipt.Institution {
+	if s.settings == nil {
+		return s.institution
+	}
+	return s.settings.Institution(ctx)
+}
+
 // Format selects the rendering.
 type Format string
 
 const (
 	// FormatHTML is an A5 page for a browser or an office printer.
 	FormatHTML Format = "html"
+	// FormatPDF is the document a student files and a ministry accepts: the
+	// same page on every machine, with the Arabic font travelling inside it.
+	FormatPDF Format = "pdf"
 	// FormatText is an 80mm thermal roll, which is what most cashier desks
 	// actually print to.
 	FormatText Format = "text"
@@ -153,7 +182,7 @@ func (s *ReceiptService) RefundReceipt(
 func (s *ReceiptService) buildPaymentData(ctx context.Context, p *payment.Payment) (receipt.Data, error) {
 	data := receipt.Data{
 		Kind:            receipt.KindPayment,
-		Institution:     s.institution,
+		Institution:     s.letterhead(ctx),
 		Number:          derefString(p.ReceiptNo),
 		Amount:          p.Amount,
 		AmountInWords:   money.SpellArabic(p.Amount),
@@ -200,7 +229,7 @@ func (s *ReceiptService) buildPaymentData(ctx context.Context, p *payment.Paymen
 func (s *ReceiptService) buildRefundData(ctx context.Context, r *payment.Refund) (receipt.Data, error) {
 	data := receipt.Data{
 		Kind:            receipt.KindRefund,
-		Institution:     s.institution,
+		Institution:     s.letterhead(ctx),
 		Number:          derefString(r.RefundNo),
 		Amount:          r.Amount,
 		AmountInWords:   money.SpellArabic(r.Amount),
@@ -318,6 +347,17 @@ func (s *ReceiptService) render(data receipt.Data, format Format) (*Rendered, er
 	name := "receipt-" + sanitiseFilename(data.Number)
 
 	switch format {
+	case FormatPDF:
+		body, err := pdf.Receipt(data, s.location)
+		if err != nil {
+			return nil, err
+		}
+		return &Rendered{
+			Body:        body,
+			ContentType: "application/pdf",
+			Filename:    name + ".pdf",
+			CopyNumber:  data.CopyNumber,
+		}, nil
 	case FormatText:
 		return &Rendered{
 			Body:        receipt.RenderText(data, s.location),
@@ -338,7 +378,7 @@ func (s *ReceiptService) render(data receipt.Data, format Format) (*Rendered, er
 		}, nil
 	default:
 		return nil, shared.Validation("receipt.unknown_format",
-			"%q is not a supported receipt format; use html or text", format)
+			"%q is not a supported receipt format; use pdf, html or text", format)
 	}
 }
 

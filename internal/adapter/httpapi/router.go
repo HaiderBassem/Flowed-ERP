@@ -48,6 +48,15 @@ type RouterDeps struct {
 	// Reconciliation is the invariant queue: what the nightly checks found and
 	// what was done about it.
 	Reconciliation *ReconciliationHandlers
+	// Settings is the institution's own details: the name on every receipt.
+	Settings *SettingsHandlers
+	// SettingsService backs the export letterhead middleware, so a report PDF
+	// carries the same university name a receipt does.
+	SettingsService *app.SettingsService
+	// ReportTimezone is what a generated-at stamp prints in. A report stamped
+	// in UTC and read in Baghdad is three hours wrong, which shows on a daily
+	// cash sheet run near midnight.
+	ReportTimezone *time.Location
 	// Data is the one-button CSV export and import of the whole system, next
 	// to but not the same as Backups: a dump rebuilds a broken database, this
 	// is what the office opens in Excel and carries to another machine.
@@ -197,6 +206,24 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 
 	// Areas that own their own routing. Each mounts under the same
 	// authenticated group and applies its own role checks per route.
+
+	// Every export wears the institution's letterhead. Installed here, once,
+	// rather than in each of the fifteen report handlers.
+	//
+	// The repositories are read behind a nil check because the specification
+	// generator builds this router with typed-nil handler groups — it reads
+	// the route table and calls nothing — and reaching into one for a field
+	// panics before a single route is registered.
+	var (
+		exportYears     port.AcademicYearRepository
+		exportReference port.ReferenceRepository
+	)
+	if deps.Handlers != nil {
+		exportYears, exportReference = deps.Handlers.YearRepo, deps.Handlers.ReferenceRepo
+	}
+	secured.Use(WithExportChrome(
+		deps.SettingsService, deps.ReportTimezone, exportYears, exportReference))
+
 	deps.Reports.Register(secured)
 	deps.ConfigAdmin.Register(secured)
 	deps.Bulk.Register(secured)
@@ -221,6 +248,9 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	}
 	if deps.Data != nil {
 		deps.Data.Register(secured)
+	}
+	if deps.Settings != nil {
+		deps.Settings.Register(secured)
 	}
 
 	return engine

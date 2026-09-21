@@ -774,3 +774,18 @@ func (u *User) HasRole(role shared.Role) bool {
 	}
 	return false
 }
+
+// SettingsRepository stores the institution's details — the name, college,
+// address and logo a receipt prints.
+//
+// Deliberately untyped: every value is text, and a typed setting is a migration
+// per setting. Nothing here carries money or an identifier the rest of the
+// schema depends on, which is what makes that trade safe.
+type SettingsRepository interface {
+	// All reads every setting in one query. The receipt renderer needs the
+	// whole letterhead at once, so there is no single-key read to tempt a
+	// caller into a round trip per line.
+	All(ctx context.Context) (map[string]string, error)
+	// Set writes several settings as one act, recording who changed them.
+	Set(ctx context.Context, values map[string]string, actor shared.ID) error
+}

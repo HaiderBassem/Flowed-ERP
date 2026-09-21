@@ -33,9 +33,10 @@ func (h *ReceiptHandlers) Register(g *gin.RouterGroup) {
 
 // PaymentReceipt renders the receipt for a collection.
 //
-//	GET /payments/:id/receipt?format=html|text&download=true
+//	GET /payments/:id/receipt?format=pdf|html|text&download=true
 //
-// The default is HTML, which prints from any browser. `format=text` returns
+// The default is PDF. `format=html` returns a page for a browser tab, and
+// `format=text` returns
 // the 80mm thermal rendering that most cashier desks actually feed to their
 // roll printer.
 func (h *ReceiptHandlers) PaymentReceipt(c *gin.Context) {
@@ -72,12 +73,21 @@ func (h *ReceiptHandlers) RefundReceipt(c *gin.Context) {
 	writeReceipt(c, rendered)
 }
 
+// receiptFormat reads the requested rendering.
+//
+// PDF is the default. It is the one a student files and a ministry accepts —
+// the same page on every machine, with the Arabic font inside the file — and
+// defaulting to it means the good document is what comes out when nobody
+// chooses. HTML stays for a quick look in a browser tab, and text for the
+// 80mm thermal roll most counters actually print to.
 func receiptFormat(c *gin.Context) app.Format {
 	switch c.Query("format") {
 	case "text", "txt", "thermal":
 		return app.FormatText
-	default:
+	case "html":
 		return app.FormatHTML
+	default:
+		return app.FormatPDF
 	}
 }
 

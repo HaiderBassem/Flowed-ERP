@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"flowed/internal/adapter/receipt"
+	"flowed/internal/app"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -25,6 +27,102 @@ func exportRequested(c *gin.Context) bool {
 	return strings.TrimSpace(c.Query("format")) != ""
 }
 
+// exportChrome is the letterhead, the timezone, and the reference data every
+// exported document needs to describe itself.
+type exportChrome struct {
+	Letterhead receipt.Institution
+	Location   *time.Location
+	// Years and Reference resolve the identifiers in the query string into the
+	// names a reader recognises. Nil-safe: without them the subtitle falls
+	// back to the raw identifier, which is ugly but still correct.
+	Years     port.AcademicYearRepository
+	Reference port.ReferenceRepository
+}
+
+// WithExportChrome installs the letterhead for every export on a route group.
+//
+// Middleware rather than a field on each handler: the reports are spread over
+// two files and fifteen methods, none of which is otherwise interested in the
+// university's address, and a parameter they all have to remember to pass is a
+// parameter one of them eventually will not.
+func WithExportChrome(
+	settings *app.SettingsService,
+	loc *time.Location,
+	years port.AcademicYearRepository,
+	reference port.ReferenceRepository,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		chrome := exportChrome{Location: loc, Years: years, Reference: reference}
+		if settings != nil {
+			chrome.Letterhead = settings.Institution(requestContext(c))
+		}
+		c.Set(exportChromeContextKey, chrome)
+		c.Next()
+	}
+}
+
+// resolveYearCode turns an academic year identifier into its code.
+func resolveYearCode(c *gin.Context, raw string) string {
+	chrome, ok := exportChromeFrom(c)
+	if !ok || chrome.Years == nil {
+		return ""
+	}
+	id, err := shared.ParseID(raw)
+	if err != nil {
+		return ""
+	}
+	year, err := chrome.Years.GetByID(requestContext(c), id)
+	if err != nil || year == nil {
+		return ""
+	}
+	return year.Code
+}
+
+// resolveCollegeName turns a college identifier into its Arabic name.
+func resolveCollegeName(c *gin.Context, raw string) string {
+	chrome, ok := exportChromeFrom(c)
+	if !ok || chrome.Reference == nil {
+		return ""
+	}
+	id, err := shared.ParseID(raw)
+	if err != nil {
+		return ""
+	}
+	college, err := chrome.Reference.GetCollege(requestContext(c), id)
+	if err != nil || college == nil {
+		return ""
+	}
+	return college.NameAr
+}
+
+// resolveDepartmentName turns a department identifier into its Arabic name.
+func resolveDepartmentName(c *gin.Context, raw string) string {
+	chrome, ok := exportChromeFrom(c)
+	if !ok || chrome.Reference == nil {
+		return ""
+	}
+	id, err := shared.ParseID(raw)
+	if err != nil {
+		return ""
+	}
+	department, err := chrome.Reference.GetDepartment(requestContext(c), id)
+	if err != nil || department == nil {
+		return ""
+	}
+	return department.NameAr
+}
+
+const exportChromeContextKey = "flowed.export.chrome"
+
+func exportChromeFrom(c *gin.Context) (exportChrome, bool) {
+	value, ok := c.Get(exportChromeContextKey)
+	if !ok {
+		return exportChrome{}, false
+	}
+	chrome, ok := value.(exportChrome)
+	return chrome, ok
+}
+
 // writeExport renders a table and sends it as a download.
 //
 // The rows have already been produced under the caller's own authority and
@@ -42,6 +140,19 @@ func writeExport(c *gin.Context, table export.Table) {
 	table.GeneratedBy = actor.Username
 	if table.GeneratedAt.IsZero() {
 		table.GeneratedAt = time.Now().UTC()
+	}
+
+	// The letterhead and the timezone ride in the request context rather than
+	// being threaded through fifteen handlers that have no other use for them.
+	// See exportChrome: the alternative was a parameter every report builder
+	// had to remember to pass, and the one that forgot would produce a page
+	// with no university name on it.
+	if chrome, ok := exportChromeFrom(c); ok {
+		table.Letterhead = chrome.Letterhead
+		table.Location = chrome.Location
+		if table.Institution == "" {
+			table.Institution = chrome.Letterhead.UniversityNameAr
+		}
 	}
 
 	c.Header("Content-Type", format.ContentType())
@@ -76,20 +187,37 @@ func writeExport(c *gin.Context, table export.Table) {
 // a student.
 func reportSubtitle(c *gin.Context, extra ...string) string {
 	parts := make([]string, 0, 6)
-	for _, param := range []struct{ label, key string }{
-		{"Year", "academic_year_id"},
-		{"College", "college_id"},
-		{"Department", "department_id"},
-		{"From", "from"},
-		{"To", "to"},
+
+	// Identifiers are resolved to names. The subtitle is the line that says
+	// what the page covers, and "السنة 01a0c52f-644a-77e3-974b-fb317115eb10"
+	// says nothing to the person holding it — the whole point of printing the
+	// filter is that a page on a desk in March can still be understood.
+	for _, param := range []struct {
+		label   string
+		key     string
+		resolve func(*gin.Context, string) string
+	}{
+		{"السنة", "academic_year_id", resolveYearCode},
+		{"الكلية", "college_id", resolveCollegeName},
+		{"القسم", "department_id", resolveDepartmentName},
+		{"من", "from", nil},
+		{"إلى", "to", nil},
 	} {
-		if value := strings.TrimSpace(c.Query(param.key)); value != "" {
-			parts = append(parts, param.label+" "+value)
+		value := strings.TrimSpace(c.Query(param.key))
+		if value == "" {
+			continue
 		}
+		if param.resolve != nil {
+			if resolved := param.resolve(c, value); resolved != "" {
+				value = resolved
+			}
+		}
+		parts = append(parts, param.label+" "+value)
 	}
+
 	parts = append(parts, extra...)
 	if len(parts) == 0 {
-		return "All records"
+		return "كل السجلات"
 	}
 	return strings.Join(parts, " · ")
 }
@@ -97,19 +225,19 @@ func reportSubtitle(c *gin.Context, extra ...string) string {
 // debtTable renders the outstanding-balance report.
 func debtTable(c *gin.Context, rows []port.DebtRow) export.Table {
 	table := export.Table{
-		Title:    "Debt report",
+		Title:    "تقرير الديون",
 		Subtitle: reportSubtitle(c),
 		Columns: []export.Column{
-			{Header: "Student no"},
-			{Header: "Student"},
-			{Header: "Mother"},
-			{Header: "Year"},
-			{Header: "Department"},
-			{Header: "Stage", Numeric: true},
-			{Header: "Charged", Numeric: true},
-			{Header: "Paid", Numeric: true},
-			{Header: "Outstanding", Numeric: true},
-			{Header: "Overdue", Numeric: true},
+			{Header: "الرقم الجامعي"},
+			{Header: "الطالب"},
+			{Header: "اسم الأم"},
+			{Header: "السنة"},
+			{Header: "القسم"},
+			{Header: "المرحلة", Numeric: true},
+			{Header: "المفروض", Numeric: true},
+			{Header: "المدفوع", Numeric: true},
+			{Header: "المتبقّي", Numeric: true},
+			{Header: "المتأخّر", Numeric: true},
 		},
 	}
 	for _, row := range rows {
@@ -133,18 +261,18 @@ func debtTable(c *gin.Context, rows []port.DebtRow) export.Table {
 // agingTable renders the receivables-ageing report.
 func agingTable(c *gin.Context, rows []port.AgingRow) export.Table {
 	table := export.Table{
-		Title:    "Receivables ageing",
+		Title:    "أعمار الذمم",
 		Subtitle: reportSubtitle(c),
 		Columns: []export.Column{
-			{Header: "Department"},
-			{Header: "Not yet due", Numeric: true},
-			{Header: "0-30 days", Numeric: true},
-			{Header: "31-90 days", Numeric: true},
-			{Header: "91-180 days", Numeric: true},
-			{Header: "Over 180 days", Numeric: true},
-			{Header: "Prior years", Numeric: true},
-			{Header: "Total overdue", Numeric: true},
-			{Header: "Total receivable", Numeric: true},
+			{Header: "القسم"},
+			{Header: "غير مستحق بعد", Numeric: true},
+			{Header: "٣٠ يوماً فأقل", Numeric: true},
+			{Header: "٣١–٩٠ يوماً", Numeric: true},
+			{Header: "٩١–١٨٠ يوماً", Numeric: true},
+			{Header: "أكثر من ١٨٠ يوماً", Numeric: true},
+			{Header: "سنوات سابقة", Numeric: true},
+			{Header: "إجمالي المتأخّر", Numeric: true},
+			{Header: "إجمالي الذمم", Numeric: true},
 		},
 	}
 	for _, row := range rows {
@@ -166,15 +294,15 @@ func agingTable(c *gin.Context, rows []port.AgingRow) export.Table {
 // installmentTable renders expected against collected by due month.
 func installmentTable(c *gin.Context, rows []port.InstallmentMonth) export.Table {
 	table := export.Table{
-		Title:    "Installments by month",
+		Title:    "الأقساط حسب الشهر",
 		Subtitle: reportSubtitle(c),
 		Columns: []export.Column{
-			{Header: "Month"},
-			{Header: "Installments", Numeric: true},
-			{Header: "Expected", Numeric: true},
-			{Header: "Collected", Numeric: true},
-			{Header: "Remaining", Numeric: true},
-			{Header: "Overdue", Numeric: true},
+			{Header: "الشهر"},
+			{Header: "الأقساط", Numeric: true},
+			{Header: "المتوقّع", Numeric: true},
+			{Header: "المحصّل", Numeric: true},
+			{Header: "المتبقّي", Numeric: true},
+			{Header: "المتأخّر", Numeric: true},
 		},
 	}
 	for _, row := range rows {
@@ -193,16 +321,16 @@ func installmentTable(c *gin.Context, rows []port.InstallmentMonth) export.Table
 // departmentTable renders the year's aggregate, college then department.
 func departmentTable(c *gin.Context, colleges []port.CollegeSummary) export.Table {
 	table := export.Table{
-		Title:    "Departments summary",
+		Title:    "ملخّص الأقسام",
 		Subtitle: reportSubtitle(c),
 		Columns: []export.Column{
-			{Header: "College"},
-			{Header: "Department"},
-			{Header: "Students", Numeric: true},
-			{Header: "Charged", Numeric: true},
-			{Header: "Discount", Numeric: true},
-			{Header: "Collected", Numeric: true},
-			{Header: "Outstanding", Numeric: true},
+			{Header: "الكلية"},
+			{Header: "القسم"},
+			{Header: "عدد الطلبة", Numeric: true},
+			{Header: "المفروض", Numeric: true},
+			{Header: "الخصم", Numeric: true},
+			{Header: "المحصّل", Numeric: true},
+			{Header: "المتبقّي", Numeric: true},
 		},
 	}
 	for _, college := range colleges {
@@ -224,9 +352,9 @@ func departmentTable(c *gin.Context, colleges []port.CollegeSummary) export.Tabl
 // studyTypeTable renders the year's aggregate regrouped by mode of study.
 func studyTypeTable(c *gin.Context, rows []port.StudyTypeSummary) export.Table {
 	table := export.Table{
-		Title:    "Study types summary",
+		Title:    "ملخّص أنواع الدراسة",
 		Subtitle: reportSubtitle(c),
-		Columns: append([]export.Column{{Header: "Study type"}, {Header: "Code"}},
+		Columns: append([]export.Column{{Header: "نوع الدراسة"}, {Header: "الرمز"}},
 			summaryColumns()...),
 	}
 	for _, row := range rows {
@@ -243,13 +371,13 @@ func studyTypeTable(c *gin.Context, rows []port.StudyTypeSummary) export.Table {
 // blends them explains neither the head count nor the revenue.
 func stageTable(c *gin.Context, rows []port.StageSummary) export.Table {
 	table := export.Table{
-		Title:    "Stages summary",
+		Title:    "ملخّص المراحل",
 		Subtitle: reportSubtitle(c),
-		Columns: append(append([]export.Column{{Header: "Stage", Numeric: true}},
+		Columns: append(append([]export.Column{{Header: "المرحلة", Numeric: true}},
 			summaryColumns()...),
-			export.Column{Header: "Repeat students", Numeric: true},
-			export.Column{Header: "Repeat charged", Numeric: true},
-			export.Column{Header: "Repeat paid", Numeric: true}),
+			export.Column{Header: "الطلبة المعيدون", Numeric: true},
+			export.Column{Header: "المفروض على المعيدين", Numeric: true},
+			export.Column{Header: "المدفوع من المعيدين", Numeric: true}),
 	}
 	for _, row := range rows {
 		cells := append([]string{fmt.Sprintf("%d", row.Stage)}, summaryCells(row.SummaryTotals)...)
@@ -273,7 +401,7 @@ func yearSummaryTable(c *gin.Context, summary *port.YearSummary) export.Table {
 		Title: "Year summary",
 		Subtitle: reportSubtitle(c, "Year "+summary.AcademicYearCode,
 			"Status "+summary.Status),
-		Columns: append([]export.Column{{Header: "Section"}, {Header: "Item"}},
+		Columns: append([]export.Column{{Header: "الشعبة"}, {Header: "البند"}},
 			summaryColumns()...),
 	}
 
@@ -315,20 +443,20 @@ func yearSummaryTable(c *gin.Context, summary *port.YearSummary) export.Table {
 // discountUsageTable renders what each discount version actually cost.
 func discountUsageTable(c *gin.Context, rows []port.DiscountUsageRow) export.Table {
 	table := export.Table{
-		Title:    "Discount usage",
+		Title:    "استخدام الخصومات",
 		Subtitle: reportSubtitle(c),
 		Columns: []export.Column{
-			{Header: "Code"},
-			{Header: "Discount"},
-			{Header: "Category"},
-			{Header: "Version", Numeric: true},
-			{Header: "Value type"},
-			{Header: "Value"},
-			{Header: "Students", Numeric: true},
-			{Header: "Applications", Numeric: true},
-			{Header: "Total given up", Numeric: true},
-			{Header: "Truncated", Numeric: true},
-			{Header: "% of gross", Numeric: true},
+			{Header: "الرمز"},
+			{Header: "الخصم"},
+			{Header: "الفئة"},
+			{Header: "الإصدار", Numeric: true},
+			{Header: "نوع القيمة"},
+			{Header: "القيمة"},
+			{Header: "عدد الطلبة", Numeric: true},
+			{Header: "التطبيقات", Numeric: true},
+			{Header: "إجمالي المتنازَل عنه", Numeric: true},
+			{Header: "مقتطَع", Numeric: true},
+			{Header: "٪ من الإجمالي", Numeric: true},
 		},
 	}
 	for _, row := range rows {
@@ -363,23 +491,23 @@ func discountUsageTable(c *gin.Context, rows []port.DiscountUsageRow) export.Tab
 // signed for it.
 func exemptionTable(c *gin.Context, rows []port.ExemptionRow) export.Table {
 	table := export.Table{
-		Title:    "Exemption register",
+		Title:    "سجل الإعفاءات",
 		Subtitle: reportSubtitle(c),
 		Columns: []export.Column{
-			{Header: "Student no"},
-			{Header: "Student"},
-			{Header: "Mother"},
-			{Header: "Year"},
-			{Header: "Department"},
-			{Header: "Discount code"},
-			{Header: "Discount"},
-			{Header: "Category"},
-			{Header: "Full exemption"},
-			{Header: "Version", Numeric: true},
-			{Header: "Discountable base", Numeric: true},
-			{Header: "Applied", Numeric: true},
-			{Header: "Approved by"},
-			{Header: "Approved at"},
+			{Header: "الرقم الجامعي"},
+			{Header: "الطالب"},
+			{Header: "اسم الأم"},
+			{Header: "السنة"},
+			{Header: "القسم"},
+			{Header: "رمز الخصم"},
+			{Header: "الخصم"},
+			{Header: "الفئة"},
+			{Header: "إعفاء كامل"},
+			{Header: "الإصدار", Numeric: true},
+			{Header: "الأساس القابل للخصم", Numeric: true},
+			{Header: "المطبّق", Numeric: true},
+			{Header: "وافق عليه"},
+			{Header: "تاريخ الموافقة"},
 		},
 	}
 	for _, row := range rows {
@@ -410,18 +538,18 @@ func exemptionTable(c *gin.Context, rows []port.ExemptionRow) export.Table {
 // the takings.
 func cashierDailyTable(c *gin.Context, rows []port.CashierDayRow) export.Table {
 	table := export.Table{
-		Title:    "Cashier daily",
+		Title:    "كشف القبض اليومي",
 		Subtitle: reportSubtitle(c),
 		Columns: []export.Column{
-			{Header: "Date"},
-			{Header: "Cashier"},
-			{Header: "Method"},
-			{Header: "Cash"},
-			{Header: "Payments", Numeric: true},
-			{Header: "Collected", Numeric: true},
-			{Header: "Voids", Numeric: true},
-			{Header: "Voided", Numeric: true},
-			{Header: "Expected in drawer", Numeric: true},
+			{Header: "التاريخ"},
+			{Header: "المحاسب"},
+			{Header: "الطريقة"},
+			{Header: "نقداً"},
+			{Header: "الدفعات", Numeric: true},
+			{Header: "المحصّل", Numeric: true},
+			{Header: "الإلغاءات", Numeric: true},
+			{Header: "ملغى", Numeric: true},
+			{Header: "المتوقّع في الصندوق", Numeric: true},
 		},
 	}
 	for _, row := range rows {
@@ -448,18 +576,18 @@ func cashierDailyTable(c *gin.Context, rows []port.CashierDayRow) export.Table {
 // reader who has both can check one against the other.
 func collectionTrendTable(c *gin.Context, trend *port.CollectionTrend) export.Table {
 	table := export.Table{
-		Title:    "Collection trend",
+		Title:    "اتجاه التحصيل",
 		Subtitle: reportSubtitle(c, "Obligation "+amountText(trend.EffectiveNet)),
 		Columns: []export.Column{
-			{Header: "Section"},
-			{Header: "Item"},
-			{Header: "Payments", Numeric: true},
-			{Header: "Collected", Numeric: true},
-			{Header: "Refunded", Numeric: true},
-			{Header: "Net collected", Numeric: true},
-			{Header: "Cumulative net", Numeric: true},
-			{Header: "Outstanding", Numeric: true},
-			{Header: "% of net", Numeric: true},
+			{Header: "الشعبة"},
+			{Header: "البند"},
+			{Header: "الدفعات", Numeric: true},
+			{Header: "المحصّل", Numeric: true},
+			{Header: "المسترجَع", Numeric: true},
+			{Header: "صافي المحصّل", Numeric: true},
+			{Header: "الصافي التراكمي", Numeric: true},
+			{Header: "المتبقّي", Numeric: true},
+			{Header: "٪ من الصافي", Numeric: true},
 		},
 	}
 	for _, month := range trend.Months {
@@ -494,13 +622,13 @@ func collectionTrendTable(c *gin.Context, trend *port.CollectionTrend) export.Ta
 // cashFlowTable renders the inflow the remaining due dates imply.
 func cashFlowTable(c *gin.Context, rows []port.CashFlowMonth) export.Table {
 	table := export.Table{
-		Title:    "Expected cash flow",
+		Title:    "التدفّق النقدي المتوقّع",
 		Subtitle: reportSubtitle(c),
 		Columns: []export.Column{
-			{Header: "Month"},
-			{Header: "Department"},
-			{Header: "Installments", Numeric: true},
-			{Header: "Expected", Numeric: true},
+			{Header: "الشهر"},
+			{Header: "القسم"},
+			{Header: "الأقساط", Numeric: true},
+			{Header: "المتوقّع", Numeric: true},
 		},
 	}
 	for _, month := range rows {
@@ -529,22 +657,22 @@ func cashFlowTable(c *gin.Context, rows []port.CashFlowMonth) export.Table {
 // receipt the student is still holding.
 func voidTable(c *gin.Context, rows []port.VoidRow) export.Table {
 	table := export.Table{
-		Title:    "Void register",
+		Title:    "سجل الإلغاءات",
 		Subtitle: reportSubtitle(c),
 		Columns: []export.Column{
-			{Header: "Gap hours", Numeric: true},
-			{Header: "Crossed day"},
-			{Header: "Receipt no"},
-			{Header: "Student no"},
-			{Header: "Student"},
-			{Header: "Amount", Numeric: true},
-			{Header: "Method"},
-			{Header: "Posted at"},
-			{Header: "Voided at"},
-			{Header: "Reason"},
-			{Header: "Cashier"},
-			{Header: "Requested by"},
-			{Header: "Executed by"},
+			{Header: "ساعات الفجوة", Numeric: true},
+			{Header: "تجاوز اليوم"},
+			{Header: "رقم الوصل"},
+			{Header: "الرقم الجامعي"},
+			{Header: "الطالب"},
+			{Header: "المبلغ", Numeric: true},
+			{Header: "الطريقة"},
+			{Header: "تاريخ الترحيل"},
+			{Header: "تاريخ الإلغاء"},
+			{Header: "السبب"},
+			{Header: "المحاسب"},
+			{Header: "طلبه"},
+			{Header: "نفّذه"},
 		},
 	}
 	for _, row := range rows {
@@ -570,20 +698,20 @@ func voidTable(c *gin.Context, rows []port.VoidRow) export.Table {
 // refundTable renders the refund register, both signatures on every row.
 func refundTable(c *gin.Context, rows []port.RefundRow) export.Table {
 	table := export.Table{
-		Title:    "Refund register",
+		Title:    "سجل الاسترجاعات",
 		Subtitle: reportSubtitle(c),
 		Columns: []export.Column{
-			{Header: "Refund no"},
-			{Header: "Posted at"},
-			{Header: "Original receipt"},
-			{Header: "Student no"},
-			{Header: "Student"},
-			{Header: "Amount", Numeric: true},
-			{Header: "Method"},
-			{Header: "Reason"},
-			{Header: "Requested by"},
-			{Header: "Approved by"},
-			{Header: "Approved at"},
+			{Header: "رقم الاسترجاع"},
+			{Header: "تاريخ الترحيل"},
+			{Header: "الوصل الأصلي"},
+			{Header: "الرقم الجامعي"},
+			{Header: "الطالب"},
+			{Header: "المبلغ", Numeric: true},
+			{Header: "الطريقة"},
+			{Header: "السبب"},
+			{Header: "طلبه"},
+			{Header: "وافق عليه"},
+			{Header: "تاريخ الموافقة"},
 		},
 	}
 	for _, row := range rows {
@@ -627,16 +755,16 @@ func statementTable(c *gin.Context, statement *port.StudentStatement) export.Tab
 			"Outstanding "+amountText(totals.Remaining),
 			"Credit "+amountText(totals.CreditBalance)),
 		Columns: []export.Column{
-			{Header: "Year"},
-			{Header: "Department"},
-			{Header: "Line"},
-			{Header: "Reference"},
-			{Header: "Detail"},
-			{Header: "Date"},
-			{Header: "Amount", Numeric: true},
-			{Header: "Paid", Numeric: true},
-			{Header: "Remaining", Numeric: true},
-			{Header: "Status"},
+			{Header: "السنة"},
+			{Header: "القسم"},
+			{Header: "السطر"},
+			{Header: "المرجع"},
+			{Header: "التفصيل"},
+			{Header: "التاريخ"},
+			{Header: "المبلغ", Numeric: true},
+			{Header: "المدفوع", Numeric: true},
+			{Header: "المتبقّي", Numeric: true},
+			{Header: "الحالة"},
 		},
 	}
 
@@ -719,15 +847,15 @@ func statementTable(c *gin.Context, statement *port.StudentStatement) export.Tab
 // summaryColumns is the money block every aggregate report shares.
 func summaryColumns() []export.Column {
 	return []export.Column{
-		{Header: "Students", Numeric: true},
-		{Header: "Accounts", Numeric: true},
-		{Header: "Gross", Numeric: true},
-		{Header: "Discount", Numeric: true},
-		{Header: "Charged", Numeric: true},
-		{Header: "Collected", Numeric: true},
-		{Header: "Refunded", Numeric: true},
-		{Header: "Outstanding", Numeric: true},
-		{Header: "Collection %", Numeric: true},
+		{Header: "عدد الطلبة", Numeric: true},
+		{Header: "الحسابات", Numeric: true},
+		{Header: "الإجمالي", Numeric: true},
+		{Header: "الخصم", Numeric: true},
+		{Header: "المفروض", Numeric: true},
+		{Header: "المحصّل", Numeric: true},
+		{Header: "المسترجَع", Numeric: true},
+		{Header: "المتبقّي", Numeric: true},
+		{Header: "نسبة التحصيل", Numeric: true},
 	}
 }
 
@@ -751,7 +879,13 @@ func summaryCells(totals port.SummaryTotals) []string {
 // Grouped for a person reading the printed page; the spreadsheet writer strips
 // the separators again for a numeric column, so the cell is still a number that
 // adds up.
-func amountText(amount money.Amount) string { return amount.String() }
+// amountText renders money with thousands separators.
+//
+// A column of 4100000 and 1912500 cannot be compared at a glance; 4,100,000
+// and 1,912,500 can. The separators are what make a printed figure readable,
+// and the spreadsheet writer never sees this — it gets the raw number, because
+// a figure with commas in it does not add up in Excel.
+func amountText(amount money.Amount) string { return money.FormatWesternDigits(amount) }
 
 // countText renders a head count or a row count.
 func countText(count int64) string { return strconv.FormatInt(count, 10) }

@@ -123,7 +123,7 @@ func TestSheetNameIsSanitised(t *testing.T) {
 
 func TestPrintablePageIsSelfContainedAndRightToLeft(t *testing.T) {
 	var buf bytes.Buffer
-	if err := table().Write(&buf, export.FormatPDF); err != nil {
+	if err := table().Write(&buf, export.FormatHTML); err != nil {
 		t.Fatalf("writing: %v", err)
 	}
 
@@ -149,6 +149,46 @@ func TestPrintablePageIsSelfContainedAndRightToLeft(t *testing.T) {
 	if !strings.Contains(page, "finance.one") {
 		t.Error("the printed page must say who produced it and when")
 	}
+}
+
+// The PDF is a real PDF, not an HTML page with a misleading content type. A
+// viewer opens it, a printer prints it, and it looks the same on both — which
+// is the whole reason it stopped being HTML.
+func TestPDFIsAPDFWithItsFontEmbedded(t *testing.T) {
+	var buf bytes.Buffer
+	if err := table().Write(&buf, export.FormatPDF); err != nil {
+		t.Fatalf("writing: %v", err)
+	}
+
+	out := buf.Bytes()
+	if !bytes.HasPrefix(out, []byte("%PDF-")) {
+		t.Fatalf("the output is not a PDF; it starts %q", firstBytes(out, 16))
+	}
+	if !bytes.Contains(out, []byte("%%EOF")) {
+		t.Error("the PDF has no end-of-file marker — a viewer will call it damaged")
+	}
+
+	// The font has to travel inside the file. A PDF that names a font the
+	// reader's machine does not have renders Arabic as empty boxes, which is
+	// the failure this whole path exists to avoid.
+	if !bytes.Contains(out, []byte("FontFile2")) {
+		t.Error("no embedded font programme: Arabic will render as empty boxes " +
+			"on any machine without Amiri installed")
+	}
+	if !bytes.Contains(out, []byte("amiri")) {
+		t.Error("the embedded font is not the one this system ships")
+	}
+
+	if len(out) < 20_000 {
+		t.Errorf("the PDF is %d bytes, too small to carry a font and a page", len(out))
+	}
+}
+
+func firstBytes(b []byte, n int) []byte {
+	if len(b) < n {
+		return b
+	}
+	return b[:n]
 }
 
 func TestFormatParsing(t *testing.T) {

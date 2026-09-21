@@ -139,13 +139,23 @@ func BuildEngine(
 			slog.String("timezone", cfg.App.DefaultTimezone))
 		location = time.UTC
 	}
-	receiptService := app.NewReceiptService(deps, receipt.Institution{
+	configuredInstitution := receipt.Institution{
 		UniversityNameAr: cfg.Receipt.UniversityNameAr,
 		CollegeNameAr:    cfg.Receipt.CollegeNameAr,
 		Address:          cfg.Receipt.Address,
 		Phone:            cfg.Receipt.Phone,
 		LogoDataURI:      cfg.Receipt.LogoDataURI,
-	}, location)
+	}
+
+	// The letterhead lives in the database so the office can change it without
+	// a deployment. Configuration remains the fallback for a key no row has
+	// yet, which is what keeps an upgraded installation printing what it
+	// printed yesterday.
+	settingsService := app.NewSettingsService(
+		deps, postgres.NewSettingsRepository(db), configuredInstitution)
+
+	receiptService := app.NewReceiptService(deps, configuredInstitution, location).
+		WithSettings(settingsService)
 
 	// The audit archive is off unless a destination was named. A university
 	// that has not set one keeps a hash chain that detects editing and cannot
@@ -186,30 +196,33 @@ func BuildEngine(
 	dataService := app.NewDataExportService(deps, db, maintenance)
 
 	engine := httpapi.NewRouter(httpapi.RouterDeps{
-		Config:         cfg,
-		Log:            log,
-		DB:             db,
-		Handlers:       handlers,
-		Auth:           httpapi.NewAuthHandlers(authService, userService, log),
-		UserAdmin:      httpapi.NewUserHandlers(userService),
-		Lifecycle:      httpapi.NewLifecycleHandlers(enrollmentService, studentService, accountService),
-		MasterData:     httpapi.NewMasterDataHandlers(masterDataService),
-		AuthService:    authService,
-		Users:          users,
-		Reports:        httpapi.NewReportHandlers(reports),
-		ConfigAdmin:    httpapi.NewConfigHandlers(app.NewConfigService(deps)),
-		Bulk:           httpapi.NewBulkHandlers(bulkService, importService, imports),
-		AuditArchive:   httpapi.NewAuditArchiveHandlers(auditShipper),
-		Reconciliation: httpapi.NewReconciliationHandlers(reconciliation),
-		Backups:        httpapi.NewBackupHandlers(backupService),
-		Data:           httpapi.NewDataHandlers(dataService),
-		Maintenance:    maintenance,
-		Receipts:       httpapi.NewReceiptHandlers(receiptService),
-		Tokens:         tokens,
-		Idempotency:    idempotency,
-		RateLimiter:    rateLimiter,
-		Observability:  obs,
-		Version:        buildVersion,
+		Config:          cfg,
+		Log:             log,
+		DB:              db,
+		Handlers:        handlers,
+		Auth:            httpapi.NewAuthHandlers(authService, userService, log),
+		UserAdmin:       httpapi.NewUserHandlers(userService),
+		Lifecycle:       httpapi.NewLifecycleHandlers(enrollmentService, studentService, accountService),
+		MasterData:      httpapi.NewMasterDataHandlers(masterDataService),
+		AuthService:     authService,
+		Users:           users,
+		Reports:         httpapi.NewReportHandlers(reports),
+		ConfigAdmin:     httpapi.NewConfigHandlers(app.NewConfigService(deps)),
+		Bulk:            httpapi.NewBulkHandlers(bulkService, importService, imports),
+		AuditArchive:    httpapi.NewAuditArchiveHandlers(auditShipper),
+		Reconciliation:  httpapi.NewReconciliationHandlers(reconciliation),
+		Backups:         httpapi.NewBackupHandlers(backupService),
+		Data:            httpapi.NewDataHandlers(dataService),
+		Settings:        httpapi.NewSettingsHandlers(settingsService),
+		SettingsService: settingsService,
+		ReportTimezone:  location,
+		Maintenance:     maintenance,
+		Receipts:        httpapi.NewReceiptHandlers(receiptService),
+		Tokens:          tokens,
+		Idempotency:     idempotency,
+		RateLimiter:     rateLimiter,
+		Observability:   obs,
+		Version:         buildVersion,
 	})
 
 	return engine, scheduler

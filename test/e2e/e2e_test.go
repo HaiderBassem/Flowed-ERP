@@ -646,10 +646,21 @@ func TestCollectionPostsAllocatesAndPrintsAReceipt(t *testing.T) {
 	paymentID, _ := payment["id"].(string)
 
 	// The receipt renders from frozen rows, and it is the one thing the
-	// student physically holds.
-	receipt := finance.get("/api/v1/payments/" + paymentID + "/receipt")
+	// student physically holds. The default is a PDF, so what is asserted
+	// there is that it *is* one — the figures are inside a compressed stream
+	// and unreadable from here.
+	pdf := finance.get("/api/v1/payments/" + paymentID + "/receipt")
+	if pdf.status != http.StatusOK {
+		t.Fatalf("the receipt did not render: %d", pdf.status)
+	}
+	if !bytes.HasPrefix(pdf.raw, []byte("%PDF-")) {
+		t.Errorf("the default receipt is not a PDF; it starts %q", truncate(string(pdf.raw), 20))
+	}
+
+	// The HTML rendering is where the amount can actually be read back.
+	receipt := finance.get("/api/v1/payments/" + paymentID + "/receipt?format=html")
 	if receipt.status != http.StatusOK {
-		t.Fatalf("the receipt did not render: %d", receipt.status)
+		t.Fatalf("the HTML receipt did not render: %d", receipt.status)
 	}
 	if !strings.Contains(string(receipt.raw), "500") {
 		t.Error("the receipt should carry the amount collected")
