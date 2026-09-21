@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/csv"
 	"errors"
 	"io"
 	"mime/multipart"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -51,6 +53,7 @@ func (h *BulkHandlers) Register(g *gin.RouterGroup) {
 
 	imports := g.Group("/imports")
 
+	imports.GET("/template", h.StudentTemplate)
 	imports.GET("", h.ListImports)
 	imports.GET("/:id", h.ReviewImport)
 	imports.POST("/students", h.UploadStudentImport)
@@ -476,7 +479,7 @@ func parseImportCSV(header *multipart.FileHeader) ([]map[string]any, error) {
 		if i == 0 {
 			name = strings.TrimPrefix(name, utf8BOM)
 		}
-		columns[i] = strings.ToLower(strings.TrimSpace(name))
+		columns[i] = canonicalColumn(name)
 	}
 
 	present := make(map[string]bool, len(columns))
@@ -562,4 +565,146 @@ func optionalID(raw *string) (*shared.ID, error) {
 		return nil, err
 	}
 	return &id, nil
+}
+
+// StudentTemplate hands back a spreadsheet with the right headings and one
+// example row.
+//
+// The surest way to get a file whose columns match is to give the office the
+// file. The alternative is a page of documentation describing nine column
+// names in a language the reader may not be typing in, and a first upload that
+// fails on a heading.
+//
+// The example row is filled in rather than blank. A blank template leaves the
+// reader guessing what a date should look like, and the answer — 2005-03-14,
+// not 14/03/2005 — is not guessable.
+func (h *BulkHandlers) StudentTemplate(c *gin.Context) {
+	var buf bytes.Buffer
+
+	// The byte-order mark, because this is opened in Excel: without it the
+	// Arabic headings render as Ù…Ø­Ù…Ø¯ and the operator concludes the
+	// template is broken.
+	buf.WriteString(utf8BOM)
+
+	writer := csv.NewWriter(&buf)
+	_ = writer.Write(app.StudentImportColumns)
+	_ = writer.Write([]string{
+		"",              // student_no — left empty, the system issues it
+		"علي محمد حسن",  // full_name
+		"زينب عبد الله", // mother_name
+		"07701234567",   // phone
+		"ali@example.com",
+		"2005-03-14", // birth_date
+		"male",       // gender
+		"2026-09-20", // registered_on
+		"CPE",        // department_code
+		"MORNING",    // study_type_code
+		"1",          // stage
+	})
+	writer.Flush()
+
+	c.Header("Content-Disposition", `attachment; filename="students-template.csv"`)
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", buf.Bytes())
+}
+
+// columnAliases maps what an office actually writes at the top of a column to
+// the name the importer reads.
+//
+// The office does not have a file in this system's format; it has a file, with
+// its own headings, in its own order. Demanding an exact English header means
+// the first thing anybody does with a real spreadsheet is retype its top row,
+// and the second thing is get one of the names slightly wrong and be told the
+// file is missing a column that is plainly there.
+//
+// Order does not matter — the parser reads by name, not by position — so
+// recognising the names is the whole of the problem. Arabic first, because
+// that is what the headings are actually in.
+var columnAliases = map[string]string{
+	// The university number.
+	"رقم الطالب":     app.ColStudentNo,
+	"الرقم الجامعي":  app.ColStudentNo,
+	"الرقم":          app.ColStudentNo,
+	"studentno":      app.ColStudentNo,
+	"student number": app.ColStudentNo,
+	"id":             app.ColStudentNo,
+
+	// The name, and the mother's name that tells two of them apart.
+	"الاسم":         app.ColFullName,
+	"الاسم الكامل":  app.ColFullName,
+	"اسم الطالب":    app.ColFullName,
+	"الاسم الرباعي": app.ColFullName,
+	"name":          app.ColFullName,
+	"fullname":      app.ColFullName,
+	"اسم الام":      app.ColMotherName,
+	"اسم الأم":      app.ColMotherName,
+	"الأم":          app.ColMotherName,
+	"الام":          app.ColMotherName,
+	"mother":        app.ColMotherName,
+	"mother name":   app.ColMotherName,
+	"mothername":    app.ColMotherName,
+
+	// Contact.
+	"الهاتف":            app.ColPhone,
+	"رقم الهاتف":        app.ColPhone,
+	"الموبايل":          app.ColPhone,
+	"mobile":            app.ColPhone,
+	"phone number":      app.ColPhone,
+	"البريد":            app.ColEmail,
+	"الايميل":           app.ColEmail,
+	"الإيميل":           app.ColEmail,
+	"البريد الالكتروني": app.ColEmail,
+	"البريد الإلكتروني": app.ColEmail,
+	"e-mail":            app.ColEmail,
+
+	// Dates and identity.
+	"تاريخ الميلاد":     app.ColBirthDate,
+	"الميلاد":           app.ColBirthDate,
+	"المواليد":          app.ColBirthDate,
+	"birthdate":         app.ColBirthDate,
+	"date of birth":     app.ColBirthDate,
+	"dob":               app.ColBirthDate,
+	"الجنس":             app.ColGender,
+	"النوع":             app.ColGender,
+	"sex":               app.ColGender,
+	"تاريخ التسجيل":     app.ColRegisteredOn,
+	"التسجيل":           app.ColRegisteredOn,
+	"registered":        app.ColRegisteredOn,
+	"registration date": app.ColRegisteredOn,
+
+	// The seat.
+	"القسم":           app.ColDepartmentCode,
+	"رمز القسم":       app.ColDepartmentCode,
+	"department":      app.ColDepartmentCode,
+	"نوع الدراسة":     app.ColStudyTypeCode,
+	"الدراسة":         app.ColStudyTypeCode,
+	"رمز نوع الدراسة": app.ColStudyTypeCode,
+	"study type":      app.ColStudyTypeCode,
+	"studytype":       app.ColStudyTypeCode,
+	"المرحلة":         app.ColStage,
+	"الصف":            app.ColStage,
+	"stage":           app.ColStage,
+	"level":           app.ColStage,
+	"year":            app.ColStage,
+}
+
+// canonicalColumn turns one spreadsheet heading into the name the importer
+// reads, or leaves it alone.
+//
+// Underscores and spaces are treated as the same thing, so "Full Name",
+// "full_name" and "full name" are one heading. An unrecognised name is passed
+// through rather than dropped: the validator will say which required column is
+// missing, and naming the heading the file actually carried is more use than
+// silently discarding it.
+func canonicalColumn(raw string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(raw))
+	trimmed = strings.Join(strings.Fields(strings.ReplaceAll(trimmed, "_", " ")), " ")
+	if canonical, ok := columnAliases[trimmed]; ok {
+		return canonical
+	}
+	// The canonical names themselves arrive here with their underscores
+	// already flattened to spaces.
+	if canonical, ok := columnAliases[strings.ReplaceAll(trimmed, " ", "_")]; ok {
+		return canonical
+	}
+	return strings.ReplaceAll(trimmed, " ", "_")
 }

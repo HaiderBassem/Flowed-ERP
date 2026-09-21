@@ -59,6 +59,14 @@ export function ImportsScreen() {
             e.target.value = "";
           }}
         />
+        {/*
+          The template before the upload, because it is the step that makes the
+          upload work. An office does not have a file in this system's format;
+          it has a file. Handing them the headings is cheaper than a page of
+          documentation describing nine column names — and the importer accepts
+          the Arabic ones anyway, in any order.
+        */}
+        <Button onClick={() => void api.download("/imports/template")}>تنزيل نموذج فارغ</Button>
         <Button
           variant="primary"
           disabled={!can("import.run")}
