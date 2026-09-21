@@ -100,12 +100,6 @@ type SchedulerConfig struct {
 	// closed.
 	IntentExpiryInterval time.Duration
 
-	// Notify and Intents are the services the jobs above drive. Left nil, the
-	// job is not registered at all rather than registered and failing on every
-	// tick.
-	Notify  *NotifyService
-	Intents *IntentService
-
 	// Reconcile runs the invariant checks and keeps what they find. Nil in a
 	// deployment that has not migrated yet, in which case the job falls back
 	// to the older behaviour: check, log, and keep nothing.
@@ -353,22 +347,6 @@ func NewScheduler(
 		})
 	}
 
-	if cfg.Notify != nil {
-		s.jobs = append(s.jobs,
-			job{
-				name:     "reminder_queue",
-				interval: cfg.ReminderQueueInterval,
-				lockKey:  lockKeyReminderQueue,
-				run:      s.runReminderQueue,
-			},
-			job{
-				name:     "reminder_deliver",
-				interval: cfg.ReminderDeliverInterval,
-				lockKey:  lockKeyReminderDeliver,
-				run:      s.runReminderDelivery,
-			})
-	}
-
 	if cfg.AuditShip != nil {
 		s.jobs = append(s.jobs, job{
 			name:     "audit_ship",
@@ -384,15 +362,6 @@ func NewScheduler(
 			interval: cfg.BackupCheckInterval,
 			lockKey:  lockKeyBackup,
 			run:      s.runBackup,
-		})
-	}
-
-	if cfg.Intents != nil {
-		s.jobs = append(s.jobs, job{
-			name:     "payment_intent_expiry",
-			interval: cfg.IntentExpiryInterval,
-			lockKey:  lockKeyIntentExpiry,
-			run:      s.runIntentExpiry,
 		})
 	}
 
@@ -704,56 +673,6 @@ func (s *Scheduler) runSessionPurge(ctx context.Context) (jobResult, error) {
 		slog.Int64("sessions_purged", sessions),
 		slog.Int64("login_attempts_purged", attempts),
 	}}, nil
-}
-
-// runReminderQueue writes the messages today's schedule calls for.
-//
-// A defect is never reported from here: a student with no telephone number is a
-// data-quality problem for the office, not a failure of the job. It is counted
-// and logged so somebody can see it.
-func (s *Scheduler) runReminderQueue(ctx context.Context) (jobResult, error) {
-	result, err := s.cfg.Notify.QueueDueReminders(ctx, 5000)
-	if err != nil {
-		return jobResult{}, err
-	}
-	return jobResult{Attrs: []slog.Attr{
-		slog.Int("considered", result.Considered),
-		slog.Int("queued", result.Queued),
-		slog.Int("skipped", result.Skipped),
-		slog.Int("undeliverable", result.Undeliverable),
-	}}, nil
-}
-
-// runReminderDelivery hands queued messages to the gateway.
-func (s *Scheduler) runReminderDelivery(ctx context.Context) (jobResult, error) {
-	result, err := s.cfg.Notify.DeliverPending(ctx, 200)
-	if err != nil {
-		return jobResult{}, err
-	}
-	// Failures are a defect worth seeing: a gateway that has been refusing all
-	// day is a gateway nobody has noticed.
-	return jobResult{
-		Defect: result.Failed > 0,
-		Attrs: []slog.Attr{
-			slog.Int("attempted", result.Attempted),
-			slog.Int("sent", result.Sent),
-			slog.Int("failed", result.Failed),
-		},
-	}, nil
-}
-
-// runIntentExpiry closes electronic payments whose window passed with no
-// answer.
-//
-// Expiry is not failure: nobody refused the payment and the money may still
-// move, which is why an expired intent stays visible to the settlement import
-// rather than being deleted.
-func (s *Scheduler) runIntentExpiry(ctx context.Context) (jobResult, error) {
-	expired, err := s.cfg.Intents.ExpireStale(ctx, 200)
-	if err != nil {
-		return jobResult{}, err
-	}
-	return jobResult{Attrs: []slog.Attr{slog.Int("intents_expired", expired)}}, nil
 }
 
 // runBackup asks the schedule row whether an automatic backup is due, and

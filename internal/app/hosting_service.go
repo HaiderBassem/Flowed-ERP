@@ -48,10 +48,6 @@ type RegisterHostingInput struct {
 // the one they attend under here, because that is what feeds local pricing; the
 // home institution's context lives on this record and nowhere else.
 func (s *EnrollmentService) RegisterHosting(ctx context.Context, actor shared.Actor, in RegisterHostingInput) (*academic.HostingRecord, error) {
-	if err := actor.RequireAnyRole("RegisterHosting", shared.RoleRegistrar, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var record *academic.HostingRecord
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		enrollment, err := s.deps.Enrollments.GetByID(ctx, in.EnrollmentID)
@@ -156,9 +152,6 @@ type UpdateHostingInput struct {
 // snapshot is frozen — so the correction to an account generated under the old
 // terms is an adjustment, as every other correction is.
 func (s *EnrollmentService) UpdateHosting(ctx context.Context, actor shared.Actor, in UpdateHostingInput) (*academic.HostingRecord, error) {
-	if err := actor.RequireAnyRole("UpdateHosting", shared.RoleRegistrar, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	if strings.TrimSpace(in.Reason) == "" {
 		return nil, shared.Validation("hosting.reason_required",
 			"amending a hosting agreement requires a reason; it decides who collects the fees")
@@ -232,11 +225,6 @@ func (s *EnrollmentService) UpdateHosting(ctx context.Context, actor shared.Acto
 func (s *EnrollmentService) ListHosting(
 	ctx context.Context, actor shared.Actor, yearID *shared.ID, direction *academic.HostingDirection,
 ) ([]*academic.HostingRecord, error) {
-	if err := actor.RequireAnyRole("ListHosting",
-		shared.RoleRegistrar, shared.RoleAcademicOfficer, shared.RoleFinanceManager,
-		shared.RoleAdmin, shared.RoleAuditor, shared.RoleReportViewer); err != nil {
-		return nil, err
-	}
 	return s.deps.Enrollments.ListHostingRecords(ctx, yearID, direction)
 }
 

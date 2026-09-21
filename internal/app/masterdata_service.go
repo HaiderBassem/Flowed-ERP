@@ -48,10 +48,6 @@ type UpdateCollegeInput struct {
 
 // UpdateCollege renames or retires a college.
 func (s *MasterDataService) UpdateCollege(ctx context.Context, actor shared.Actor, in UpdateCollegeInput) (*academic.College, error) {
-	if err := actor.RequireAnyRole("UpdateCollege", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var college *academic.College
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		var err error
@@ -102,10 +98,6 @@ type UpdateDepartmentInput struct {
 
 // UpdateDepartment renames a department, changes its length or retires it.
 func (s *MasterDataService) UpdateDepartment(ctx context.Context, actor shared.Actor, in UpdateDepartmentInput) (*academic.Department, error) {
-	if err := actor.RequireAnyRole("UpdateDepartment", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var department *academic.Department
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		var err error
@@ -174,10 +166,6 @@ type UpdateStudyTypeInput struct {
 
 // UpdateStudyType renames, reorders or retires a study type.
 func (s *MasterDataService) UpdateStudyType(ctx context.Context, actor shared.Actor, in UpdateStudyTypeInput) (*academic.StudyType, error) {
-	if err := actor.RequireAnyRole("UpdateStudyType", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var studyType *academic.StudyType
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		var err error
@@ -227,10 +215,6 @@ type CreateStudentCategoryInput struct {
 // policy row keyed on one — so adding one is how a new pricing rule becomes
 // possible without a branch in code.
 func (s *MasterDataService) CreateStudentCategory(ctx context.Context, actor shared.Actor, in CreateStudentCategoryInput) (*academic.StudentCategory, error) {
-	if err := actor.RequireAnyRole("CreateStudentCategory", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	category, err := academic.NewStudentCategory(in.Code, in.NameAr)
 	if err != nil {
 		return nil, err
@@ -260,10 +244,6 @@ type UpdateStudentCategoryInput struct {
 
 // UpdateStudentCategory renames or retires a category.
 func (s *MasterDataService) UpdateStudentCategory(ctx context.Context, actor shared.Actor, in UpdateStudentCategoryInput) (*academic.StudentCategory, error) {
-	if err := actor.RequireAnyRole("UpdateStudentCategory", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var category *academic.StudentCategory
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		var err error
@@ -312,10 +292,6 @@ type CreatePaymentMethodInput struct {
 
 // CreatePaymentMethod adds a way of paying.
 func (s *MasterDataService) CreatePaymentMethod(ctx context.Context, actor shared.Actor, in CreatePaymentMethodInput) (*payment.Method, error) {
-	if err := actor.RequireAnyRole("CreatePaymentMethod", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	method, err := payment.NewMethod(in.Code, in.NameAr, in.IsCash, in.RequiresReference)
 	if err != nil {
 		return nil, err
@@ -355,10 +331,6 @@ type UpdatePaymentMethodInput struct {
 // retroactively would reclassify collections that have already been counted —
 // and the shift that balanced last week would stop balancing.
 func (s *MasterDataService) UpdatePaymentMethod(ctx context.Context, actor shared.Actor, in UpdatePaymentMethodInput) (*payment.Method, error) {
-	if err := actor.RequireAnyRole("UpdatePaymentMethod", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var method *payment.Method
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		var err error
@@ -410,106 +382,6 @@ func (s *MasterDataService) UpdatePaymentMethod(ctx context.Context, actor share
 		return nil, err
 	}
 	return method, nil
-}
-
-// CreateCashierDeskInput opens a window.
-type CreateCashierDeskInput struct {
-	Code      string
-	NameAr    string
-	CollegeID *shared.ID
-}
-
-// CreateCashierDesk opens a window money can be taken at.
-//
-// Until now a desk could only be added with a database session, which meant a
-// new cashier could not start work without one — receipt series run per desk
-// and a cashier signs in at one.
-func (s *MasterDataService) CreateCashierDesk(ctx context.Context, actor shared.Actor, in CreateCashierDeskInput) (*payment.CashierDesk, error) {
-	if err := actor.RequireAnyRole("CreateCashierDesk", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
-	desk, err := payment.NewCashierDesk(in.Code, in.NameAr, in.CollegeID)
-	if err != nil {
-		return nil, err
-	}
-
-	err = s.deps.Tx.Write(ctx, func(ctx context.Context) error {
-		if in.CollegeID != nil {
-			if _, err := s.deps.Reference.GetCollege(ctx, *in.CollegeID); err != nil {
-				return err
-			}
-		}
-		if err := s.deps.Reference.CreateCashierDesk(ctx, desk); err != nil {
-			return err
-		}
-		return s.recordMasterChange(ctx, actor, "cashier_desk", desk.ID, nil, snapshotOf(desk), "", nil)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return desk, nil
-}
-
-// UpdateCashierDeskInput renames a desk or closes it.
-type UpdateCashierDeskInput struct {
-	ID        shared.ID
-	NameAr    *string
-	CollegeID *shared.ID
-	IsActive  *bool
-	Reason    string
-}
-
-// UpdateCashierDesk renames a desk or closes it.
-//
-// Closing does not disturb the receipt series it issued: the numbers stay
-// where they are and the series stays queryable, which is what a reconciliation
-// against a paper book needs.
-func (s *MasterDataService) UpdateCashierDesk(ctx context.Context, actor shared.Actor, in UpdateCashierDeskInput) (*payment.CashierDesk, error) {
-	if err := actor.RequireAnyRole("UpdateCashierDesk", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
-	var desk *payment.CashierDesk
-	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
-		var err error
-		desk, err = s.deps.Reference.GetCashierDesk(ctx, in.ID)
-		if err != nil {
-			return err
-		}
-		before := snapshotOf(desk)
-
-		if in.NameAr != nil {
-			if strings.TrimSpace(*in.NameAr) == "" {
-				return shared.Validation("desk.name_required", "a desk needs a name")
-			}
-			desk.NameAr = strings.TrimSpace(*in.NameAr)
-		}
-		if in.CollegeID != nil {
-			if _, err := s.deps.Reference.GetCollege(ctx, *in.CollegeID); err != nil {
-				return err
-			}
-			desk.CollegeID = in.CollegeID
-		}
-		if in.IsActive != nil {
-			desk.IsActive = *in.IsActive
-		}
-
-		if err := s.deps.Reference.UpdateCashierDesk(ctx, desk); err != nil {
-			return err
-		}
-		return s.recordMasterChange(ctx, actor, "cashier_desk", desk.ID, before, snapshotOf(desk), in.Reason, nil)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return desk, nil
-}
-
-// ListCashierDesks returns the windows money can be taken at.
-func (s *MasterDataService) ListCashierDesks(ctx context.Context, actor shared.Actor, activeOnly bool) ([]*payment.CashierDesk, error) {
-	// Readable by anyone signed in: a cashier's sign-in screen offers the list.
-	return s.deps.Reference.ListCashierDesks(ctx, activeOnly)
 }
 
 // ListStudentCategories returns the categories fee policy resolves against.

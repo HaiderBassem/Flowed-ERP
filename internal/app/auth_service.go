@@ -12,8 +12,8 @@ import (
 
 // TokenIssuer is the subset of the platform token service the login flow needs.
 type TokenIssuer interface {
-	IssuePair(u *port.User, deskID *shared.ID) (auth.Pair, error)
-	RenewFromRefresh(u *port.User, deskID *shared.ID, sessionID string) (string, time.Time, error)
+	IssuePair(u *port.User) (auth.Pair, error)
+	RenewFromRefresh(u *port.User, sessionID string) (string, time.Time, error)
 	ParseRefresh(token string) (*auth.Claims, error)
 	RefreshTTL() time.Duration
 }
@@ -52,11 +52,10 @@ func NewAuthService(
 
 // LoginInput is one sign-in attempt.
 type LoginInput struct {
-	Username      string
-	Password      string
-	CashierDeskID *shared.ID
-	IPAddress     string
-	UserAgent     string
+	Username  string
+	Password  string
+	IPAddress string
+	UserAgent string
 }
 
 // LoginResult carries the issued credentials and the account behind them.
@@ -129,17 +128,7 @@ func (s *AuthService) Login(ctx context.Context, in LoginInput) (*LoginResult, e
 		return nil, invalidCredentials()
 	}
 
-	// A cashier without a desk cannot take cash: receipt series run per year
-	// per desk, and a collection with no desk has no paper book to reconcile
-	// against.
-	if user.HasRole(shared.RoleCashier) && in.CashierDeskID == nil {
-		s.recordAttempt(ctx, in, &user.ID, false, "desk_required", now)
-		return nil, shared.Validation("auth.cashier_desk_required",
-			"a cashier must sign in at a specific desk; receipt numbering is per desk").
-			WithDetail("field", "cashier_desk_id")
-	}
-
-	pair, err := s.tokens.IssuePair(user, in.CashierDeskID)
+	pair, err := s.tokens.IssuePair(user)
 	if err != nil {
 		return nil, err
 	}
@@ -150,24 +139,22 @@ func (s *AuthService) Login(ctx context.Context, in LoginInput) (*LoginResult, e
 	}
 
 	actor := shared.Actor{
-		UserID:        user.ID,
-		Username:      user.Username,
-		Roles:         user.Roles,
-		CashierDeskID: in.CashierDeskID,
-		SessionID:     pair.SessionID,
-		IPAddress:     in.IPAddress,
-		Scope:         user.Scope(),
+		UserID:    user.ID,
+		Username:  user.Username,
+		Roles:     user.Roles,
+		SessionID: pair.SessionID,
+		IPAddress: in.IPAddress,
+		Scope:     user.Scope(),
 	}
 
 	err = s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		if err := s.sessions.Create(ctx, &port.Session{
-			ID:            sessionID,
-			UserID:        user.ID,
-			IssuedAt:      now,
-			ExpiresAt:     pair.RefreshExpiresAt,
-			IPAddress:     textOrNil(in.IPAddress),
-			UserAgent:     textOrNil(in.UserAgent),
-			CashierDeskID: in.CashierDeskID,
+			ID:        sessionID,
+			UserID:    user.ID,
+			IssuedAt:  now,
+			ExpiresAt: pair.RefreshExpiresAt,
+			IPAddress: textOrNil(in.IPAddress),
+			UserAgent: textOrNil(in.UserAgent),
 		}); err != nil {
 			return err
 		}
@@ -336,16 +323,7 @@ func (s *AuthService) Refresh(ctx context.Context, in RefreshInput) (*RefreshRes
 		return nil, shared.Unauthorized("auth.account_locked", "this account is locked")
 	}
 
-	var deskID *shared.ID
-	if claims.CashierDeskID != nil {
-		parsed, err := shared.ParseID(*claims.CashierDeskID)
-		if err != nil {
-			return nil, shared.Unauthorized("auth.invalid_token", "the token carries an invalid desk")
-		}
-		deskID = &parsed
-	}
-
-	access, expiresAt, err := s.tokens.RenewFromRefresh(user, deskID, claims.SessionID)
+	access, expiresAt, err := s.tokens.RenewFromRefresh(user, claims.SessionID)
 	if err != nil {
 		return nil, err
 	}

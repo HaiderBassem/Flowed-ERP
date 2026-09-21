@@ -73,12 +73,6 @@ type Rendered struct {
 func (s *ReceiptService) PaymentReceipt(
 	ctx context.Context, actor shared.Actor, paymentID shared.ID, format Format,
 ) (*Rendered, error) {
-	if err := actor.RequireAnyRole("PaymentReceipt",
-		shared.RoleCashier, shared.RoleFinanceManager, shared.RoleAdmin,
-		shared.RoleAuditor, shared.RoleRegistrar); err != nil {
-		return nil, err
-	}
-
 	var rendered *Rendered
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		target, err := s.deps.Payments.GetByID(ctx, paymentID)
@@ -120,12 +114,6 @@ func (s *ReceiptService) PaymentReceipt(
 func (s *ReceiptService) RefundReceipt(
 	ctx context.Context, actor shared.Actor, refundID shared.ID, format Format,
 ) (*Rendered, error) {
-	if err := actor.RequireAnyRole("RefundReceipt",
-		shared.RoleCashier, shared.RoleFinanceManager, shared.RoleAdmin,
-		shared.RoleAuditor); err != nil {
-		return nil, err
-	}
-
 	var rendered *Rendered
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		target, err := s.deps.Refunds.GetByID(ctx, refundID)

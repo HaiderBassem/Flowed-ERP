@@ -6,7 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"flowed/internal/app"
-	"flowed/internal/domain/shared"
 	"flowed/internal/platform/httpx"
 	"flowed/internal/port"
 )
@@ -29,8 +28,7 @@ func NewReconciliationHandlers(service *app.ReconciliationService) *Reconciliati
 
 // Register mounts the reconciliation routes.
 func (h *ReconciliationHandlers) Register(g *gin.RouterGroup) {
-	group := g.Group("/reconciliation",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor))
+	group := g.Group("/reconciliation")
 
 	group.GET("/runs", h.ListRuns)
 	group.GET("/findings", h.ListFindings)

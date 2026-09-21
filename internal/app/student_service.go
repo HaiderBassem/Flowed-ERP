@@ -67,10 +67,6 @@ type RegisterStudentResult struct {
 // past. Creating a second record for one person splits their payment history
 // in a way that is painful to unpick later.
 func (s *StudentService) RegisterStudent(ctx context.Context, actor shared.Actor, in RegisterStudentInput) (*RegisterStudentResult, error) {
-	if err := actor.RequireAnyRole("RegisterStudent", shared.RoleRegistrar, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var result *RegisterStudentResult
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		duplicates, err := s.deps.Students.FindPossibleDuplicates(ctx, in.FullName, in.MotherName, in.BirthDate)
@@ -182,14 +178,9 @@ type RegisterStudentWithPlacementResult struct {
 // academic year, and — only when the actor also holds finance authority —
 // prices it immediately, all as one request.
 //
-// This does not fold three authorities into one. It calls RegisterStudent,
-// then EnrollStudent, then, conditionally, GenerateFinancialAccount — the same
-// three commands available separately, each still running its own
-// RequireAnyRole. A registrar without finance authority gets the identity and
-// the enrollment; the response's PricingPending says a finance manager
-// finishes the rest, exactly as generating an account has always been kept
-// separate from enrolling (see EnrollStudent and the account-generation
-// screen) rather than something enrolling triggers on its own.
+// It calls RegisterStudent, then EnrollStudent, then GenerateFinancialAccount
+// — the same three commands that remain available separately, so a student
+// registered here is indistinguishable from one registered in three steps.
 //
 // The three steps run as nested transactions (savepoints) inside one outer
 // write, so a failure in placement rolls back the identity too — but a
@@ -199,10 +190,6 @@ type RegisterStudentWithPlacementResult struct {
 func (s *StudentService) RegisterStudentWithPlacement(
 	ctx context.Context, actor shared.Actor, in RegisterStudentWithPlacementInput,
 ) (*RegisterStudentWithPlacementResult, error) {
-	if err := actor.RequireAnyRole("RegisterStudentWithPlacement",
-		shared.RoleRegistrar, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	if s.enrollments == nil || s.accounts == nil {
 		return nil, shared.Internal("student.placement_not_configured", nil,
 			"this server was not wired for combined student intake")
@@ -245,12 +232,6 @@ func (s *StudentService) RegisterStudentWithPlacement(
 		}
 		result.Enrollment = enrolled.Enrollment
 
-		if !actor.HasAnyRole(shared.RoleFinanceManager, shared.RoleAdmin) {
-			result.PricingPending = true
-			result.PricingNote = "pricing requires finance authority; a finance manager can generate the account from this enrollment"
-			return nil
-		}
-
 		priced, err := s.accounts.GenerateFinancialAccount(ctx, actor, GenerateAccountInput{
 			EnrollmentID: enrolled.Enrollment.ID,
 		})
@@ -291,11 +272,6 @@ type UpdateContactInput struct {
 // swapped just before a refund is exactly the kind of thing an investigation
 // wants to see.
 func (s *StudentService) UpdateContactDetails(ctx context.Context, actor shared.Actor, in UpdateContactInput) (*student.Student, error) {
-	if err := actor.RequireAnyRole("UpdateContactDetails",
-		shared.RoleRegistrar, shared.RoleAcademicOfficer, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var person *student.Student
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		var err error
@@ -354,11 +330,6 @@ func (s *StudentService) UpdateContactDetails(ctx context.Context, actor shared.
 // they were named in 2024, and this is where a clerk checks that the name on
 // the paper in front of them belonged to this student at that time.
 func (s *StudentService) IdentityHistory(ctx context.Context, actor shared.Actor, studentID shared.ID) ([]*student.IdentityVersion, error) {
-	if err := actor.RequireAnyRole("IdentityHistory",
-		shared.RoleRegistrar, shared.RoleAdmin, shared.RoleAuditor,
-		shared.RoleAcademicOfficer, shared.RoleFinanceManager); err != nil {
-		return nil, err
-	}
 	return s.deps.Students.IdentityHistory(ctx, studentID)
 }
 
@@ -384,9 +355,6 @@ type RecordIdentityChangeInput struct {
 // when it was printed. A system that simply updated the row would make every
 // historical document unreproducible.
 func (s *StudentService) RecordIdentityChange(ctx context.Context, actor shared.Actor, in RecordIdentityChangeInput) (*student.Student, error) {
-	if err := actor.RequireAnyRole("RecordIdentityChange", shared.RoleRegistrar, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	if in.CourtDecisionNo == "" {
 		return nil, shared.Validation("student.court_decision_required",
 			"a legal identity change requires the court decision reference")

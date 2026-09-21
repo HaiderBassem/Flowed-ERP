@@ -80,9 +80,6 @@ type CreateUserResult struct {
 
 // CreateUser registers an operator.
 func (s *UserService) CreateUser(ctx context.Context, actor shared.Actor, in CreateUserInput) (*CreateUserResult, error) {
-	if err := actor.RequireAnyRole("CreateUser", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	username := strings.ToLower(strings.TrimSpace(in.Username))
 	if err := validateUsername(username); err != nil {
 		return nil, err
@@ -184,9 +181,6 @@ type SetRolesInput struct {
 // themselves the cashier role. Somebody else has to do it, and the audit trail
 // then names two people.
 func (s *UserService) SetRoles(ctx context.Context, actor shared.Actor, in SetRolesInput) (*port.User, error) {
-	if err := actor.RequireAnyRole("SetRoles", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	if in.UserID == actor.UserID {
 		return nil, shared.Forbidden("user.self_role_change",
 			"an operator cannot change their own roles").
@@ -255,9 +249,6 @@ type SetScopeInput struct {
 
 // SetScope replaces an operator's organisational grants.
 func (s *UserService) SetScope(ctx context.Context, actor shared.Actor, in SetScopeInput) (*port.User, error) {
-	if err := actor.RequireAnyRole("SetScope", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	if in.UserID == actor.UserID {
 		return nil, shared.Forbidden("user.self_scope_change",
 			"an operator cannot widen their own scope").
@@ -339,9 +330,6 @@ type SetActiveInput struct {
 // browser keeps working for the rest of its lifetime — which is precisely the
 // window somebody who has just been dismissed would use.
 func (s *UserService) SetActive(ctx context.Context, actor shared.Actor, in SetActiveInput) (*port.User, error) {
-	if err := actor.RequireAnyRole("SetActive", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	if in.UserID == actor.UserID && !in.Active {
 		return nil, shared.Forbidden("user.self_disable",
 			"an operator cannot disable their own account").
@@ -423,10 +411,6 @@ type ResetPasswordResult struct {
 // receipt would name the cashier — so the window in which that is possible is
 // closed at the holder's next sign-in rather than left open indefinitely.
 func (s *UserService) ResetPassword(ctx context.Context, actor shared.Actor, in ResetPasswordInput) (*ResetPasswordResult, error) {
-	if err := actor.RequireAnyRole("ResetPassword", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var (
 		user      *port.User
 		password  = in.Password
@@ -564,9 +548,6 @@ func (s *UserService) ChangeOwnPassword(ctx context.Context, actor shared.Actor,
 
 // ListUsers returns the operators.
 func (s *UserService) ListUsers(ctx context.Context, actor shared.Actor, activeOnly bool) ([]*port.User, error) {
-	if err := actor.RequireAnyRole("ListUsers", shared.RoleAdmin, shared.RoleAuditor); err != nil {
-		return nil, err
-	}
 	return s.users.List(ctx, activeOnly)
 }
 
@@ -575,9 +556,6 @@ func (s *UserService) GetUser(ctx context.Context, actor shared.Actor, id shared
 	// An operator may always read their own record: the UI shows their roles,
 	// their scope and whether their password must be changed.
 	if id != actor.UserID {
-		if err := actor.RequireAnyRole("GetUser", shared.RoleAdmin, shared.RoleAuditor); err != nil {
-			return nil, err
-		}
 	}
 	return s.users.GetByID(ctx, id)
 }
@@ -585,9 +563,6 @@ func (s *UserService) GetUser(ctx context.Context, actor shared.Actor, id shared
 // ListSessions returns an operator's sign-ins.
 func (s *UserService) ListSessions(ctx context.Context, actor shared.Actor, userID shared.ID, includeEnded bool) ([]*port.Session, error) {
 	if userID != actor.UserID {
-		if err := actor.RequireAnyRole("ListSessions", shared.RoleAdmin, shared.RoleAuditor); err != nil {
-			return nil, err
-		}
 	}
 	return s.session.ListForUser(ctx, userID, includeEnded)
 }
@@ -600,9 +575,6 @@ func (s *UserService) RevokeSession(ctx context.Context, actor shared.Actor, ses
 			return err
 		}
 		if session.UserID != actor.UserID {
-			if err := actor.RequireAnyRole("RevokeSession", shared.RoleAdmin); err != nil {
-				return err
-			}
 		}
 		if reason == "" {
 			reason = "revoked by operator"
@@ -649,9 +621,6 @@ func (s *UserService) RevokeOtherSessions(ctx context.Context, actor shared.Acto
 // LoginHistory returns recent sign-in attempts against an account.
 func (s *UserService) LoginHistory(ctx context.Context, actor shared.Actor, userID shared.ID, limit int) ([]port.LoginAttempt, error) {
 	if userID != actor.UserID {
-		if err := actor.RequireAnyRole("LoginHistory", shared.RoleAdmin, shared.RoleAuditor); err != nil {
-			return nil, err
-		}
 	}
 	return s.logins.ListForUser(ctx, userID, limit)
 }

@@ -37,15 +37,10 @@ type RouterDeps struct {
 	Reports     *ReportHandlers
 	ConfigAdmin *ConfigHandlers
 	Bulk        *BulkHandlers
-	Cashier     *CashierHandlers
 	Receipts    *ReceiptHandlers
 	UserAdmin   *UserHandlers
 	Lifecycle   *LifecycleHandlers
 	MasterData  *MasterDataHandlers
-	Settlement  *SettlementHandlers
-	Intents     *IntentHandlers
-	Sponsors    *SponsorHandlers
-	Portal      *PortalHandlers
 	// AuditArchive is always mounted, even when no destination is configured:
 	// the routes then answer with what to set rather than 404, so "is the
 	// trail archived here" is an answerable question.
@@ -201,11 +196,6 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	deps.Reports.Register(secured)
 	deps.ConfigAdmin.Register(secured)
 	deps.Bulk.Register(secured)
-	deps.Cashier.Register(secured)
-	// The desk list is also mounted unauthenticated: a cashier must name their
-	// desk to sign in, so the sign-in form has to offer the list before anyone
-	// holds a token. See CashierHandlers.RegisterPublic.
-	deps.Cashier.RegisterPublic(engine)
 	deps.Receipts.Register(secured)
 	if deps.UserAdmin != nil {
 		deps.UserAdmin.Register(secured)
@@ -216,18 +206,6 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	if deps.MasterData != nil {
 		deps.MasterData.Register(secured)
 	}
-	if deps.Settlement != nil {
-		deps.Settlement.Register(secured)
-	}
-	if deps.Sponsors != nil {
-		deps.Sponsors.Register(secured)
-	}
-	if deps.Portal != nil {
-		deps.Portal.Register(secured)
-		// Statement verification is public: an office checking a document a
-		// student handed them has no account here and should not need one.
-		deps.Portal.RegisterPublic(engine)
-	}
 	if deps.AuditArchive != nil {
 		deps.AuditArchive.Register(secured)
 	}
@@ -236,13 +214,6 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	}
 	if deps.Backups != nil {
 		deps.Backups.Register(secured)
-	}
-	if deps.Intents != nil {
-		deps.Intents.Register(secured)
-		// Provider callbacks are mounted outside authentication: a provider
-		// holds no credential of ours and never should. Their authority is the
-		// signature on the body, verified before any field is read.
-		deps.Intents.RegisterWebhooks(engine)
 	}
 
 	return engine
@@ -421,7 +392,6 @@ func registerStudents(g *gin.RouterGroup, h *Handlers) {
 	students.GET("/:id/discounts", h.StudentDiscounts)
 
 	students.POST("",
-		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAdmin),
 		h.RegisterStudent)
 	// Identity, academic placement, and — for an actor who also holds finance
 	// authority — initial pricing, in one request. The role gate here is the
@@ -429,16 +399,13 @@ func registerStudents(g *gin.RouterGroup, h *Handlers) {
 	// each of the three composed commands' own authority again before running
 	// it, and prices only when the actor qualifies for that too.
 	students.POST("/intake",
-		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAdmin),
 		h.RegisterStudentWithPlacement)
 	students.PATCH("/:id/contact",
-		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAcademicOfficer, shared.RoleAdmin),
 		h.UpdateStudentContact)
 
 	// The audit trail is the auditor's, and an administrator's. A cashier who
 	// could read it could also learn which of their corrections were noticed.
 	students.GET("/:id/audit",
-		httpx.RequireRoles(shared.RoleAuditor, shared.RoleAdmin, shared.RoleFinanceManager),
 		h.StudentAudit)
 }
 
@@ -448,16 +415,12 @@ func registerEnrollments(g *gin.RouterGroup, h *Handlers) {
 	enrollments.GET("/:id", h.GetEnrollment)
 
 	enrollments.POST("",
-		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAcademicOfficer, shared.RoleAdmin),
 		h.EnrollStudent)
 	enrollments.POST("/:id/supersede",
-		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAdmin),
 		h.SupersedeEnrollment)
 	enrollments.POST("/:id/result",
-		httpx.RequireRoles(shared.RoleAcademicOfficer, shared.RoleAdmin),
 		h.RecordResult)
 	enrollments.POST("/:id/status",
-		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAcademicOfficer, shared.RoleAdmin),
 		h.ChangeEnrollmentStatus)
 }
 
@@ -470,12 +433,10 @@ func registerAccounts(g *gin.RouterGroup, h *Handlers, idem port.IdempotencyRepo
 	// generation that created a second account would give one enrollment two
 	// sets of prices.
 	accounts.POST("",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
 		httpx.Idempotency(idem, "GenerateFinancialAccount"),
 		h.GenerateAccount)
 
 	accounts.POST("/adjustments",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
 		httpx.Idempotency(idem, "PostAdjustment"),
 		h.PostAdjustment)
 }
@@ -486,7 +447,6 @@ func registerPayments(g *gin.RouterGroup, h *Handlers, idem port.IdempotencyRepo
 	payments.GET("/:id", h.GetPayment)
 
 	payments.POST("",
-		httpx.RequireRoles(shared.RoleCashier, shared.RoleFinanceManager),
 		httpx.Idempotency(idem, "RecordPayment"),
 		h.RecordPayment)
 
@@ -496,13 +456,10 @@ func registerPayments(g *gin.RouterGroup, h *Handlers, idem port.IdempotencyRepo
 	// fraud-detection report in the system.
 	voids := g.Group("/voids")
 	voids.GET("/pending",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor),
 		h.ListPendingVoids)
 	voids.POST("",
-		httpx.RequireRoles(shared.RoleCashier, shared.RoleFinanceManager, shared.RoleAdmin),
 		h.RequestVoid)
 	voids.POST("/:id/execute",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
 		httpx.Idempotency(idem, "ExecuteVoid"),
 		h.ExecuteVoid)
 }
@@ -511,20 +468,15 @@ func registerRefunds(g *gin.RouterGroup, h *Handlers, idem port.IdempotencyRepos
 	refunds := g.Group("/refunds")
 
 	refunds.GET("/pending",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor),
 		h.ListPendingRefunds)
 
 	refunds.POST("",
-		httpx.RequireRoles(shared.RoleCashier, shared.RoleFinanceManager, shared.RoleAdmin),
 		h.RequestRefund)
 	refunds.POST("/:id/approve",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
 		h.ApproveRefund)
 	refunds.POST("/:id/reject",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
 		h.RejectRefund)
 	refunds.POST("/:id/post",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
 		httpx.Idempotency(idem, "PostRefund"),
 		h.PostRefund)
 }
@@ -533,20 +485,15 @@ func registerDiscounts(g *gin.RouterGroup, h *Handlers) {
 	discounts := g.Group("/discounts")
 
 	discounts.POST("/assignments",
-		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAcademicOfficer,
-			shared.RoleFinanceManager, shared.RoleAdmin),
 		h.AssignDiscount)
 
 	// Approving a discount is deciding not to collect money, so it sits with
 	// finance — and the domain refuses it from whoever requested the grant.
 	discounts.POST("/assignments/:id/approve",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
 		h.ApproveDiscount)
 	discounts.POST("/assignments/:id/revoke",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
 		h.RevokeDiscount)
 	discounts.POST("/applications/:id/confirm",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
 		h.ConfirmDiscountApplication)
 }
 
@@ -555,21 +502,19 @@ func registerYears(g *gin.RouterGroup, h *Handlers) {
 
 	years.GET("", h.ListYears)
 
-	years.POST("", httpx.RequireRoles(shared.RoleAdmin), h.CreateYear)
-	years.POST("/:id/open", httpx.RequireRoles(shared.RoleAdmin), h.OpenYear)
+	years.POST("", h.CreateYear)
+	years.POST("/:id/open", h.OpenYear)
 
 	// Shutting the books is finance's call; declaring the academic year over
 	// is not, so the two closes carry different authority.
 	years.POST("/:id/close-financially",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
 		h.CloseYearFinancially)
-	years.POST("/:id/close", httpx.RequireRoles(shared.RoleAdmin), h.CloseYear)
-	years.POST("/:id/reopen", httpx.RequireRoles(shared.RoleAdmin), h.ReopenYear)
+	years.POST("/:id/close", h.CloseYear)
+	years.POST("/:id/reopen", h.ReopenYear)
 }
 
 func registerOversight(g *gin.RouterGroup, h *Handlers) {
 	oversight := g.Group("/oversight")
-	oversight.Use(httpx.RequireRoles(shared.RoleAuditor, shared.RoleAdmin, shared.RoleFinanceManager))
 
 	oversight.GET("/audit/verify", h.VerifyAuditChain)
 	oversight.GET("/reconciliation", h.ReconciliationReport)

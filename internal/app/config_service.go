@@ -97,11 +97,6 @@ type DefineFeePolicyInput struct {
 // resolution, so a half-entered price list cannot charge anybody while the
 // person entering it goes to lunch.
 func (s *ConfigService) DefineFeePolicy(ctx context.Context, actor shared.Actor, in DefineFeePolicyInput) (*billing.FeePolicy, error) {
-	if err := actor.RequireAnyRole("DefineFeePolicy",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	policyCode := strings.TrimSpace(in.PolicyCode)
 	if policyCode == "" {
 		return nil, shared.Validation("fee_policy.code_required",
@@ -205,11 +200,6 @@ func (s *ConfigService) DefineFeePolicy(ctx context.Context, actor shared.Actor,
 // move again — so raising tuition next week is a new policy, and last week's
 // accounts remain explainable by the row that produced them.
 func (s *ConfigService) PublishFeePolicy(ctx context.Context, actor shared.Actor, policyID shared.ID) (*billing.FeePolicy, error) {
-	if err := actor.RequireAnyRole("PublishFeePolicy",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var policy *billing.FeePolicy
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)
@@ -268,11 +258,6 @@ func (s *ConfigService) PublishFeePolicy(ctx context.Context, actor shared.Actor
 // this exact version, not to "whichever policy currently resolves this
 // scope".
 func (s *ConfigService) RetireFeePolicy(ctx context.Context, actor shared.Actor, policyID shared.ID) (*billing.FeePolicy, error) {
-	if err := actor.RequireAnyRole("RetireFeePolicy",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var policy *billing.FeePolicy
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)
@@ -340,11 +325,6 @@ type SetStudyTypeInitialDebtInput struct {
 // retire-then-publish, in one transaction, so resolution is never briefly
 // left with two published policies at this scope, nor with none.
 func (s *ConfigService) SetStudyTypeInitialDebt(ctx context.Context, actor shared.Actor, in SetStudyTypeInitialDebtInput) (*billing.FeePolicy, error) {
-	if err := actor.RequireAnyRole("SetStudyTypeInitialDebt",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	components, err := s.buildComponents([]FeeComponentInput{{
 		Code:   StudyTypeDebtComponentCode,
 		NameAr: "التزام ابتدائي",
@@ -462,19 +442,11 @@ func (s *ConfigService) SetStudyTypeInitialDebt(ctx context.Context, actor share
 // ListFeePolicies returns every policy defined for a year, draft and published
 // alike, with their components.
 func (s *ConfigService) ListFeePolicies(ctx context.Context, actor shared.Actor, yearID shared.ID) ([]*billing.FeePolicy, error) {
-	if err := actor.RequireAnyRole("ListFeePolicies",
-		shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor, shared.RoleRegistrar); err != nil {
-		return nil, err
-	}
 	return s.deps.FeePolicies.List(ctx, yearID)
 }
 
 // GetFeePolicy returns one policy with its components.
 func (s *ConfigService) GetFeePolicy(ctx context.Context, actor shared.Actor, policyID shared.ID) (*billing.FeePolicy, error) {
-	if err := actor.RequireAnyRole("GetFeePolicy",
-		shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor, shared.RoleRegistrar); err != nil {
-		return nil, err
-	}
 	return s.deps.FeePolicies.GetByID(ctx, policyID)
 }
 
@@ -529,11 +501,6 @@ type FeeResolutionPreview struct {
 // mirror: the weights are powers of two, so the score the database generates
 // and the score the domain computes cannot disagree.
 func (s *ConfigService) PreviewFeeResolution(ctx context.Context, actor shared.Actor, in FeeResolutionInput) (*FeeResolutionPreview, error) {
-	if err := actor.RequireAnyRole("PreviewFeeResolution",
-		shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor, shared.RoleRegistrar); err != nil {
-		return nil, err
-	}
-
 	var preview *FeeResolutionPreview
 	// One read transaction across the category lookup and the policy list, so
 	// a policy published between the two queries cannot produce a ranking that
@@ -850,11 +817,6 @@ type DefineInstallmentTemplateInput struct {
 // that matters runs at publication, where the administrator is told the total
 // they actually typed.
 func (s *ConfigService) DefineInstallmentTemplate(ctx context.Context, actor shared.Actor, in DefineInstallmentTemplateInput) (*billing.InstallmentTemplate, error) {
-	if err := actor.RequireAnyRole("DefineInstallmentTemplate",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	code := strings.ToUpper(strings.TrimSpace(in.Code))
 	if !configCodePattern.MatchString(code) {
 		return nil, shared.Validation("installment_template.invalid_code",
@@ -950,11 +912,6 @@ func (s *ConfigService) DefineInstallmentTemplate(ctx context.Context, actor sha
 // one administrator one correction — provided the error tells them the total
 // they actually entered, which is why the message names it.
 func (s *ConfigService) PublishInstallmentTemplate(ctx context.Context, actor shared.Actor, templateID shared.ID) (*billing.InstallmentTemplate, error) {
-	if err := actor.RequireAnyRole("PublishInstallmentTemplate",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var template *billing.InstallmentTemplate
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)
@@ -1004,11 +961,6 @@ func (s *ConfigService) PublishInstallmentTemplate(ctx context.Context, actor sh
 // scope is claimed until something retires it (uq_installment_template_scope),
 // so changing a plan is retire-then-publish, never an edit.
 func (s *ConfigService) RetireInstallmentTemplate(ctx context.Context, actor shared.Actor, templateID shared.ID) (*billing.InstallmentTemplate, error) {
-	if err := actor.RequireAnyRole("RetireInstallmentTemplate",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var template *billing.InstallmentTemplate
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)
@@ -1050,19 +1002,11 @@ func (s *ConfigService) RetireInstallmentTemplate(ctx context.Context, actor sha
 // ListInstallmentTemplates returns the templates applicable to a year, or
 // every template when the year is nil.
 func (s *ConfigService) ListInstallmentTemplates(ctx context.Context, actor shared.Actor, yearID *shared.ID) ([]*billing.InstallmentTemplate, error) {
-	if err := actor.RequireAnyRole("ListInstallmentTemplates",
-		shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor, shared.RoleRegistrar); err != nil {
-		return nil, err
-	}
 	return s.deps.Templates.List(ctx, yearID)
 }
 
 // GetInstallmentTemplate returns one template with its lines.
 func (s *ConfigService) GetInstallmentTemplate(ctx context.Context, actor shared.Actor, templateID shared.ID) (*billing.InstallmentTemplate, error) {
-	if err := actor.RequireAnyRole("GetInstallmentTemplate",
-		shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor, shared.RoleRegistrar); err != nil {
-		return nil, err
-	}
 	return s.deps.Templates.GetByID(ctx, templateID)
 }
 
@@ -1115,11 +1059,6 @@ func compactID(id shared.ID) string {
 // publishing a new one, all in one transaction, exactly the pattern
 // SetStudyTypeInitialDebt already uses for the fee side.
 func (s *ConfigService) SetStudyTypeInstallmentPlan(ctx context.Context, actor shared.Actor, in SetStudyTypeInstallmentPlanInput) (*billing.InstallmentTemplate, error) {
-	if err := actor.RequireAnyRole("SetStudyTypeInstallmentPlan",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	lineInputs := make([]TemplateLineInput, len(in.Lines))
 	for i, line := range in.Lines {
 		amount := line.Amount
@@ -1488,11 +1427,6 @@ type DefineDiscountInput struct {
 // so raising a rate is an insert rather than an update, and no computed
 // history can be reached by editing configuration.
 func (s *ConfigService) DefineDiscount(ctx context.Context, actor shared.Actor, in DefineDiscountInput) (*discount.Definition, error) {
-	if err := actor.RequireAnyRole("DefineDiscount",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	category := in.Category
 	if category == "" {
 		category = discount.CategoryOther
@@ -1575,10 +1509,6 @@ type AddDiscountVersionInput struct {
 // Drafts are inert: no grant can point at one, so a rate can be prepared,
 // reviewed and corrected without any account seeing it.
 func (s *ConfigService) AddDiscountVersion(ctx context.Context, actor shared.Actor, in AddDiscountVersionInput) (*discount.DefinitionVersion, error) {
-	if err := actor.RequireAnyRole("AddDiscountVersion",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	if in.ApprovalRole != nil && !in.ApprovalRole.Valid() {
 		return nil, shared.Validation("discount.invalid_approval_role",
 			"%q is not a role this system recognises", *in.ApprovalRole)
@@ -1672,11 +1602,6 @@ func (s *ConfigService) AddDiscountVersion(ctx context.Context, actor shared.Act
 // not to collect, and one person setting a rate and putting it in force alone
 // is the shape of every quiet leak.
 func (s *ConfigService) PublishDiscountVersion(ctx context.Context, actor shared.Actor, versionID shared.ID) (*discount.DefinitionVersion, error) {
-	if err := actor.RequireAnyRole("PublishDiscountVersion",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var version *discount.DefinitionVersion
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)
@@ -1740,20 +1665,11 @@ type DiscountDetail struct {
 
 // ListDiscounts returns the discount catalogue.
 func (s *ConfigService) ListDiscounts(ctx context.Context, actor shared.Actor, activeOnly bool) ([]*discount.Definition, error) {
-	if err := actor.RequireAnyRole("ListDiscounts",
-		shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor, shared.RoleRegistrar); err != nil {
-		return nil, err
-	}
 	return s.deps.Discounts.ListDefinitions(ctx, activeOnly)
 }
 
 // GetDiscount returns a definition with the version currently in force.
 func (s *ConfigService) GetDiscount(ctx context.Context, actor shared.Actor, definitionID shared.ID) (*DiscountDetail, error) {
-	if err := actor.RequireAnyRole("GetDiscount",
-		shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor, shared.RoleRegistrar); err != nil {
-		return nil, err
-	}
-
 	definition, err := s.deps.Discounts.GetDefinition(ctx, definitionID)
 	if err != nil {
 		return nil, err
@@ -1774,10 +1690,6 @@ func (s *ConfigService) GetDiscount(ctx context.Context, actor shared.Actor, def
 // The second pair of eyes needs to read a draft before publishing it, and this
 // is how they see the rate they are being asked to put in force.
 func (s *ConfigService) GetDiscountVersion(ctx context.Context, actor shared.Actor, versionID shared.ID) (*discount.DefinitionVersion, error) {
-	if err := actor.RequireAnyRole("GetDiscountVersion",
-		shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor, shared.RoleRegistrar); err != nil {
-		return nil, err
-	}
 	return s.deps.Discounts.GetVersion(ctx, versionID)
 }
 
@@ -1833,10 +1745,6 @@ type CreateCollegeInput struct {
 
 // CreateCollege adds a faculty.
 func (s *ConfigService) CreateCollege(ctx context.Context, actor shared.Actor, in CreateCollegeInput) (*academic.College, error) {
-	if err := actor.RequireAnyRole("CreateCollege", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var college *academic.College
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		var err error
@@ -1878,10 +1786,6 @@ type CreateDepartmentInput struct {
 
 // CreateDepartment adds a programme to a college.
 func (s *ConfigService) CreateDepartment(ctx context.Context, actor shared.Actor, in CreateDepartmentInput) (*academic.Department, error) {
-	if err := actor.RequireAnyRole("CreateDepartment", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var department *academic.Department
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		college, err := s.deps.Reference.GetCollege(ctx, in.CollegeID)
@@ -1936,10 +1840,6 @@ type CreateStudyTypeInput struct {
 // dimension and an enrollment's mode, on exactly the same terms as the three
 // that shipped.
 func (s *ConfigService) CreateStudyType(ctx context.Context, actor shared.Actor, in CreateStudyTypeInput) (*academic.StudyType, error) {
-	if err := actor.RequireAnyRole("CreateStudyType", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var studyType *academic.StudyType
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		var err error

@@ -522,3 +522,14 @@ func (r *InstallmentTemplateRepository) Retire(ctx context.Context, templateID s
 	}
 	return pg.WrapQuery("installment_template.Retire", err)
 }
+
+// amountOrNil carries an optional fixed installment amount to the driver. A
+// template line either names its own amount or takes a share of the net, and
+// the column is NULL in the second case.
+func amountOrNil(a *money.Amount) *int64 {
+	if a == nil {
+		return nil
+	}
+	value := a.Int64()
+	return &value
+}

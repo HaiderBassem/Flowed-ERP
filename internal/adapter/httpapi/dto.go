@@ -28,9 +28,6 @@ import (
 type LoginRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
-	// CashierDeskID scopes a cashier to a physical window. Receipt series run
-	// per year per desk, so a cashier without one cannot post cash.
-	CashierDeskID *string `json:"cashier_desk_id"`
 }
 
 // RefreshRequest renews an access token.
@@ -793,10 +790,9 @@ type UserDetailView struct {
 	LockedUntil        *time.Time `json:"locked_until,omitempty"`
 	DisabledReason     *string    `json:"disabled_reason,omitempty"`
 	CreatedAt          time.Time  `json:"created_at"`
-	// CashierDeskID and SessionID are set only on /auth/me, where the client
-	// needs to know which desk it signed in at and which session it holds.
-	CashierDeskID *string `json:"cashier_desk_id,omitempty"`
-	SessionID     string  `json:"session_id,omitempty"`
+	// SessionID is set only on /auth/me, where the client needs to know
+	// which login it is holding.
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // SessionView is one sign-in.
@@ -1047,23 +1043,6 @@ type PaymentMethodView struct {
 	IsCash            bool   `json:"is_cash"`
 	RequiresReference bool   `json:"requires_reference"`
 	IsActive          bool   `json:"is_active"`
-}
-
-// CreateCashierDeskRequest opens a window money can be taken at.
-type CreateCashierDeskRequest struct {
-	// Code appears inside every receipt number the desk issues
-	// (2025-D03-000917), so it is short and fixed for the desk's life.
-	Code      string  `json:"code" binding:"required"`
-	NameAr    string  `json:"name_ar" binding:"required"`
-	CollegeID *string `json:"college_id" binding:"omitempty,uuid"`
-}
-
-// UpdateCashierDeskRequest renames a desk or closes it.
-type UpdateCashierDeskRequest struct {
-	NameAr    *string `json:"name_ar"`
-	CollegeID *string `json:"college_id" binding:"omitempty,uuid"`
-	IsActive  *bool   `json:"is_active"`
-	Reason    string  `json:"reason"`
 }
 
 // ---------------------------------------------------------------------------

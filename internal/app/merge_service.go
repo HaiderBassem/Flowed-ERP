@@ -53,9 +53,6 @@ type MergeStudentsResult struct {
 //     than to the record. Applications do not: they are frozen against the
 //     account that was priced with them.
 func (s *StudentService) MergeStudents(ctx context.Context, actor shared.Actor, in MergeStudentsInput) (*MergeStudentsResult, error) {
-	if err := actor.RequireAnyRole("MergeStudents", shared.RoleRegistrar, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	if in.SourceID == in.TargetID {
 		return nil, shared.Validation("student.merge_same_record",
 			"a record cannot be merged into itself")

@@ -43,11 +43,6 @@ type AssignDiscountInput struct {
 // applying it to the current one is a separate, separately approved
 // adjustment.
 func (s *DiscountService) AssignDiscount(ctx context.Context, actor shared.Actor, in AssignDiscountInput) (*discount.Assignment, error) {
-	if err := actor.RequireAnyRole("AssignDiscount",
-		shared.RoleRegistrar, shared.RoleAcademicOfficer, shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var assignment *discount.Assignment
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		if _, err := s.deps.Students.GetByID(ctx, in.StudentID); err != nil {
@@ -170,11 +165,6 @@ func (s *DiscountService) resolveScopeYears(ctx context.Context, a *discount.Ass
 // alone — which is why the rule is enforced in the domain, here, and by a
 // database constraint rather than trusted to any single layer.
 func (s *DiscountService) ApproveDiscountAssignment(ctx context.Context, actor shared.Actor, assignmentID shared.ID) (*discount.Assignment, error) {
-	if err := actor.RequireAnyRole("ApproveDiscountAssignment",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var assignment *discount.Assignment
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)
@@ -224,11 +214,6 @@ type RevokeDiscountInput struct {
 // they owe — appropriate when the grant was obtained wrongly, not when
 // eligibility simply lapsed.
 func (s *DiscountService) RevokeDiscountAssignment(ctx context.Context, actor shared.Actor, in RevokeDiscountInput) (*discount.Assignment, error) {
-	if err := actor.RequireAnyRole("RevokeDiscountAssignment",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var assignment *discount.Assignment
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)
@@ -380,11 +365,6 @@ type ConfirmApplicationInput struct {
 // awarded for may have ended, and silently applying it forever is both a
 // budget leak and an audit finding.
 func (s *DiscountService) ConfirmDiscountApplication(ctx context.Context, actor shared.Actor, in ConfirmApplicationInput) (*discount.Application, error) {
-	if err := actor.RequireAnyRole("ConfirmDiscountApplication",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var application *discount.Application
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)

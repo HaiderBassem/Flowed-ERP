@@ -22,13 +22,13 @@ var _ port.SessionRepository = (*SessionRepository)(nil)
 
 const sessionColumns = `
 	id, user_id, issued_at, expires_at, last_seen_at,
-	revoked_at, revoked_by, revoked_reason, ip_address, user_agent, cashier_desk_id`
+	revoked_at, revoked_by, revoked_reason, ip_address, user_agent`
 
 func scanSession(row pgx.Row) (*port.Session, error) {
 	var s port.Session
 	if err := row.Scan(
 		&s.ID, &s.UserID, &s.IssuedAt, &s.ExpiresAt, &s.LastSeenAt,
-		&s.RevokedAt, &s.RevokedBy, &s.RevokedReason, &s.IPAddress, &s.UserAgent, &s.CashierDeskID,
+		&s.RevokedAt, &s.RevokedBy, &s.RevokedReason, &s.IPAddress, &s.UserAgent,
 	); err != nil {
 		return nil, err
 	}
@@ -39,13 +39,13 @@ func scanSession(row pgx.Row) (*port.Session, error) {
 func (r *SessionRepository) Create(ctx context.Context, s *port.Session) error {
 	const query = `
 		INSERT INTO auth_session
-			(id, user_id, issued_at, expires_at, last_seen_at, ip_address, user_agent, cashier_desk_id)
-		VALUES ($1, $2, COALESCE($3, now()), $4, COALESCE($3, now()), $5, $6, $7)
+			(id, user_id, issued_at, expires_at, last_seen_at, ip_address, user_agent)
+		VALUES ($1, $2, COALESCE($3, now()), $4, COALESCE($3, now()), $5, $6)
 		RETURNING issued_at, last_seen_at`
 
 	q := r.db.Conn(ctx)
 	err := q.QueryRow(ctx, query,
-		s.ID, s.UserID, instant(s.IssuedAt), s.ExpiresAt, s.IPAddress, s.UserAgent, s.CashierDeskID,
+		s.ID, s.UserID, instant(s.IssuedAt), s.ExpiresAt, s.IPAddress, s.UserAgent,
 	).Scan(&s.IssuedAt, &s.LastSeenAt)
 	return pg.WrapQuery("session.Create", err)
 }

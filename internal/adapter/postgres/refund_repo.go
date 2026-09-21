@@ -25,7 +25,7 @@ const refundColumns = `
 	amount, payment_method_id, method_reference, reason,
 	status, requested_by, requested_at, approved_by, approved_at,
 	rejected_by, rejected_at, rejection_reason,
-	posted_at, posted_by, cashier_session_id, idempotency_key, created_at`
+	posted_at, posted_by, idempotency_key, created_at`
 
 func scanRefund(row pgx.Row) (*payment.Refund, error) {
 	var f payment.Refund
@@ -35,7 +35,7 @@ func scanRefund(row pgx.Row) (*payment.Refund, error) {
 		&f.Amount, &f.PaymentMethodID, &f.MethodReference, &f.Reason,
 		&f.Status, &f.RequestedBy, &f.RequestedAt, &f.ApprovedBy, &f.ApprovedAt,
 		&f.RejectedBy, &f.RejectedAt, &f.RejectionReason,
-		&f.PostedAt, &f.PostedBy, &f.CashierSessionID, &f.IdempotencyKey, &f.CreatedAt,
+		&f.PostedAt, &f.PostedBy, &f.IdempotencyKey, &f.CreatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -55,14 +55,14 @@ func (r *RefundRepository) Create(ctx context.Context, f *payment.Refund) error 
 			amount, payment_method_id, method_reference, reason,
 			status, requested_by, requested_at, approved_by, approved_at,
 			rejected_by, rejected_at, rejection_reason,
-			posted_at, posted_by, cashier_session_id, idempotency_key
+			posted_at, posted_by, idempotency_key
 		) VALUES (
 			$1, $2, $3,
 			$4, $5, $6, $7,
 			$8, $9, $10, $11,
 			$12, $13, COALESCE($14, now()), $15, $16,
 			$17, $18, $19,
-			$20, $21, $22, $23
+			$20, $21, $22
 		)
 		RETURNING requested_at, created_at`
 
@@ -73,7 +73,7 @@ func (r *RefundRepository) Create(ctx context.Context, f *payment.Refund) error 
 		f.Amount, f.PaymentMethodID, f.MethodReference, f.Reason,
 		f.Status, f.RequestedBy, instant(f.RequestedAt), f.ApprovedBy, f.ApprovedAt,
 		f.RejectedBy, f.RejectedAt, f.RejectionReason,
-		f.PostedAt, f.PostedBy, f.CashierSessionID, f.IdempotencyKey,
+		f.PostedAt, f.PostedBy, f.IdempotencyKey,
 	).Scan(&f.RequestedAt, &f.CreatedAt)
 	return pg.WrapQuery("refund.Create", err)
 }
@@ -96,8 +96,7 @@ func (r *RefundRepository) Update(ctx context.Context, f *payment.Refund) error 
 			rejected_at        = $8,
 			rejection_reason   = $9,
 			posted_at          = $10,
-			posted_by          = $11,
-			cashier_session_id = $12
+			posted_by          = $11
 		WHERE id = $1
 		RETURNING id`
 
@@ -106,7 +105,7 @@ func (r *RefundRepository) Update(ctx context.Context, f *payment.Refund) error 
 	err := q.QueryRow(ctx, query,
 		f.ID, f.Status, f.RefundNo, f.NumberSeriesID,
 		f.ApprovedBy, f.ApprovedAt, f.RejectedBy, f.RejectedAt, f.RejectionReason,
-		f.PostedAt, f.PostedBy, f.CashierSessionID,
+		f.PostedAt, f.PostedBy,
 	).Scan(&id)
 	return pg.WrapQuery("refund.Update", err)
 }

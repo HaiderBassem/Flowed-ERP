@@ -39,29 +39,23 @@ func (h *LifecycleHandlers) Register(g *gin.RouterGroup) {
 	hosting := g.Group("/hosting")
 	hosting.GET("", h.ListHosting)
 	hosting.POST("",
-		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAdmin),
 		h.RegisterHosting)
 	hosting.PATCH("/:enrollment_id",
-		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAdmin),
 		h.UpdateHosting)
 
 	students := g.Group("/students")
 	students.POST("/:id/identity",
-		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAdmin),
 		h.RecordIdentityChange)
 	students.GET("/:id/identity-history",
-		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAdmin, shared.RoleAuditor),
 		h.IdentityHistory)
 	// The target of the merge is the path parameter: the surviving record is
 	// the one the operator is looking at when they decide the other is a
 	// duplicate of it.
 	students.POST("/:id/merge",
-		httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAdmin),
 		h.MergeStudents)
 
 	accounts := g.Group("/accounts")
 	accounts.POST("/:id/plan",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
 		h.AdjustPlan)
 	accounts.GET("/:id/plan-revisions", h.PlanRevisions)
 }

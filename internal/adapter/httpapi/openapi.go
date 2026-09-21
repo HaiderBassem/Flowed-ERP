@@ -212,7 +212,6 @@ var publicPaths = map[string]bool{
 	// The sign-in form needs the desk list before anybody is signed in: a
 	// cashier cannot get a token without naming a desk. It carries a code and
 	// an Arabic name, both printed on every receipt the university hands out.
-	"GET /api/v1/public/cashier-desks": true,
 }
 
 // BuildSpec produces the specification from a router.
@@ -712,15 +711,10 @@ func NewSpecRouter() *gin.Engine {
 		Reports:     (*ReportHandlers)(nil),
 		ConfigAdmin: (*ConfigHandlers)(nil),
 		Bulk:        (*BulkHandlers)(nil),
-		Cashier:     (*CashierHandlers)(nil),
 		Receipts:    (*ReceiptHandlers)(nil),
 		UserAdmin:   (*UserHandlers)(nil),
 		Lifecycle:   (*LifecycleHandlers)(nil),
 		MasterData:  (*MasterDataHandlers)(nil),
-		Settlement:  (*SettlementHandlers)(nil),
-		Intents:     (*IntentHandlers)(nil),
-		Sponsors:    (*SponsorHandlers)(nil),
-		Portal:      (*PortalHandlers)(nil),
 		// Mounted with no service behind it: the archive routes exist whether
 		// or not a destination is configured, and the specification should say
 		// so for the same reason the server does.

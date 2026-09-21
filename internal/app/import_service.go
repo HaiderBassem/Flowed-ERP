@@ -129,9 +129,6 @@ type StageImportResult struct {
 func (s *ImportService) StageImport(
 	ctx context.Context, actor shared.Actor, in StageImportInput,
 ) (*StageImportResult, error) {
-	if err := actor.RequireAnyRole("StageImport", shared.RoleRegistrar, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	if err := supportedBatchType(in.BatchType); err != nil {
 		return nil, err
 	}
@@ -242,10 +239,6 @@ func (s *ImportService) StageImport(
 func (s *ImportService) ValidateImport(
 	ctx context.Context, actor shared.Actor, batchID shared.ID,
 ) (*port.ImportBatch, error) {
-	if err := actor.RequireAnyRole("ValidateImport", shared.RoleRegistrar, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var batch *port.ImportBatch
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		var err error
@@ -547,11 +540,6 @@ type ImportReview struct {
 func (s *ImportService) ReviewImport(
 	ctx context.Context, actor shared.Actor, batchID shared.ID, filter port.ImportRowFilter,
 ) (*ImportReview, error) {
-	if err := actor.RequireAnyRole("ReviewImport",
-		shared.RoleRegistrar, shared.RoleAdmin, shared.RoleAuditor); err != nil {
-		return nil, err
-	}
-
 	review := &ImportReview{}
 	// One read transaction, so the counts and the rows on screen describe the
 	// same instant rather than two states a validation pass apart.
@@ -597,9 +585,6 @@ type SetDispositionInput struct {
 func (s *ImportService) SetRowDisposition(
 	ctx context.Context, actor shared.Actor, in SetDispositionInput,
 ) (*port.ImportRow, error) {
-	if err := actor.RequireAnyRole("SetRowDisposition", shared.RoleRegistrar, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	switch in.Disposition {
 	case port.DispositionCreate, port.DispositionUpdate, port.DispositionSkip, port.DispositionError:
 	default:
@@ -672,10 +657,6 @@ func (s *ImportService) SetRowDisposition(
 func (s *ImportService) ConfirmImport(
 	ctx context.Context, actor shared.Actor, batchID shared.ID,
 ) (*port.ImportBatch, error) {
-	if err := actor.RequireAnyRole("ConfirmImport", shared.RoleRegistrar, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var batch *port.ImportBatch
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		var err error
@@ -732,10 +713,6 @@ func (s *ImportService) ConfirmImport(
 func (s *ImportService) CancelImport(
 	ctx context.Context, actor shared.Actor, batchID shared.ID, reason string,
 ) (*port.ImportBatch, error) {
-	if err := actor.RequireAnyRole("CancelImport", shared.RoleRegistrar, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var batch *port.ImportBatch
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		var err error
@@ -799,9 +776,6 @@ type ImportRunReport struct {
 func (s *ImportService) RunImport(
 	ctx context.Context, actor shared.Actor, batchID shared.ID,
 ) (*ImportRunReport, error) {
-	if err := actor.RequireAnyRole("RunImport", shared.RoleRegistrar, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	return s.runQueue(ctx, actor, batchID, false)
 }
 
@@ -815,9 +789,6 @@ func (s *ImportService) RunImport(
 func (s *ImportService) ResumeImport(
 	ctx context.Context, actor shared.Actor, batchID shared.ID,
 ) (*ImportRunReport, error) {
-	if err := actor.RequireAnyRole("ResumeImport", shared.RoleRegistrar, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	return s.runQueue(ctx, actor, batchID, true)
 }
 
@@ -825,10 +796,6 @@ func (s *ImportService) ResumeImport(
 func (s *ImportService) StalledImports(
 	ctx context.Context, actor shared.Actor, silentFor time.Duration, limit int,
 ) ([]*port.ImportBatch, error) {
-	if err := actor.RequireAnyRole("StalledImports",
-		shared.RoleRegistrar, shared.RoleAdmin, shared.RoleAuditor); err != nil {
-		return nil, err
-	}
 	if silentFor <= 0 {
 		silentFor = 5 * time.Minute
 	}

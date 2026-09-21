@@ -15,8 +15,6 @@ import (
 	"flowed/internal/adapter/auditship"
 	"flowed/internal/adapter/backup"
 	"flowed/internal/adapter/httpapi"
-	"flowed/internal/adapter/messaging"
-	"flowed/internal/adapter/payments"
 	"flowed/internal/adapter/postgres"
 	"flowed/internal/adapter/receipt"
 	"flowed/internal/app"
@@ -50,13 +48,8 @@ func BuildEngine(
 	refunds := postgres.NewRefundRepository(db)
 	voidRequests := postgres.NewVoidRequestRepository(db)
 	series := postgres.NewNumberSeriesRepository(db)
-	sessions := postgres.NewCashierSessionRepository(db)
 	audit := postgres.NewAuditRepository(db)
 	lifecycle := postgres.NewLifecycleRepository(db)
-	settlements := postgres.NewSettlementRepository(db)
-	sponsors := postgres.NewSponsorRepository(db)
-	verifications := postgres.NewVerificationRepository(db)
-	intents := postgres.NewIntentRepository(db)
 	idempotency := postgres.NewIdempotencyRepository(db)
 	users := postgres.NewUserRepository(db)
 	authSessions := postgres.NewSessionRepository(db)
@@ -87,7 +80,6 @@ func BuildEngine(
 		Refunds:      refunds,
 		VoidRequests: voidRequests,
 		Series:       series,
-		Sessions:     sessions,
 		Audit:        audit,
 		Users:        users,
 		Lifecycle:    lifecycle,
@@ -135,33 +127,7 @@ func BuildEngine(
 
 	bulkService := app.NewBulkService(deps, accountService, enrollmentService)
 	importService := app.NewImportService(deps, imports, studentService, enrollmentService)
-	cashierService := app.NewCashierService(deps)
 	masterDataService := app.NewMasterDataService(deps)
-	settlementService := app.NewSettlementService(deps, settlements)
-	sponsorService := app.NewSponsorService(deps, sponsors)
-	accountService.WithSponsors(sponsorService)
-	portalService := app.NewPortalService(deps, hasher, verifications, sponsorService)
-
-	// A deployment with no SMS gateway gets nil here, and the notification
-	// service then produces a worklist instead of queueing deliveries nothing
-	// will perform.
-	var deliverer port.Deliverer
-	if gateway := messaging.NewSMSGateway(messaging.Config{
-		Enabled: cfg.Notifications.SMSEnabled,
-		BaseURL: cfg.Notifications.SMSBaseURL,
-		APIKey:  cfg.Notifications.SMSAPIKey,
-		Sender:  cfg.Notifications.SMSSender,
-		Timeout: cfg.Notifications.SMSTimeout,
-	}); gateway != nil {
-		deliverer = gateway
-	}
-	notifyService := app.NewNotifyService(
-		deps, postgres.NewNotificationRepository(db), deliverer, cfg.Receipt.UniversityNameAr)
-
-	// Only the providers this deployment configured are registered. A channel
-	// that is off is absent rather than half-present, so the API can say "not
-	// offered here" instead of failing when a student tries it.
-	intentService := app.NewIntentService(deps, intents, buildProviderRegistry(cfg.Payments), paymentService)
 
 	// A receipt states Baghdad local time even though every stored timestamp is
 	// UTC: it records the moment the cashier and the student were both standing
@@ -210,8 +176,6 @@ func BuildEngine(
 	schedulerCfg.RateLimitIdleTTL = cfg.HTTP.RateLimitIdleTTL
 	schedulerCfg.Sessions = authSessions
 	schedulerCfg.LoginAttempts = loginAttempts
-	schedulerCfg.Notify = notifyService
-	schedulerCfg.Intents = intentService
 	schedulerCfg.Reconcile = reconciliation
 	schedulerCfg.AuditShip = auditShipper
 	schedulerCfg.AuditShipInterval = cfg.AuditArchive.Interval
@@ -228,16 +192,11 @@ func BuildEngine(
 		UserAdmin:      httpapi.NewUserHandlers(userService),
 		Lifecycle:      httpapi.NewLifecycleHandlers(enrollmentService, studentService, accountService),
 		MasterData:     httpapi.NewMasterDataHandlers(masterDataService),
-		Settlement:     httpapi.NewSettlementHandlers(settlementService),
-		Sponsors:       httpapi.NewSponsorHandlers(sponsorService),
-		Portal:         httpapi.NewPortalHandlers(portalService),
-		Intents:        httpapi.NewIntentHandlers(intentService, cfg.Payments.PublicBaseURL, log),
 		AuthService:    authService,
 		Users:          users,
 		Reports:        httpapi.NewReportHandlers(reports),
 		ConfigAdmin:    httpapi.NewConfigHandlers(app.NewConfigService(deps)),
 		Bulk:           httpapi.NewBulkHandlers(bulkService, importService, imports),
-		Cashier:        httpapi.NewCashierHandlers(cashierService, masterDataService, db),
 		AuditArchive:   httpapi.NewAuditArchiveHandlers(auditShipper),
 		Reconciliation: httpapi.NewReconciliationHandlers(reconciliation),
 		Backups:        httpapi.NewBackupHandlers(backupService),
@@ -291,41 +250,6 @@ func BuildAuditShipper(cfg *config.Config, deps app.Deps, db *pg.DB, log *slog.L
 	log.Info("audit trail is copied off-host", slog.String("destination", sink.Name()))
 	return app.NewAuditShipService(deps, postgres.NewAuditShipmentRepository(db), sink,
 		app.AuditShipConfig{Batch: cfg.AuditArchive.Batch})
-}
-
-// buildProviderRegistry assembles the electronic collection channels this
-// deployment has switched on.
-//
-// Branch collection is registered whenever a callback secret exists, because it
-// needs nothing else: the reference it mints is derived from that secret and
-// the bank statement is its confirmation.
-func buildProviderRegistry(cfg config.Payments) *payments.Registry {
-	var providers []payments.Provider
-
-	if cfg.ZainCash.Enabled {
-		providers = append(providers, payments.NewZainCash(toProviderConfig(cfg.ZainCash)))
-	}
-	if cfg.QiCard.Enabled {
-		providers = append(providers, payments.NewQiCard(toProviderConfig(cfg.QiCard)))
-	}
-	if cfg.FastPay.Enabled {
-		providers = append(providers, payments.NewFastPay(toProviderConfig(cfg.FastPay)))
-	}
-	if cfg.Branch.Enabled {
-		providers = append(providers, payments.NewBranchCollection(toProviderConfig(cfg.Branch)))
-	}
-	return payments.NewRegistry(providers...)
-}
-
-func toProviderConfig(p config.PaymentProvider) payments.Config {
-	return payments.Config{
-		Enabled:        p.Enabled,
-		BaseURL:        p.BaseURL,
-		MerchantID:     p.Merchant,
-		APIKey:         p.APIKey,
-		CallbackSecret: p.CallbackSecret,
-		Timeout:        p.Timeout,
-	}
 }
 
 // Handlers is an alias so buildEngine reads without repeating the package

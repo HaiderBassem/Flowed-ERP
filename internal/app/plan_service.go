@@ -71,10 +71,6 @@ func (s *AccountService) AdjustInstallmentPlan(
 	// A supervisor's authority, not a cashier's: moving a due date decides when
 	// the university is owed money, and re-splitting decides how much is due
 	// when. Both are finance decisions.
-	if err := actor.RequireAnyRole("AdjustInstallmentPlan",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	if strings.TrimSpace(in.Reason) == "" {
 		return nil, shared.Validation("plan.reason_required",
 			"changing a schedule requires a reason; the student was told something, and this is where it is recorded")
@@ -360,11 +356,6 @@ func nextPlanVersion(installments []*billing.Installment) int16 {
 func (s *AccountService) PlanRevisions(ctx context.Context, actor shared.Actor, accountID shared.ID) ([]*port.PlanRevision, error) {
 	if s.deps.Lifecycle == nil {
 		return nil, nil
-	}
-	if err := actor.RequireAnyRole("PlanRevisions",
-		shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor,
-		shared.RoleCashier, shared.RoleReportViewer); err != nil {
-		return nil, err
 	}
 	return s.deps.Lifecycle.ListPlanRevisions(ctx, accountID)
 }

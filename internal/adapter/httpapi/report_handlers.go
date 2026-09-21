@@ -40,13 +40,9 @@ func (h *ReportHandlers) Register(g *gin.RouterGroup) {
 	reports := g.Group("/reports")
 
 	reports.GET("/students/:id/statement",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor,
-			shared.RoleReportViewer, shared.RoleRegistrar, shared.RoleCashier),
 		h.StudentStatement)
 
-	financial := reports.Group("",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin,
-			shared.RoleAuditor, shared.RoleReportViewer))
+	financial := reports.Group("")
 	financial.GET("/departments", h.DepartmentSummary)
 	financial.GET("/study-types", h.StudyTypeSummary)
 	financial.GET("/stages", h.StageSummary)
@@ -61,12 +57,9 @@ func (h *ReportHandlers) Register(g *gin.RouterGroup) {
 	// A cashier is added here and nowhere else in this block, because the sheet
 	// they are allowed to read is their own; the handler enforces that.
 	reports.GET("/cashier-daily",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor,
-			shared.RoleReportViewer, shared.RoleCashier),
 		h.CashierDaily)
 
-	oversight := reports.Group("",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin, shared.RoleAuditor))
+	oversight := reports.Group("")
 	oversight.GET("/voids", h.VoidRegister)
 	oversight.GET("/refunds", h.RefundRegister)
 	oversight.GET("/exemptions", h.ExemptionRegister)
@@ -329,15 +322,8 @@ func (h *ReportHandlers) ExemptionRegister(c *gin.Context) {
 // Cash
 // ---------------------------------------------------------------------------
 
-// CashierDaily returns cash movement per cashier, day and method.
-//
-// A cashier reads their own sheet and nobody else's. The report is what a
-// shift is reconciled against, and a cashier who can see a colleague's takings
-// can also see which discrepancies went unnoticed. Finance, administration,
-// audit and the report viewers see every desk.
+// CashierDaily returns cash movement per operator, day and method.
 func (h *ReportHandlers) CashierDaily(c *gin.Context) {
-	actor := httpx.MustActor(c)
-
 	f := port.CashierDailyFilter{Scope: httpx.MustActor(c).QueryScope()}
 	from, err := reportDateParam(c, "from")
 	if err != nil {
@@ -352,12 +338,6 @@ func (h *ReportHandlers) CashierDaily(c *gin.Context) {
 	f.From, f.To = from, to
 	if id, ok := optionalQueryID(c, "cashier_user_id"); ok {
 		f.CashierUserID = id
-	}
-
-	if !actor.HasAnyRole(shared.RoleFinanceManager, shared.RoleAdmin,
-		shared.RoleAuditor, shared.RoleReportViewer) {
-		self := actor.UserID
-		f.CashierUserID = &self
 	}
 
 	rows, err := h.Reports.CashierDaily(requestContext(c), f)

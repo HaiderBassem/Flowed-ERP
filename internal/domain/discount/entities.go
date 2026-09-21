@@ -282,18 +282,14 @@ func (a *Assignment) Submit() error {
 
 // Approve accepts a submitted grant.
 //
-// The approver may not be the person who requested it. This is the four-eyes
-// rule, and it is checked here, in the permission layer, and by a database
-// constraint — a discount is money leaving the university, and one person
-// should not be able to grant it alone.
+// The approver may be the person who requested it. The four-eyes rule this
+// once carried needed a second operator to stand behind it, and there is only
+// one; what remains is the audit entry naming who granted the discount and the
+// application row that cannot afterwards be edited.
 func (a *Assignment) Approve(approver shared.ID, at time.Time) error {
 	if a.Status != AssignmentSubmitted {
 		return shared.PreconditionFailed("discount.assignment_not_submitted",
 			"only a submitted grant can be approved; this one is %s", a.Status)
-	}
-	if a.RequestedBy != nil && *a.RequestedBy == approver {
-		return shared.Forbidden("discount.self_approval",
-			"a discount cannot be approved by the person who requested it")
 	}
 	a.Status = AssignmentApproved
 	a.ApprovedBy = &approver

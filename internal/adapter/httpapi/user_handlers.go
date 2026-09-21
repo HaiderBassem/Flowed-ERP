@@ -31,24 +31,20 @@ func (h *UserHandlers) Register(g *gin.RouterGroup) {
 	users := g.Group("/users")
 
 	users.GET("",
-		httpx.RequireRoles(shared.RoleAdmin, shared.RoleAuditor),
 		h.List)
 	users.GET("/:id",
-		httpx.RequireRoles(shared.RoleAdmin, shared.RoleAuditor),
 		h.Get)
 	users.GET("/:id/sessions",
-		httpx.RequireRoles(shared.RoleAdmin, shared.RoleAuditor),
 		h.Sessions)
 	users.GET("/:id/login-history",
-		httpx.RequireRoles(shared.RoleAdmin, shared.RoleAuditor),
 		h.LoginHistory)
 
-	users.POST("", httpx.RequireRoles(shared.RoleAdmin), h.Create)
-	users.POST("/:id/roles", httpx.RequireRoles(shared.RoleAdmin), h.SetRoles)
-	users.POST("/:id/scope", httpx.RequireRoles(shared.RoleAdmin), h.SetScope)
-	users.POST("/:id/disable", httpx.RequireRoles(shared.RoleAdmin), h.Disable)
-	users.POST("/:id/enable", httpx.RequireRoles(shared.RoleAdmin), h.Enable)
-	users.POST("/:id/reset-password", httpx.RequireRoles(shared.RoleAdmin), h.ResetPassword)
+	users.POST("", h.Create)
+	users.POST("/:id/roles", h.SetRoles)
+	users.POST("/:id/scope", h.SetScope)
+	users.POST("/:id/disable", h.Disable)
+	users.POST("/:id/enable", h.Enable)
+	users.POST("/:id/reset-password", h.ResetPassword)
 
 	// Revoking a session is mounted outside the /users group because an
 	// operator may revoke their own without holding any administrative role;

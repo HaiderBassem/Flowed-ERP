@@ -84,49 +84,6 @@ func NewMethod(code, nameAr string, isCash, requiresReference bool) (*Method, er
 // methodCodePattern mirrors the schema's check constraint.
 var methodCodePattern = regexp.MustCompile(`^[A-Z0-9_]{2,32}$`)
 
-// CashierDesk is a physical window where money is taken.
-//
-// A desk is not decoration: receipt series run per (academic year, desk), so
-// the desk is what makes a paper receipt book reconcilable against the system.
-// A cashier signs in at one, and a payment cannot be posted without it.
-type CashierDesk struct {
-	ID        shared.ID
-	Code      string
-	NameAr    string
-	CollegeID *shared.ID
-	IsActive  bool
-	CreatedAt time.Time
-}
-
-// NewCashierDesk builds a desk after validating its code.
-//
-// The code appears inside every receipt number issued at this desk
-// (2025-D03-000917), which is why it is short, upper-case and fixed for the
-// life of the desk: changing it would make two receipt numbers that look like
-// they came from different desks come from the same one.
-func NewCashierDesk(code, nameAr string, collegeID *shared.ID) (*CashierDesk, error) {
-	code = strings.ToUpper(strings.TrimSpace(code))
-	if !deskCodePattern.MatchString(code) {
-		return nil, shared.Validation("desk.invalid_code",
-			"a desk code is 1 to 16 upper-case letters, digits or underscores, got %q", code).
-			WithDetail("example", "D01")
-	}
-	if strings.TrimSpace(nameAr) == "" {
-		return nil, shared.Validation("desk.name_required", "a desk needs a name")
-	}
-	return &CashierDesk{
-		ID:        shared.NewID(),
-		Code:      code,
-		NameAr:    strings.TrimSpace(nameAr),
-		CollegeID: collegeID,
-		IsActive:  true,
-	}, nil
-}
-
-// deskCodePattern mirrors the schema's check constraint, so a bad code is
-// refused with a readable message rather than a constraint violation.
-var deskCodePattern = regexp.MustCompile(`^[A-Z0-9_]{1,16}$`)
-
 // Well-known method codes, seeded by migration.
 const (
 	MethodCash     = "CASH"
@@ -158,8 +115,7 @@ type Payment struct {
 	PaymentMethodID shared.ID
 	MethodReference *string
 
-	CashierUserID    shared.ID
-	CashierSessionID *shared.ID
+	CashierUserID shared.ID
 
 	PaidAt   time.Time
 	PostedAt *time.Time
@@ -189,7 +145,6 @@ type NewParams struct {
 	PaymentMethodID shared.ID
 	MethodReference *string
 	CashierUserID   shared.ID
-	SessionID       *shared.ID
 	IdempotencyKey  string
 	PayloadHash     string
 	PayerName       *string
@@ -212,23 +167,22 @@ func New(p NewParams) (*Payment, error) {
 		paidAt = time.Now().UTC()
 	}
 	return &Payment{
-		ID:               shared.NewID(),
-		AccountID:        p.AccountID,
-		StudentID:        p.StudentID,
-		EnrollmentID:     p.EnrollmentID,
-		PostingYearID:    p.PostingYearID,
-		Amount:           p.Amount,
-		PaymentMethodID:  p.PaymentMethodID,
-		MethodReference:  p.MethodReference,
-		CashierUserID:    p.CashierUserID,
-		CashierSessionID: p.SessionID,
-		PaidAt:           paidAt,
-		Status:           StatusDraft,
-		IdempotencyKey:   &p.IdempotencyKey,
-		PayloadHash:      &p.PayloadHash,
-		PayerName:        p.PayerName,
-		Notes:            p.Notes,
-		CreatedAt:        time.Now().UTC(),
+		ID:              shared.NewID(),
+		AccountID:       p.AccountID,
+		StudentID:       p.StudentID,
+		EnrollmentID:    p.EnrollmentID,
+		PostingYearID:   p.PostingYearID,
+		Amount:          p.Amount,
+		PaymentMethodID: p.PaymentMethodID,
+		MethodReference: p.MethodReference,
+		CashierUserID:   p.CashierUserID,
+		PaidAt:          paidAt,
+		Status:          StatusDraft,
+		IdempotencyKey:  &p.IdempotencyKey,
+		PayloadHash:     &p.PayloadHash,
+		PayerName:       p.PayerName,
+		Notes:           p.Notes,
+		CreatedAt:       time.Now().UTC(),
 	}, nil
 }
 
@@ -373,17 +327,16 @@ type Refund struct {
 	MethodReference *string
 	Reason          string
 
-	Status           RefundStatus
-	RequestedBy      shared.ID
-	RequestedAt      time.Time
-	ApprovedBy       *shared.ID
-	ApprovedAt       *time.Time
-	RejectedBy       *shared.ID
-	RejectedAt       *time.Time
-	RejectionReason  *string
-	PostedAt         *time.Time
-	PostedBy         *shared.ID
-	CashierSessionID *shared.ID
+	Status          RefundStatus
+	RequestedBy     shared.ID
+	RequestedAt     time.Time
+	ApprovedBy      *shared.ID
+	ApprovedAt      *time.Time
+	RejectedBy      *shared.ID
+	RejectedAt      *time.Time
+	RejectionReason *string
+	PostedAt        *time.Time
+	PostedBy        *shared.ID
 
 	IdempotencyKey *string
 	CreatedAt      time.Time
@@ -428,15 +381,15 @@ func NewRefund(p NewRefundParams) (*Refund, error) {
 	}, nil
 }
 
-// Approve accepts a refund request. The approver may not be the requester.
+// Approve accepts a refund request.
+//
+// The approver may be the requester. With one operator account they always
+// are, and a rule that refused it would not slow a fraud down — it would stop
+// a refund being issued at all.
 func (r *Refund) Approve(approver shared.ID, at time.Time) error {
 	if r.Status != RefundRequested {
 		return shared.PreconditionFailed("refund.not_requested",
 			"only a requested refund can be approved; this one is %s", r.Status)
-	}
-	if approver == r.RequestedBy {
-		return shared.Forbidden("refund.self_approval",
-			"a refund cannot be approved by the person who requested it")
 	}
 	r.Status = RefundApproved
 	r.ApprovedBy = &approver
@@ -532,15 +485,14 @@ func NewVoidRequest(paymentID shared.ID, reason string, requestedBy shared.ID) (
 	}, nil
 }
 
-// Execute carries out the void. The executor may not be the requester.
+// Execute carries out the void.
+//
+// The executor may be the requester: see Refund.Approve for why the four-eyes
+// rule left with the second operator it depended on.
 func (v *VoidRequest) Execute(actor shared.ID, at time.Time) error {
 	if v.Status != VoidRequested {
 		return shared.PreconditionFailed("void_request.not_requested",
 			"only an open request can be executed; this one is %s", v.Status)
-	}
-	if actor == v.RequestedBy {
-		return shared.Forbidden("void_request.self_execution",
-			"a void cannot be executed by the cashier who requested it")
 	}
 	v.Status = VoidExecuted
 	v.ExecutedBy = &actor
@@ -558,99 +510,5 @@ func (v *VoidRequest) Reject(actor shared.ID, reason string, at time.Time) error
 	v.RejectedBy = &actor
 	v.RejectedAt = &at
 	v.RejectionReason = &reason
-	return nil
-}
-
-// SessionStatus is the lifecycle of a cashier shift.
-type SessionStatus string
-
-const (
-	SessionOpen     SessionStatus = "open"
-	SessionClosed   SessionStatus = "closed"
-	SessionApproved SessionStatus = "approved"
-)
-
-// CashierSession is a shift at a physical window.
-//
-// Cash payments require an open session, and the session bounds the window in
-// which a mistaken payment can still be voided rather than refunded. It is the
-// primary control against cash disappearing between the desk and the safe,
-// which is why it is in the first release rather than deferred.
-type CashierSession struct {
-	ID             shared.ID
-	CashierUserID  shared.ID
-	CashierDeskID  shared.ID
-	AcademicYearID shared.ID
-
-	OpenedAt       time.Time
-	OpeningFloat   money.Amount
-	ClosedAt       *time.Time
-	ExpectedCash   *money.Amount
-	CountedCash    *money.Amount
-	Variance       *money.Amount
-	VarianceReason *string
-
-	Status     SessionStatus
-	ApprovedBy *shared.ID
-	ApprovedAt *time.Time
-	Notes      *string
-}
-
-// NewCashierSession opens a shift.
-func NewCashierSession(userID, deskID, yearID shared.ID, openingFloat money.Amount) (*CashierSession, error) {
-	if openingFloat.IsNegative() {
-		return nil, shared.Validation("cashier_session.negative_float",
-			"the opening float cannot be negative, got %s", openingFloat)
-	}
-	return &CashierSession{
-		ID:             shared.NewID(),
-		CashierUserID:  userID,
-		CashierDeskID:  deskID,
-		AcademicYearID: yearID,
-		OpenedAt:       time.Now().UTC(),
-		OpeningFloat:   openingFloat,
-		Status:         SessionOpen,
-	}, nil
-}
-
-// Close ends the shift, recording what the drawer should hold against what it
-// actually held. A discrepancy demands an explanation before the shift can be
-// signed off.
-func (s *CashierSession) Close(expected, counted money.Amount, reason *string, at time.Time) error {
-	if s.Status != SessionOpen {
-		return shared.PreconditionFailed("cashier_session.not_open",
-			"only an open session can be closed; this one is %s", s.Status)
-	}
-	variance, err := counted.Sub(expected)
-	if err != nil {
-		return shared.Internal("cashier_session.variance_arithmetic", err, "computing the drawer variance")
-	}
-	if !variance.IsZero() && (reason == nil || *reason == "") {
-		return shared.Validation("cashier_session.variance_reason_required",
-			"the drawer is out by %s; closing requires an explanation", variance).
-			WithDetail("variance", variance.Int64())
-	}
-	s.Status = SessionClosed
-	s.ClosedAt = &at
-	s.ExpectedCash = &expected
-	s.CountedCash = &counted
-	s.Variance = &variance
-	s.VarianceReason = reason
-	return nil
-}
-
-// Approve signs off a closed shift. The approver may not be the cashier.
-func (s *CashierSession) Approve(actor shared.ID, at time.Time) error {
-	if s.Status != SessionClosed {
-		return shared.PreconditionFailed("cashier_session.not_closed",
-			"only a closed session can be approved; this one is %s", s.Status)
-	}
-	if actor == s.CashierUserID {
-		return shared.Forbidden("cashier_session.self_approval",
-			"a cashier cannot sign off their own drawer")
-	}
-	s.Status = SessionApproved
-	s.ApprovedBy = &actor
-	s.ApprovedAt = &at
 	return nil
 }

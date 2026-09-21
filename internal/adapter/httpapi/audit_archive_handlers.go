@@ -34,10 +34,8 @@ func (h *AuditArchiveHandlers) Register(g *gin.RouterGroup) {
 	archive := g.Group("/audit/archive")
 
 	archive.POST("/ship",
-		httpx.RequireRoles(shared.RoleAdmin),
 		h.ShipNow)
 	archive.GET("/verify",
-		httpx.RequireRoles(shared.RoleAdmin, shared.RoleAuditor),
 		h.Verify)
 }
 

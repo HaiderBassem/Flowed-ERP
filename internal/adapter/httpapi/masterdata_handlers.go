@@ -5,7 +5,6 @@ import (
 
 	"flowed/internal/app"
 	"flowed/internal/domain/payment"
-	"flowed/internal/domain/shared"
 	"flowed/internal/platform/httpx"
 )
 
@@ -26,25 +25,17 @@ func NewMasterDataHandlers(master *app.MasterDataService) *MasterDataHandlers {
 }
 
 // Register mounts the routes.
-//
-// Reads are open to anyone signed in — a cashier's screen needs the desk list,
-// a registrar's needs the departments — and every write is the administrator's.
 func (h *MasterDataHandlers) Register(g *gin.RouterGroup) {
-	admin := httpx.RequireRoles(shared.RoleAdmin)
-
-	g.PATCH("/colleges/:id", admin, h.UpdateCollege)
-	g.PATCH("/departments/:id", admin, h.UpdateDepartment)
-	g.PATCH("/study-types/:id", admin, h.UpdateStudyType)
+	g.PATCH("/colleges/:id", h.UpdateCollege)
+	g.PATCH("/departments/:id", h.UpdateDepartment)
+	g.PATCH("/study-types/:id", h.UpdateStudyType)
 
 	g.GET("/student-categories", h.ListStudentCategories)
-	g.POST("/student-categories", admin, h.CreateStudentCategory)
-	g.PATCH("/student-categories/:id", admin, h.UpdateStudentCategory)
+	g.POST("/student-categories", h.CreateStudentCategory)
+	g.PATCH("/student-categories/:id", h.UpdateStudentCategory)
 
-	g.POST("/payment-methods", admin, h.CreatePaymentMethod)
-	g.PATCH("/payment-methods/:id", admin, h.UpdatePaymentMethod)
-
-	g.POST("/cashier-desks", admin, h.CreateCashierDesk)
-	g.PATCH("/cashier-desks/:id", admin, h.UpdateCashierDesk)
+	g.POST("/payment-methods", h.CreatePaymentMethod)
+	g.PATCH("/payment-methods/:id", h.UpdatePaymentMethod)
 }
 
 // UpdateCollege renames or retires a college.
@@ -216,65 +207,9 @@ func (h *MasterDataHandlers) UpdatePaymentMethod(c *gin.Context) {
 	httpx.OK(c, toPaymentMethodView(method))
 }
 
-// CreateCashierDesk opens a window money can be taken at.
-func (h *MasterDataHandlers) CreateCashierDesk(c *gin.Context) {
-	var req CreateCashierDeskRequest
-	if !bindJSON(c, &req) {
-		return
-	}
-	collegeID, ok := respondingID(c, req.CollegeID)
-	if !ok {
-		return
-	}
-
-	desk, err := h.Master.CreateCashierDesk(requestContext(c), httpx.MustActor(c), app.CreateCashierDeskInput{
-		Code: req.Code, NameAr: req.NameAr, CollegeID: collegeID,
-	})
-	if err != nil {
-		httpx.Respond(c, err)
-		return
-	}
-	httpx.Created(c, toDeskView(desk))
-}
-
-// UpdateCashierDesk renames a desk or closes it.
-func (h *MasterDataHandlers) UpdateCashierDesk(c *gin.Context) {
-	id, ok := pathID(c, "id")
-	if !ok {
-		return
-	}
-	var req UpdateCashierDeskRequest
-	if !bindJSON(c, &req) {
-		return
-	}
-	collegeID, ok := respondingID(c, req.CollegeID)
-	if !ok {
-		return
-	}
-
-	desk, err := h.Master.UpdateCashierDesk(requestContext(c), httpx.MustActor(c), app.UpdateCashierDeskInput{
-		ID: id, NameAr: req.NameAr, CollegeID: collegeID, IsActive: req.IsActive, Reason: req.Reason,
-	})
-	if err != nil {
-		httpx.Respond(c, err)
-		return
-	}
-	httpx.OK(c, toDeskView(desk))
-}
-
 func toPaymentMethodView(m *payment.Method) PaymentMethodView {
 	return PaymentMethodView{
 		ID: m.ID.String(), Code: m.Code, NameAr: m.NameAr,
 		IsCash: m.IsCash, RequiresReference: m.RequiresReference, IsActive: m.IsActive,
 	}
-}
-
-func toDeskView(d *payment.CashierDesk) CashierDeskView {
-	view := CashierDeskView{
-		ID: d.ID.String(), Code: d.Code, NameAr: d.NameAr, IsActive: d.IsActive,
-	}
-	if d.CollegeID != nil {
-		view.CollegeID = ptr(d.CollegeID.String())
-	}
-	return view
 }

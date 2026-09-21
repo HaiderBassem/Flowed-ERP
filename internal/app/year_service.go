@@ -30,10 +30,6 @@ type CreateYearInput struct {
 
 // CreateAcademicYear defines a year in draft.
 func (s *YearService) CreateAcademicYear(ctx context.Context, actor shared.Actor, in CreateYearInput) (*academic.Year, error) {
-	if err := actor.RequireAnyRole("CreateAcademicYear", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var year *academic.Year
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		var err error
@@ -69,10 +65,6 @@ func (s *YearService) CreateAcademicYear(ctx context.Context, actor shared.Actor
 // still being recorded against the outgoing year while registration and
 // collection have already started for the incoming one.
 func (s *YearService) OpenAcademicYear(ctx context.Context, actor shared.Actor, yearID shared.ID) (*academic.Year, error) {
-	if err := actor.RequireAnyRole("OpenAcademicYear", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var year *academic.Year
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		var err error
@@ -126,11 +118,6 @@ type CloseYearFinanciallyResult struct {
 // may disagree with its transaction rows, because closing over a discrepancy
 // freezes the discrepancy permanently.
 func (s *YearService) CloseYearFinancially(ctx context.Context, actor shared.Actor, yearID shared.ID) (*CloseYearFinanciallyResult, error) {
-	if err := actor.RequireAnyRole("CloseYearFinancially",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var result *CloseYearFinanciallyResult
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)
@@ -217,10 +204,6 @@ func (s *YearService) CloseYearFinancially(ctx context.Context, actor shared.Act
 // results outstanding leaves students whose standing the system cannot state,
 // and no later command can fix it without reopening.
 func (s *YearService) CloseAcademicYear(ctx context.Context, actor shared.Actor, yearID shared.ID) (*academic.Year, error) {
-	if err := actor.RequireAnyRole("CloseAcademicYear", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var year *academic.Year
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)
@@ -283,9 +266,6 @@ type ReopenForAdjustmentInput struct {
 // adjustments rather than edits, so the original figures stay exactly as they
 // were and the change is visible beside them.
 func (s *YearService) ReopenYearForAdjustment(ctx context.Context, actor shared.Actor, in ReopenForAdjustmentInput) (*academic.Year, error) {
-	if err := actor.RequireAnyRole("ReopenYearForAdjustment", shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	if in.Reason == "" {
 		return nil, shared.Validation("year.reopen_reason_required",
 			"reopening closed books requires a written reason")

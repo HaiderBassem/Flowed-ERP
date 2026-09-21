@@ -46,7 +46,6 @@ type Deps struct {
 	Refunds      port.RefundRepository
 	VoidRequests port.VoidRequestRepository
 	Series       port.NumberSeriesRepository
-	Sessions     port.CashierSessionRepository
 	Audit        port.AuditRepository
 	Users        port.UserRepository
 	// Lifecycle stores the decisions that end or reshape a student's

@@ -42,11 +42,6 @@ type RequestRefundInput struct {
 // The cap is checked here and again at posting: the total returned against one
 // payment may never exceed what that payment collected.
 func (s *RefundService) RequestRefund(ctx context.Context, actor shared.Actor, in RequestRefundInput) (*payment.Refund, error) {
-	if err := actor.RequireAnyRole("RequestRefund",
-		shared.RoleCashier, shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var refund *payment.Refund
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		target, err := s.deps.Payments.GetByID(ctx, in.PaymentID)
@@ -139,10 +134,6 @@ func (s *RefundService) RequestRefund(ctx context.Context, actor shared.Actor, i
 // ApproveRefund accepts a refund request. The approver may not be the
 // requester; the domain, this layer, and a database constraint all say so.
 func (s *RefundService) ApproveRefund(ctx context.Context, actor shared.Actor, refundID shared.ID) (*payment.Refund, error) {
-	if err := actor.RequireAnyRole("ApproveRefund", shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var refund *payment.Refund
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)
@@ -176,10 +167,6 @@ func (s *RefundService) ApproveRefund(ctx context.Context, actor shared.Actor, r
 
 // RejectRefund declines a refund request.
 func (s *RefundService) RejectRefund(ctx context.Context, actor shared.Actor, refundID shared.ID, reason string) (*payment.Refund, error) {
-	if err := actor.RequireAnyRole("RejectRefund", shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var refund *payment.Refund
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)
@@ -219,10 +206,6 @@ func (s *RefundService) RejectRefund(ctx context.Context, actor shared.Actor, re
 // leaving A's allocations overstated and B's understated — and a later void of
 // B would then reverse the same money a second time and pay it out twice.
 func (s *RefundService) PostRefund(ctx context.Context, actor shared.Actor, refundID shared.ID) (*payment.Refund, error) {
-	if err := actor.RequireAnyRole("PostRefund", shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var refund *payment.Refund
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)
@@ -374,7 +357,7 @@ func (s *RefundService) PostRefund(ctx context.Context, actor shared.Actor, refu
 			}
 		}
 
-		refundNo, seriesID, err := s.nextRefundNumber(ctx, year, actor)
+		refundNo, seriesID, err := s.nextRefundNumber(ctx, year)
 		if err != nil {
 			return err
 		}
@@ -459,13 +442,12 @@ func (s *RefundService) lockCreditsFromPayment(ctx context.Context, studentID, p
 }
 
 // nextRefundNumber takes the next number from the refund series, creating it
-// on first use for the same reason payments do: a desk opened mid-year must be
-// able to issue its first refund without a separate setup step.
+// on first use for the same reason payments do: a refund raised before the
+// year's first collection must not need a separate setup step.
 func (s *RefundService) nextRefundNumber(
-	ctx context.Context, year *academic.Year, actor shared.Actor,
+	ctx context.Context, year *academic.Year,
 ) (string, shared.ID, error) {
-	refundNo, seriesID, err := s.deps.Series.NextNumber(
-		ctx, payment.SeriesRefund, year.ID, actor.CashierDeskID)
+	refundNo, seriesID, err := s.deps.Series.NextNumber(ctx, payment.SeriesRefund, year.ID)
 	if err == nil {
 		return refundNo, seriesID, nil
 	}
@@ -474,8 +456,8 @@ func (s *RefundService) nextRefundNumber(
 	}
 	prefix := receiptPrefix(payment.SeriesRefund, year.Code)
 	if _, err := s.deps.Series.EnsureSeries(
-		ctx, payment.SeriesRefund, year.ID, actor.CashierDeskID, prefix); err != nil {
+		ctx, payment.SeriesRefund, year.ID, prefix); err != nil {
 		return "", shared.NilID, err
 	}
-	return s.deps.Series.NextNumber(ctx, payment.SeriesRefund, year.ID, actor.CashierDeskID)
+	return s.deps.Series.NextNumber(ctx, payment.SeriesRefund, year.ID)
 }

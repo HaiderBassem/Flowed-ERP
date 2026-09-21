@@ -6,7 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"flowed/internal/app"
-	"flowed/internal/domain/shared"
 	"flowed/internal/platform/httpx"
 	"flowed/internal/port"
 )
@@ -35,22 +34,11 @@ func (h *AuthHandlers) Login(c *gin.Context) {
 		return
 	}
 
-	var deskID *shared.ID
-	if req.CashierDeskID != nil {
-		parsed, err := shared.ParseID(*req.CashierDeskID)
-		if err != nil {
-			httpx.Respond(c, err)
-			return
-		}
-		deskID = &parsed
-	}
-
 	result, err := h.Auth.Login(requestContext(c), app.LoginInput{
-		Username:      req.Username,
-		Password:      req.Password,
-		CashierDeskID: deskID,
-		IPAddress:     c.ClientIP(),
-		UserAgent:     c.GetHeader("User-Agent"),
+		Username:  req.Username,
+		Password:  req.Password,
+		IPAddress: c.ClientIP(),
+		UserAgent: c.GetHeader("User-Agent"),
 	})
 	if err != nil {
 		httpx.Respond(c, err)
@@ -117,9 +105,6 @@ func (h *AuthHandlers) Me(c *gin.Context) {
 	}
 
 	view := toUserDetailView(user)
-	if actor.CashierDeskID != nil {
-		view.CashierDeskID = ptr(actor.CashierDeskID.String())
-	}
 	view.SessionID = actor.SessionID
 	httpx.OK(c, view)
 }

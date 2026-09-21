@@ -455,82 +455,6 @@ func (r *ReferenceRepository) UpdatePaymentMethod(ctx context.Context, m *paymen
 	return pg.WrapQuery("reference.UpdatePaymentMethod", err)
 }
 
-const cashierDeskColumns = ` id, code, name_ar, college_id, is_active, created_at`
-
-func scanCashierDesk(row pgx.Row) (*payment.CashierDesk, error) {
-	var d payment.CashierDesk
-	if err := row.Scan(&d.ID, &d.Code, &d.NameAr, &d.CollegeID, &d.IsActive, &d.CreatedAt); err != nil {
-		return nil, err
-	}
-	return &d, nil
-}
-
-// ListCashierDesks returns the windows money can be taken at.
-func (r *ReferenceRepository) ListCashierDesks(ctx context.Context, activeOnly bool) ([]*payment.CashierDesk, error) {
-	const query = `
-		SELECT` + cashierDeskColumns + `
-		FROM cashier_desk
-		WHERE NOT $1::boolean OR is_active
-		ORDER BY code`
-
-	q := r.db.Conn(ctx)
-	rows, err := q.Query(ctx, query, activeOnly)
-	if err != nil {
-		return nil, pg.WrapQuery("reference.ListCashierDesks", err)
-	}
-	desks, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*payment.CashierDesk, error) {
-		return scanCashierDesk(row)
-	})
-	if err != nil {
-		return nil, pg.WrapQuery("reference.ListCashierDesks", err)
-	}
-	return desks, nil
-}
-
-// GetCashierDesk returns one desk.
-func (r *ReferenceRepository) GetCashierDesk(ctx context.Context, id shared.ID) (*payment.CashierDesk, error) {
-	q := r.db.Conn(ctx)
-	d, err := scanCashierDesk(q.QueryRow(ctx, `SELECT`+cashierDeskColumns+` FROM cashier_desk WHERE id = $1`, id))
-	if err != nil {
-		return nil, pg.WrapQuery("reference.GetCashierDesk", err)
-	}
-	return d, nil
-}
-
-// CreateCashierDesk opens a new window.
-func (r *ReferenceRepository) CreateCashierDesk(ctx context.Context, d *payment.CashierDesk) error {
-	if err := r.db.RequireTx(ctx, "reference.CreateCashierDesk"); err != nil {
-		return err
-	}
-	const query = `
-		INSERT INTO cashier_desk (id, code, name_ar, college_id, is_active)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING created_at`
-
-	q := r.db.Conn(ctx)
-	err := q.QueryRow(ctx, query, d.ID, d.Code, d.NameAr, d.CollegeID, d.IsActive).Scan(&d.CreatedAt)
-	return pg.WrapQuery("reference.CreateCashierDesk", err)
-}
-
-// UpdateCashierDesk renames a desk or closes it.
-//
-// The code is not updatable: it is embedded in every receipt number the desk
-// has issued (2025-D03-000917), and changing it would make one desk's series
-// look like two.
-func (r *ReferenceRepository) UpdateCashierDesk(ctx context.Context, d *payment.CashierDesk) error {
-	if err := r.db.RequireTx(ctx, "reference.UpdateCashierDesk"); err != nil {
-		return err
-	}
-	const query = `
-		UPDATE cashier_desk SET name_ar = $2, college_id = $3, is_active = $4
-		WHERE id = $1 RETURNING id`
-
-	q := r.db.Conn(ctx)
-	var id shared.ID
-	err := q.QueryRow(ctx, query, d.ID, d.NameAr, d.CollegeID, d.IsActive).Scan(&id)
-	return pg.WrapQuery("reference.UpdateCashierDesk", err)
-}
-
 // usageQueries counts the rows that depend on a piece of master data.
 //
 // Each query names the reference that actually matters. A study type is "in
@@ -549,9 +473,6 @@ var usageQueries = map[port.MasterDataKind]string{
 	port.MasterPaymentMethod: `
 		SELECT (SELECT count(*) FROM payment WHERE payment_method_id = $1)
 		     + (SELECT count(*) FROM refund WHERE payment_method_id = $1)`,
-	port.MasterCashierDesk: `
-		SELECT (SELECT count(*) FROM cashier_session WHERE cashier_desk_id = $1)
-		     + (SELECT count(*) FROM number_series WHERE cashier_desk_id = $1)`,
 }
 
 // UsageCount reports how many rows depend on a piece of master data.

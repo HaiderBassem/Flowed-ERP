@@ -27,7 +27,7 @@ const paymentColumns = `
 	id, receipt_no, number_series_id,
 	account_id, student_id, enrollment_id, posting_year_id,
 	amount, payment_method_id, method_reference,
-	cashier_user_id, cashier_session_id,
+	cashier_user_id,
 	paid_at, posted_at, status,
 	idempotency_key, payload_hash, payer_name, notes,
 	voided_at, voided_by, void_reason, void_request_id, created_at`
@@ -38,7 +38,7 @@ func scanPayment(row pgx.Row) (*payment.Payment, error) {
 		&p.ID, &p.ReceiptNo, &p.NumberSeriesID,
 		&p.AccountID, &p.StudentID, &p.EnrollmentID, &p.PostingYearID,
 		&p.Amount, &p.PaymentMethodID, &p.MethodReference,
-		&p.CashierUserID, &p.CashierSessionID,
+		&p.CashierUserID,
 		&p.PaidAt, &p.PostedAt, &p.Status,
 		&p.IdempotencyKey, &p.PayloadHash, &p.PayerName, &p.Notes,
 		&p.VoidedAt, &p.VoidedBy, &p.VoidReason, &p.VoidRequestID, &p.CreatedAt,
@@ -58,7 +58,7 @@ func (r *PaymentRepository) Create(ctx context.Context, p *payment.Payment, allo
 			id, receipt_no, number_series_id,
 			account_id, student_id, enrollment_id, posting_year_id,
 			amount, payment_method_id, method_reference,
-			cashier_user_id, cashier_session_id,
+			cashier_user_id,
 			paid_at, posted_at, status,
 			idempotency_key, payload_hash, payer_name, notes,
 			voided_at, voided_by, void_reason, void_request_id
@@ -66,10 +66,10 @@ func (r *PaymentRepository) Create(ctx context.Context, p *payment.Payment, allo
 			$1, $2, $3,
 			$4, $5, $6, $7,
 			$8, $9, $10,
-			$11, $12,
-			COALESCE($13, now()), $14, $15,
-			$16, $17, $18, $19,
-			$20, $21, $22, $23
+			$11,
+			COALESCE($12, now()), $13, $14,
+			$15, $16, $17, $18,
+			$19, $20, $21, $22
 		)
 		RETURNING paid_at, created_at`
 
@@ -78,7 +78,7 @@ func (r *PaymentRepository) Create(ctx context.Context, p *payment.Payment, allo
 		p.ID, p.ReceiptNo, p.NumberSeriesID,
 		p.AccountID, p.StudentID, p.EnrollmentID, p.PostingYearID,
 		p.Amount, p.PaymentMethodID, p.MethodReference,
-		p.CashierUserID, p.CashierSessionID,
+		p.CashierUserID,
 		instant(p.PaidAt), p.PostedAt, p.Status,
 		p.IdempotencyKey, p.PayloadHash, p.PayerName, p.Notes,
 		p.VoidedAt, p.VoidedBy, p.VoidReason, p.VoidRequestID,
@@ -338,36 +338,4 @@ func (r *PaymentRepository) CountPostedRefunds(ctx context.Context, paymentID sh
 		return 0, pg.WrapQuery("payment.CountPostedRefunds", err)
 	}
 	return int(count), nil
-}
-
-// SummariesForAccount lists an account's collections as a statement shows them.
-//
-// Deliberately narrow: a receipt number, an amount, a method and a date, plus
-// what has been refunded against it. Who took the money is an operator's
-// business and does not belong on a page a student hands to a third party.
-func (r *PaymentRepository) SummariesForAccount(ctx context.Context, accountID shared.ID) ([]port.PaymentSummary, error) {
-	const query = `
-		SELECT p.id, p.receipt_no, p.amount, pm.code, p.paid_at, p.status,
-		       coalesce((SELECT sum(rf.amount) FROM refund rf
-		                 WHERE rf.payment_id = p.id AND rf.status = 'posted'), 0)::bigint
-		FROM payment p
-		JOIN payment_method pm ON pm.id = p.payment_method_id
-		WHERE p.account_id = $1 AND p.status IN ('posted', 'voided')
-		ORDER BY p.paid_at DESC`
-
-	q := r.db.Conn(ctx)
-	rows, err := q.Query(ctx, query, accountID)
-	if err != nil {
-		return nil, pg.WrapQuery("payment.SummariesForAccount", err)
-	}
-	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (port.PaymentSummary, error) {
-		var s port.PaymentSummary
-		err := row.Scan(&s.PaymentID, &s.ReceiptNo, &s.Amount, &s.MethodCode,
-			&s.PaidAt, &s.Status, &s.RefundedTotal)
-		return s, err
-	})
-	if err != nil {
-		return nil, pg.WrapQuery("payment.SummariesForAccount", err)
-	}
-	return out, nil
 }

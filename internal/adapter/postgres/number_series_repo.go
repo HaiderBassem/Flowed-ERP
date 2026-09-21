@@ -33,7 +33,7 @@ var _ port.NumberSeriesRepository = (*NumberSeriesRepository)(nil)
 // after the account and the year, so a hot series cannot deadlock against an
 // account lock.
 func (r *NumberSeriesRepository) NextNumber(
-	ctx context.Context, kind payment.SeriesKind, yearID shared.ID, deskID *shared.ID,
+	ctx context.Context, kind payment.SeriesKind, yearID shared.ID,
 ) (string, shared.ID, error) {
 	if err := r.db.RequireTx(ctx, "number_series.NextNumber"); err != nil {
 		return "", shared.NilID, err
@@ -43,7 +43,6 @@ func (r *NumberSeriesRepository) NextNumber(
 		SET next_number = next_number + 1, updated_at = now()
 		WHERE series_kind = $1
 		  AND academic_year_id = $2
-		  AND cashier_desk_id IS NOT DISTINCT FROM $3
 		RETURNING id, prefix, next_number - 1, padding`
 
 	q := r.db.Conn(ctx)
@@ -53,13 +52,13 @@ func (r *NumberSeriesRepository) NextNumber(
 		number  int64
 		padding int16
 	)
-	err := q.QueryRow(ctx, query, kind, yearID, deskID).Scan(&id, &prefix, &number, &padding)
+	err := q.QueryRow(ctx, query, kind, yearID).Scan(&id, &prefix, &number, &padding)
 	if pg.IsNotFound(err) {
 		return "", shared.NilID, shared.NotFound("number_series.missing",
-			"no %s number series exists for this year and desk", kind).
+			"no %s number series exists for this year", kind).
 			WithDetail("series_kind", string(kind)).
 			WithDetail("academic_year_id", yearID.String()).
-			WithDetail("remedy", "call EnsureSeries when the year or the desk is set up").
+			WithDetail("remedy", "call EnsureSeries when the year is set up").
 			WithCause(err)
 	}
 	if err != nil {
@@ -80,44 +79,21 @@ func (r *NumberSeriesRepository) NextNumber(
 // receipt book into two, and an auditor reconciling against the paper would
 // find a sequence that stops and restarts under a different name.
 func (r *NumberSeriesRepository) EnsureSeries(
-	ctx context.Context, kind payment.SeriesKind, yearID shared.ID, deskID *shared.ID, prefix string,
+	ctx context.Context, kind payment.SeriesKind, yearID shared.ID, prefix string,
 ) (shared.ID, error) {
 	if err := r.db.RequireTx(ctx, "number_series.EnsureSeries"); err != nil {
 		return shared.NilID, err
 	}
-	// The desk's own code goes into the prefix, resolved here rather than by
-	// the caller.
-	//
-	// A receipt number is read by a human matching a slip against a paper
-	// book, so it has to be short and meaningful: R-2025-2026-D01-000008, not
-	// a line of hexadecimal. The caller holds only the desk's identifier, and
-	// this is the one place that already knows which desk the series belongs
-	// to — and it runs once per desk per year, so the join costs nothing.
-	if deskID != nil {
-		var code string
-		err := r.db.Conn(ctx).QueryRow(ctx,
-			`SELECT code FROM cashier_desk WHERE id = $1`, *deskID).Scan(&code)
-		switch {
-		case err == nil:
-			prefix += code + "-"
-		case pg.IsNotFound(err):
-			// A series for a desk that no longer exists is still better than
-			// refusing the collection in front of a waiting student.
-		default:
-			return shared.NilID, pg.WrapQuery("number_series.EnsureSeries", err)
-		}
-	}
-
 	const query = `
-		INSERT INTO number_series (id, series_kind, academic_year_id, cashier_desk_id, prefix)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (series_kind, academic_year_id, cashier_desk_id)
+		INSERT INTO number_series (id, series_kind, academic_year_id, prefix)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (series_kind, academic_year_id)
 		DO UPDATE SET updated_at = now()
 		RETURNING id`
 
 	q := r.db.Conn(ctx)
 	var id shared.ID
-	err := q.QueryRow(ctx, query, shared.NewID(), kind, yearID, deskID, prefix).Scan(&id)
+	err := q.QueryRow(ctx, query, shared.NewID(), kind, yearID, prefix).Scan(&id)
 	if err != nil {
 		return shared.NilID, pg.WrapQuery("number_series.EnsureSeries", err)
 	}

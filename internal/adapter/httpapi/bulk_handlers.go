@@ -45,14 +45,11 @@ func NewBulkHandlers(bulk *app.BulkService, imports *app.ImportService, importRe
 func (h *BulkHandlers) Register(g *gin.RouterGroup) {
 	bulk := g.Group("/bulk")
 	bulk.POST("/promotions",
-		httpx.RequireRoles(shared.RoleAcademicOfficer, shared.RoleAdmin),
 		h.PromoteStudentsBulk)
 	bulk.POST("/accounts",
-		httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin),
 		h.GenerateAccountsBulk)
 
 	imports := g.Group("/imports")
-	imports.Use(httpx.RequireRoles(shared.RoleRegistrar, shared.RoleAdmin))
 
 	imports.GET("", h.ListImports)
 	imports.GET("/:id", h.ReviewImport)

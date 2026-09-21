@@ -67,9 +67,6 @@ type RecordPaymentResult struct {
 // counter — the same order in every command, which is what makes deadlock
 // between two cashiers impossible rather than merely unlikely.
 func (s *PaymentService) RecordPayment(ctx context.Context, actor shared.Actor, in RecordPaymentInput) (*RecordPaymentResult, error) {
-	if err := actor.RequireAnyRole("RecordPayment", shared.RoleCashier, shared.RoleFinanceManager); err != nil {
-		return nil, err
-	}
 	if !in.Amount.IsPositive() {
 		return nil, shared.Validation("payment.non_positive_amount",
 			"a payment must be greater than zero, got %s", in.Amount)
@@ -133,20 +130,6 @@ func (s *PaymentService) RecordPayment(ctx context.Context, actor shared.Actor, 
 				WithDetail("method", method.Code)
 		}
 
-		// 3. Cash needs an open drawer. Without this a cash collection has no
-		//    shift to reconcile against, which is how cash goes missing
-		//    between the desk and the safe.
-		var sessionID *shared.ID
-		if method.IsCash {
-			session, err := s.deps.Sessions.GetOpenForUser(ctx, actor.UserID)
-			if err != nil {
-				return shared.PreconditionFailed("payment.no_open_session",
-					"cash payments require an open cashier session; open one before collecting").
-					WithCause(err)
-			}
-			sessionID = &session.ID
-		}
-
 		if err := s.guardNearDuplicate(ctx, in, method.ID); err != nil {
 			return err
 		}
@@ -171,7 +154,6 @@ func (s *PaymentService) RecordPayment(ctx context.Context, actor shared.Actor, 
 			PaymentMethodID: method.ID,
 			MethodReference: in.MethodReference,
 			CashierUserID:   actor.UserID,
-			SessionID:       sessionID,
 			IdempotencyKey:  in.IdempotencyKey,
 			PayloadHash:     in.PayloadHash,
 			PayerName:       in.PayerName,
@@ -186,7 +168,7 @@ func (s *PaymentService) RecordPayment(ctx context.Context, actor shared.Actor, 
 		//    against an account lock. Allocated here rather than at row
 		//    creation: a rolled-back transaction returns the number, which is
 		//    what keeps the printed sequence gapless.
-		receiptNo, seriesID, err := s.nextReceiptNumber(ctx, payment.SeriesPayment, postingYear, actor)
+		receiptNo, seriesID, err := s.nextReceiptNumber(ctx, payment.SeriesPayment, postingYear)
 		if err != nil {
 			return err
 		}
@@ -407,11 +389,6 @@ func (s *PaymentService) resolvePostingYear(ctx context.Context, account *billin
 // the void register — the most useful fraud-detection report in the system —
 // reads from.
 func (s *PaymentService) RequestVoid(ctx context.Context, actor shared.Actor, paymentID shared.ID, reason string) (*payment.VoidRequest, error) {
-	if err := actor.RequireAnyRole("RequestVoid",
-		shared.RoleCashier, shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var request *payment.VoidRequest
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		target, err := s.deps.Payments.GetByID(ctx, paymentID)
@@ -470,10 +447,6 @@ func (s *PaymentService) RequestVoid(ctx context.Context, actor shared.Actor, pa
 // auditor scanning a receipt book should find a cancelled receipt in place,
 // not a gap they have to go and explain.
 func (s *PaymentService) ExecuteVoid(ctx context.Context, actor shared.Actor, requestID shared.ID) (*payment.Payment, error) {
-	if err := actor.RequireAnyRole("ExecuteVoid", shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var voided *payment.Payment
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)
@@ -652,22 +625,20 @@ func derefString(s *string) string {
 	return *s
 }
 
-// nextReceiptNumber takes the next number from the desk's series for the year,
-// creating the series on first use.
+// nextReceiptNumber takes the next number from the year's series, creating the
+// series on first use.
 //
-// Creating it lazily rather than when the year opens is deliberate. Desks are
-// added mid-year — a second window opens for registration week and closes
-// again — and a series that had to exist in advance would either block that
-// desk's first collection or force somebody to remember a setup step at the
-// worst possible moment. The fast path stays a single statement: the series is
-// only created when taking a number finds none.
+// Creating it lazily rather than when the year opens is deliberate: a series
+// that had to exist in advance would force somebody to remember a setup step
+// at the worst possible moment, with a student waiting. The fast path stays a
+// single statement — the series is only created when taking a number finds
+// none.
 func (s *PaymentService) nextReceiptNumber(
 	ctx context.Context,
 	kind payment.SeriesKind,
 	year *academic.Year,
-	actor shared.Actor,
 ) (string, shared.ID, error) {
-	receiptNo, seriesID, err := s.deps.Series.NextNumber(ctx, kind, year.ID, actor.CashierDeskID)
+	receiptNo, seriesID, err := s.deps.Series.NextNumber(ctx, kind, year.ID)
 	if err == nil {
 		return receiptNo, seriesID, nil
 	}
@@ -675,19 +646,16 @@ func (s *PaymentService) nextReceiptNumber(
 		return "", shared.NilID, err
 	}
 
-	// The prefix embeds the year and the desk, so a printed receipt says on its
-	// face which book it came from — which is what a paper reconciliation needs.
+	// The prefix embeds the year, so a printed receipt says on its face which
+	// book it came from — which is what a paper reconciliation needs.
 	prefix := receiptPrefix(kind, year.Code)
-	if _, err := s.deps.Series.EnsureSeries(ctx, kind, year.ID, actor.CashierDeskID, prefix); err != nil {
+	if _, err := s.deps.Series.EnsureSeries(ctx, kind, year.ID, prefix); err != nil {
 		return "", shared.NilID, err
 	}
-	return s.deps.Series.NextNumber(ctx, kind, year.ID, actor.CashierDeskID)
+	return s.deps.Series.NextNumber(ctx, kind, year.ID)
 }
 
-// receiptPrefix builds the year part of a series prefix, such as "R-2025-2026-".
-//
-// The desk's own code is appended by the repository, which is the only layer
-// that can resolve it from the desk identifier the actor carries.
+// receiptPrefix builds a series prefix, such as "R-2025-2026-".
 func receiptPrefix(kind payment.SeriesKind, yearCode string) string {
 	letter := "R"
 	if kind == payment.SeriesRefund {

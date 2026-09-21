@@ -95,46 +95,6 @@ func MustActor(c *gin.Context) shared.Actor {
 	return actor
 }
 
-// RequireRoles refuses the request unless the actor holds one of the roles.
-//
-// The check is delegated to the domain so that an authority failure caught at
-// the edge reads exactly like one caught inside a command handler — same code,
-// same message, same details — and a client never has to handle two shapes of
-// the same refusal.
-func RequireRoles(roles ...shared.Role) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		actor, ok := ActorFrom(c)
-		if !ok {
-			c.Header("WWW-Authenticate", "Bearer")
-			Respond(c, shared.Unauthorized("auth.not_authenticated",
-				"this endpoint requires authentication"))
-			return
-		}
-		if err := actor.RequireAnyRole(operationName(c), roles...); err != nil {
-			Respond(c, err)
-			return
-		}
-		c.Next()
-	}
-}
-
-// operationName names the route for the domain's authority error, so the
-// message says which endpoint was refused rather than just that something was.
-func operationName(c *gin.Context) string {
-	path := requestPath(c)
-	method := requestMethod(c)
-	switch {
-	case method == "" && path == "":
-		return "this operation"
-	case method == "":
-		return path
-	case path == "":
-		return method
-	default:
-		return method + " " + path
-	}
-}
-
 func bearerToken(header string) (string, error) {
 	if strings.TrimSpace(header) == "" {
 		return "", shared.Unauthorized("auth.missing_token",

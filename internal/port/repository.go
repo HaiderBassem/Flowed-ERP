@@ -188,7 +188,6 @@ const (
 	MasterStudyType       MasterDataKind = "study_type"
 	MasterStudentCategory MasterDataKind = "student_category"
 	MasterPaymentMethod   MasterDataKind = "payment_method"
-	MasterCashierDesk     MasterDataKind = "cashier_desk"
 )
 
 // College, Department, StudyType and StudentCategory are configuration the
@@ -227,11 +226,6 @@ type ReferenceRepository interface {
 
 	CreatePaymentMethod(ctx context.Context, m *payment.Method) error
 	UpdatePaymentMethod(ctx context.Context, m *payment.Method) error
-
-	ListCashierDesks(ctx context.Context, activeOnly bool) ([]*payment.CashierDesk, error)
-	GetCashierDesk(ctx context.Context, id shared.ID) (*payment.CashierDesk, error)
-	CreateCashierDesk(ctx context.Context, d *payment.CashierDesk) error
-	UpdateCashierDesk(ctx context.Context, d *payment.CashierDesk) error
 
 	// UsageCount reports how many rows depend on a piece of master data.
 	//
@@ -417,9 +411,6 @@ type PaymentRepository interface {
 	// its idempotency key across a restart.
 	FindNearDuplicate(ctx context.Context, accountID shared.ID, amount money.Amount, methodID shared.ID, within time.Duration) (*payment.Payment, error)
 	// PostedRefundTotal is what has already been returned against a payment.
-	// SummariesForAccount lists an account's collections as a statement shows
-	// them: enough to recognise a receipt, nothing about who took it.
-	SummariesForAccount(ctx context.Context, accountID shared.ID) ([]PaymentSummary, error)
 	PostedRefundTotal(ctx context.Context, paymentID shared.ID) (money.Amount, error)
 	CountPostedRefunds(ctx context.Context, paymentID shared.ID) (int, error)
 }
@@ -453,20 +444,8 @@ type NumberSeriesRepository interface {
 	//
 	// The counter is locked last in the command's lock order, after the account
 	// and the year, so that a hot series cannot deadlock with an account lock.
-	NextNumber(ctx context.Context, kind payment.SeriesKind, yearID shared.ID, deskID *shared.ID) (string, shared.ID, error)
-	EnsureSeries(ctx context.Context, kind payment.SeriesKind, yearID shared.ID, deskID *shared.ID, prefix string) (shared.ID, error)
-}
-
-// CashierSessionRepository stores cashier shifts.
-type CashierSessionRepository interface {
-	Open(ctx context.Context, s *payment.CashierSession) error
-	Close(ctx context.Context, s *payment.CashierSession) error
-	Update(ctx context.Context, s *payment.CashierSession) error
-	GetByID(ctx context.Context, id shared.ID) (*payment.CashierSession, error)
-	GetOpenForUser(ctx context.Context, userID shared.ID) (*payment.CashierSession, error)
-	// ExpectedCash totals what the drawer should hold: the opening float plus
-	// cash collected, less cash refunded and cash returned on voids.
-	ExpectedCash(ctx context.Context, sessionID shared.ID) (money.Amount, error)
+	NextNumber(ctx context.Context, kind payment.SeriesKind, yearID shared.ID) (string, shared.ID, error)
+	EnsureSeries(ctx context.Context, kind payment.SeriesKind, yearID shared.ID, prefix string) (shared.ID, error)
 }
 
 // ---------------------------------------------------------------------------
@@ -700,7 +679,6 @@ type Session struct {
 	RevokedReason *string
 	IPAddress     *string
 	UserAgent     *string
-	CashierDeskID *shared.ID
 }
 
 // Active reports whether the session may still be used.

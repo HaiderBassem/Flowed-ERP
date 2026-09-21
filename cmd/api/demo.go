@@ -115,7 +115,6 @@ func newDemoBuilder(db *pg.DB, cfg *config.Config, log *slog.Logger) *demoBuilde
 		Refunds:      postgres.NewRefundRepository(db),
 		VoidRequests: postgres.NewVoidRequestRepository(db),
 		Series:       postgres.NewNumberSeriesRepository(db),
-		Sessions:     postgres.NewCashierSessionRepository(db),
 		Audit:        postgres.NewAuditRepository(db),
 		Users:        postgres.NewUserRepository(db),
 		Clock:        shared.SystemClock{},
@@ -190,12 +189,6 @@ func (d *demoBuilder) seedUsers(ctx context.Context) error {
 		actor              *shared.Actor
 	}{
 		{"admin", "مدير النظام", []shared.Role{shared.RoleAdmin}, &d.admin},
-		{"registrar", "أمين السجل", []shared.Role{shared.RoleRegistrar}, &d.registrar},
-		{"officer", "المسؤول العلمي", []shared.Role{shared.RoleAcademicOfficer}, &d.officer},
-		{"finance", "مدير المالية", []shared.Role{shared.RoleFinanceManager}, &d.finance},
-		{"cashier", "الصراف الأول", []shared.Role{shared.RoleCashier}, &d.cashier},
-		{"auditor", "المدقق", []shared.Role{shared.RoleAuditor}, nil},
-		{"viewer", "مطالع التقارير", []shared.Role{shared.RoleReportViewer}, nil},
 	}
 
 	for _, p := range people {
@@ -292,16 +285,6 @@ func (d *demoBuilder) seedOrganisation(ctx context.Context) error {
 		d.methods[m.Code] = m.ID
 	}
 
-	// One cashier desk. Receipt series run per year per desk, so the demo's
-	// receipts all carry this desk's prefix.
-	d.deskID = shared.NewID()
-	_, err = d.db.Pool().Exec(ctx, `
-		INSERT INTO cashier_desk (id, code, name_ar, college_id)
-		VALUES ($1, 'D01', 'شباك الحسابات', $2)`, d.deskID, d.collegeID["ENG"])
-	if err != nil {
-		return err
-	}
-	d.cashier.CashierDeskID = &d.deskID
 	return nil
 }
 
@@ -403,7 +386,7 @@ func (d *demoBuilder) seedFeePolicies(ctx context.Context) error {
 			StudentCategoryID: &catID,
 			Status:            billing.PolicyDraft,
 			MaxDiscountBP:     money.FullRate,
-			CreatedBy:         &d.finance.UserID,
+			CreatedBy:         &d.admin.UserID,
 		}
 
 		if p.tuition.IsPositive() {
@@ -431,7 +414,7 @@ func (d *demoBuilder) seedFeePolicies(ctx context.Context) error {
 			if err := d.deps.FeePolicies.Create(ctx, policy); err != nil {
 				return err
 			}
-			return d.deps.FeePolicies.Publish(ctx, policy.ID, d.finance.UserID, time.Now().UTC())
+			return d.deps.FeePolicies.Publish(ctx, policy.ID, d.admin.UserID, time.Now().UTC())
 		})
 		if err != nil {
 			return fmt.Errorf("policy %d (%s): %w", i, policy.PolicyCode, err)
@@ -464,7 +447,7 @@ func (d *demoBuilder) seedTemplates(ctx context.Context) error {
 			if err := d.deps.Templates.Create(ctx, template); err != nil {
 				return err
 			}
-			return d.deps.Templates.Publish(ctx, template.ID, d.finance.UserID, time.Now().UTC())
+			return d.deps.Templates.Publish(ctx, template.ID, d.admin.UserID, time.Now().UTC())
 		})
 		if err != nil {
 			return err
@@ -523,7 +506,7 @@ func (d *demoBuilder) seedDiscounts(ctx context.Context) error {
 			if err := d.deps.Discounts.CreateVersion(ctx, version); err != nil {
 				return err
 			}
-			return d.deps.Discounts.PublishVersion(ctx, version.ID, d.finance.UserID, time.Now().UTC())
+			return d.deps.Discounts.PublishVersion(ctx, version.ID, d.admin.UserID, time.Now().UTC())
 		})
 		if err != nil {
 			return fmt.Errorf("discount %s: %w", spec.code, err)
@@ -619,7 +602,7 @@ func (d *demoBuilder) runCohort(ctx context.Context, yearCode string, cohort []d
 	yearID := d.yearIDs[yearCode]
 
 	for _, s := range cohort {
-		result, err := d.students.RegisterStudent(ctx, d.registrar, app.RegisterStudentInput{
+		result, err := d.students.RegisterStudent(ctx, d.admin, app.RegisterStudentInput{
 			StudentNo: s.no, FullName: s.name, MotherName: s.mother, Phone: &s.phone,
 		})
 		if err != nil {
@@ -634,7 +617,7 @@ func (d *demoBuilder) runCohort(ctx context.Context, yearCode string, cohort []d
 			return fmt.Errorf("grant for %s: %w", s.no, err)
 		}
 
-		enrolled, err := d.enrollments.EnrollStudent(ctx, d.registrar, app.EnrollStudentInput{
+		enrolled, err := d.enrollments.EnrollStudent(ctx, d.admin, app.EnrollStudentInput{
 			StudentID:      person.ID,
 			AcademicYearID: yearID,
 			DepartmentID:   d.deptIDs[s.dept],
@@ -652,7 +635,7 @@ func (d *demoBuilder) runCohort(ctx context.Context, yearCode string, cohort []d
 			continue
 		}
 
-		account, err := d.accounts.GenerateFinancialAccount(ctx, d.finance, app.GenerateAccountInput{
+		account, err := d.accounts.GenerateFinancialAccount(ctx, d.admin, app.GenerateAccountInput{
 			EnrollmentID: enrolled.Enrollment.ID,
 		})
 		if err != nil {
@@ -680,7 +663,7 @@ func (d *demoBuilder) runCohort(ctx context.Context, yearCode string, cohort []d
 func (d *demoBuilder) recordOutcome(ctx context.Context, enrollmentID shared.ID, scenario string) error {
 	switch scenario {
 	case "dropout":
-		_, err := d.enrollments.ChangeEnrollmentStatus(ctx, d.registrar, app.ChangeStatusInput{
+		_, err := d.enrollments.ChangeEnrollmentStatus(ctx, d.admin, app.ChangeStatusInput{
 			EnrollmentID: enrollmentID,
 			Target:       academic.StatusDroppedOut,
 			Result:       academic.ResultNoResult,
@@ -712,7 +695,7 @@ func (d *demoBuilder) recordOutcome(ctx context.Context, enrollmentID shared.ID,
 		return err
 
 	case "fail":
-		_, err := d.enrollments.RecordAcademicResult(ctx, d.officer, app.RecordResultInput{
+		_, err := d.enrollments.RecordAcademicResult(ctx, d.admin, app.RecordResultInput{
 			EnrollmentID: enrollmentID, Result: academic.ResultFailed,
 		})
 		d.counts["failed"]++
@@ -725,7 +708,7 @@ func (d *demoBuilder) recordOutcome(ctx context.Context, enrollmentID shared.ID,
 		if d.counts["passed"]%5 == 4 {
 			result = academic.ResultPassedR2
 		}
-		_, err := d.enrollments.RecordAcademicResult(ctx, d.officer, app.RecordResultInput{
+		_, err := d.enrollments.RecordAcademicResult(ctx, d.admin, app.RecordResultInput{
 			EnrollmentID: enrollmentID, Result: result,
 		})
 		d.counts["passed"]++
@@ -749,7 +732,7 @@ func (d *demoBuilder) grantFor(ctx context.Context, studentID, yearID shared.ID,
 	}
 
 	for _, code := range codes {
-		assignment, err := d.discounts.AssignDiscount(ctx, d.registrar, app.AssignDiscountInput{
+		assignment, err := d.discounts.AssignDiscount(ctx, d.admin, app.AssignDiscountInput{
 			StudentID:    studentID,
 			DefinitionID: d.discountIDs[code],
 			Scope:        discount.ScopeSingleYear,
@@ -760,7 +743,7 @@ func (d *demoBuilder) grantFor(ctx context.Context, studentID, yearID shared.ID,
 		}
 		// Approved by finance, never by the registrar who asked — the same
 		// four-eyes rule the API enforces.
-		if _, err := d.discounts.ApproveDiscountAssignment(ctx, d.finance, assignment.ID); err != nil {
+		if _, err := d.discounts.ApproveDiscountAssignment(ctx, d.admin, assignment.ID); err != nil {
 			return err
 		}
 		d.counts["discount grants"]++
@@ -832,9 +815,6 @@ func (d *demoBuilder) collect(ctx context.Context, accountID shared.ID, amount m
 	// Cash needs an open drawer, so the demo opens one lazily the first time it
 	// takes cash — the same requirement a real cashier faces.
 	if method == payment.MethodCash {
-		if err := d.ensureCashierSession(ctx); err != nil {
-			return err
-		}
 	}
 
 	// The tail of the identifier, not the head: these are UUIDv7 values whose
@@ -843,7 +823,7 @@ func (d *demoBuilder) collect(ctx context.Context, accountID shared.ID, amount m
 	// treats a repeated bank reference as the same transfer entered twice.
 	id := shared.NewID().String()
 	reference := "REF-" + id[len(id)-12:]
-	_, err := d.payments.RecordPayment(ctx, d.cashier, app.RecordPaymentInput{
+	_, err := d.payments.RecordPayment(ctx, d.admin, app.RecordPaymentInput{
 		AccountID:       accountID,
 		Amount:          amount,
 		PaymentMethodID: d.methods[method],
@@ -858,20 +838,6 @@ func (d *demoBuilder) collect(ctx context.Context, accountID shared.ID, amount m
 	return nil
 }
 
-func (d *demoBuilder) ensureCashierSession(ctx context.Context) error {
-	if _, err := d.deps.Sessions.GetOpenForUser(ctx, d.cashier.UserID); err == nil {
-		return nil
-	}
-	session, err := payment.NewCashierSession(
-		d.cashier.UserID, d.deskID, d.yearIDs["2025-2026"], 250_000)
-	if err != nil {
-		return err
-	}
-	return d.deps.Tx.Write(ctx, func(ctx context.Context) error {
-		return d.deps.Sessions.Open(ctx, session)
-	})
-}
-
 func (d *demoBuilder) refundLast(ctx context.Context, accountID shared.ID, amount money.Amount) error {
 	payments, err := d.deps.Payments.ListForAccount(ctx, accountID)
 	if err != nil || len(payments) == 0 {
@@ -879,7 +845,7 @@ func (d *demoBuilder) refundLast(ctx context.Context, accountID shared.ID, amoun
 	}
 	target := payments[0]
 
-	refund, err := d.refunds.RequestRefund(ctx, d.cashier, app.RequestRefundInput{
+	refund, err := d.refunds.RequestRefund(ctx, d.admin, app.RequestRefundInput{
 		PaymentID:       target.ID,
 		Amount:          amount,
 		PaymentMethodID: d.methods["BANK"],
@@ -888,10 +854,10 @@ func (d *demoBuilder) refundLast(ctx context.Context, accountID shared.ID, amoun
 	if err != nil {
 		return err
 	}
-	if _, err := d.refunds.ApproveRefund(ctx, d.finance, refund.ID); err != nil {
+	if _, err := d.refunds.ApproveRefund(ctx, d.admin, refund.ID); err != nil {
 		return err
 	}
-	if _, err := d.refunds.PostRefund(ctx, d.finance, refund.ID); err != nil {
+	if _, err := d.refunds.PostRefund(ctx, d.admin, refund.ID); err != nil {
 		return err
 	}
 	d.counts["refunds"]++
@@ -903,14 +869,14 @@ func (d *demoBuilder) voidLast(ctx context.Context, accountID shared.ID) error {
 	if err != nil || len(payments) == 0 {
 		return err
 	}
-	request, err := d.payments.RequestVoid(ctx, d.cashier, payments[0].ID,
+	request, err := d.payments.RequestVoid(ctx, d.admin, payments[0].ID,
 		"سُجلت على الطالب الخطأ")
 	if err != nil {
 		return err
 	}
 	// A different person executes it. That is the whole point of splitting the
 	// request from the execution.
-	if _, err := d.payments.ExecuteVoid(ctx, d.finance, request.ID); err != nil {
+	if _, err := d.payments.ExecuteVoid(ctx, d.admin, request.ID); err != nil {
 		return err
 	}
 	d.counts["voids"]++
@@ -926,7 +892,7 @@ func (d *demoBuilder) voidLast(ctx context.Context, accountID shared.ID) error {
 // is not.
 func (d *demoBuilder) supersede(ctx context.Context, enrollmentID shared.ID) error {
 	morning := d.studyType[academic.StudyTypeMorning]
-	result, err := d.enrollments.SupersedeEnrollment(ctx, d.registrar, app.SupersedeInput{
+	result, err := d.enrollments.SupersedeEnrollment(ctx, d.admin, app.SupersedeInput{
 		EnrollmentID:   enrollmentID,
 		NewStudyTypeID: &morning,
 		Reason:         "نقل من المسائي إلى الصباحي بقرار العمادة",
@@ -937,7 +903,7 @@ func (d *demoBuilder) supersede(ctx context.Context, enrollmentID shared.ID) err
 	}
 	d.counts["supersedes"]++
 
-	generated, err := d.accounts.GenerateFinancialAccount(ctx, d.finance, app.GenerateAccountInput{
+	generated, err := d.accounts.GenerateFinancialAccount(ctx, d.admin, app.GenerateAccountInput{
 		EnrollmentID: result.Replacement.ID,
 	})
 	if err != nil {
@@ -1011,7 +977,7 @@ func (d *demoBuilder) promoteFrom(ctx context.Context, fromCode, toCode string) 
 		if nextStage > department.StageCount {
 			// Finished the programme: completed, not promoted into a stage
 			// that does not exist.
-			if _, err := d.enrollments.ChangeEnrollmentStatus(ctx, d.officer, app.ChangeStatusInput{
+			if _, err := d.enrollments.ChangeEnrollmentStatus(ctx, d.admin, app.ChangeStatusInput{
 				EnrollmentID: e.ID, Target: academic.StatusCompleted,
 			}); err != nil {
 				return err
@@ -1020,7 +986,7 @@ func (d *demoBuilder) promoteFrom(ctx context.Context, fromCode, toCode string) 
 			continue
 		}
 
-		enrolled, err := d.enrollments.EnrollStudent(ctx, d.registrar, app.EnrollStudentInput{
+		enrolled, err := d.enrollments.EnrollStudent(ctx, d.admin, app.EnrollStudentInput{
 			StudentID:            e.StudentID,
 			AcademicYearID:       toID,
 			DepartmentID:         e.DepartmentID,
@@ -1039,7 +1005,7 @@ func (d *demoBuilder) promoteFrom(ctx context.Context, fromCode, toCode string) 
 			d.counts["repeating"]++
 		}
 
-		account, err := d.accounts.GenerateFinancialAccount(ctx, d.finance, app.GenerateAccountInput{
+		account, err := d.accounts.GenerateFinancialAccount(ctx, d.admin, app.GenerateAccountInput{
 			EnrollmentID: enrolled.Enrollment.ID,
 		})
 		if err != nil {
@@ -1073,7 +1039,7 @@ func (d *demoBuilder) returnAfterDropout(ctx context.Context) error {
 	}
 	last := history[len(history)-1]
 
-	enrolled, err := d.enrollments.EnrollStudent(ctx, d.registrar, app.EnrollStudentInput{
+	enrolled, err := d.enrollments.EnrollStudent(ctx, d.admin, app.EnrollStudentInput{
 		StudentID:            person.ID,
 		AcademicYearID:       d.yearIDs["2025-2026"],
 		DepartmentID:         last.DepartmentID,
@@ -1086,7 +1052,7 @@ func (d *demoBuilder) returnAfterDropout(ctx context.Context) error {
 	}
 	d.counts["returned after dropout"]++
 
-	if _, err := d.accounts.GenerateFinancialAccount(ctx, d.finance, app.GenerateAccountInput{
+	if _, err := d.accounts.GenerateFinancialAccount(ctx, d.admin, app.GenerateAccountInput{
 		EnrollmentID: enrolled.Enrollment.ID,
 	}); err != nil {
 		return err
@@ -1115,14 +1081,14 @@ func (d *demoBuilder) closeOldYears(ctx context.Context) error {
 			}
 			// The demo already recorded results during promotion for most; this
 			// catches the stragglers so the year can close.
-			if _, err := d.enrollments.RecordAcademicResult(ctx, d.officer, app.RecordResultInput{
+			if _, err := d.enrollments.RecordAcademicResult(ctx, d.admin, app.RecordResultInput{
 				EnrollmentID: e.ID, Result: academic.ResultPassedR1,
 			}); err != nil {
 				return err
 			}
 		}
 
-		if _, err := d.years.CloseYearFinancially(ctx, d.finance, yearID); err != nil {
+		if _, err := d.years.CloseYearFinancially(ctx, d.admin, yearID); err != nil {
 			return fmt.Errorf("closing %s financially: %w", code, err)
 		}
 		d.counts["years financially closed"]++

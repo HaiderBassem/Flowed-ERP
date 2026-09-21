@@ -221,33 +221,6 @@ func departmentTable(c *gin.Context, colleges []port.CollegeSummary) export.Tabl
 	return table
 }
 
-// sponsorReceivableTable renders the invoice list.
-func sponsorReceivableTable(c *gin.Context, rows []port.SponsorReceivable) export.Table {
-	table := export.Table{
-		Title:    "Sponsor receivables",
-		Subtitle: reportSubtitle(c),
-		Columns: []export.Column{
-			{Header: "Sponsor"},
-			{Header: "Code"},
-			{Header: "Students", Numeric: true},
-			{Header: "Committed", Numeric: true},
-			{Header: "Paid", Numeric: true},
-			{Header: "Outstanding", Numeric: true},
-		},
-	}
-	for _, row := range rows {
-		table.Rows = append(table.Rows, []string{
-			row.SponsorName,
-			row.SponsorCode,
-			fmt.Sprintf("%d", row.StudentCount),
-			amountText(row.Committed),
-			amountText(row.Paid),
-			amountText(row.Outstanding),
-		})
-	}
-	return table
-}
-
 // studyTypeTable renders the year's aggregate regrouped by mode of study.
 func studyTypeTable(c *gin.Context, rows []port.StudyTypeSummary) export.Table {
 	table := export.Table{

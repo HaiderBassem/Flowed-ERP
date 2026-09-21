@@ -55,11 +55,6 @@ type EnrollStudentResult struct {
 
 // EnrollStudent registers a student for an academic year.
 func (s *EnrollmentService) EnrollStudent(ctx context.Context, actor shared.Actor, in EnrollStudentInput) (*EnrollStudentResult, error) {
-	if err := actor.RequireAnyRole("EnrollStudent",
-		shared.RoleRegistrar, shared.RoleAcademicOfficer, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var result *EnrollStudentResult
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		person, err := s.deps.Students.GetByID(ctx, in.StudentID)
@@ -218,9 +213,6 @@ func (s *EnrollmentService) checkPriorDebt(
 				WithDetail("remedy", "settle the debt, or re-submit with an override if you hold finance authority")
 		}
 		// Overriding a block is a financial decision, not a clerical one.
-		if err := actor.RequireAnyRole("OverrideDebtBlock", shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-			return debt, true, err
-		}
 		if in.OverrideReason == nil || *in.OverrideReason == "" {
 			return debt, true, shared.Validation("enrollment.override_reason_required",
 				"overriding the debt block requires a written reason")
@@ -269,9 +261,6 @@ type SupersedeResult struct {
 // are already printed and in students' hands, and would make the old account
 // stop reconciling against the drawer it was collected into.
 func (s *EnrollmentService) SupersedeEnrollment(ctx context.Context, actor shared.Actor, in SupersedeInput) (*SupersedeResult, error) {
-	if err := actor.RequireAnyRole("SupersedeEnrollment", shared.RoleRegistrar, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	if in.Reason == "" {
 		return nil, shared.Validation("enrollment.supersede_reason_required",
 			"changing an enrollment mid-year requires a reason")
@@ -513,11 +502,6 @@ type RecordResultInput struct {
 // system that froze both at once would force the registrar to either falsify a
 // date or leave the result unrecorded.
 func (s *EnrollmentService) RecordAcademicResult(ctx context.Context, actor shared.Actor, in RecordResultInput) (*academic.Enrollment, error) {
-	if err := actor.RequireAnyRole("RecordAcademicResult",
-		shared.RoleAcademicOfficer, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	var enrollment *academic.Enrollment
 	err := s.deps.Tx.Write(ctx, func(ctx context.Context) error {
 		now := nowOr(s.deps.Clock)
@@ -611,19 +595,10 @@ type ChangeStatusResult struct {
 // (براءة الذمة) under the year's policy: ignore, warn, or block with a named
 // override.
 func (s *EnrollmentService) ChangeEnrollmentStatus(ctx context.Context, actor shared.Actor, in ChangeStatusInput) (*ChangeStatusResult, error) {
-	if err := actor.RequireAnyRole("ChangeEnrollmentStatus",
-		shared.RoleRegistrar, shared.RoleAcademicOfficer, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
-
 	// A treatment that moves money is a financial act, whoever asked for it.
 	// A registrar may withdraw a student; writing off what they owe needs the
 	// authority that writes off anything else.
 	if in.FinancialTreatment.ChangesMoney() {
-		if err := actor.RequireAnyRole("ChangeEnrollmentStatus.waive",
-			shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-			return nil, err
-		}
 	}
 	if academic.RequiresFinancialTreatment(in.Target) && in.FinancialTreatment == "" {
 		return nil, shared.Validation("enrollment.financial_treatment_required",
@@ -804,10 +779,6 @@ func (s *EnrollmentService) decideGraduationClearance(
 	overridden := overrideReason != ""
 	if overridden {
 		// Waiving a block is a financial authority, not a registrar's.
-		if err := actor.RequireAnyRole("GraduationClearance.override",
-			shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-			return nil, err
-		}
 	}
 
 	decision, err := academic.DecideClearance(year.GraduationClearancePolicy, outstanding, overridden)

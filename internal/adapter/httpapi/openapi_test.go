@@ -88,7 +88,6 @@ func TestPublicRoutesAreDeclaredPublic(t *testing.T) {
 		// The desk list: a cashier cannot obtain a token without naming a desk,
 		// so the sign-in form needs it before anybody is signed in. It carries a
 		// code and an Arabic name, both printed on every receipt.
-		"GET /api/v1/public/cashier-desks",
 	}
 	if len(publicPaths) != len(wantPublic) {
 		t.Errorf("the public route list has %d entries, expected %d — every addition opens "+

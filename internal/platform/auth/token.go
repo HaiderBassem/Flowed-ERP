@@ -52,11 +52,6 @@ type Claims struct {
 	// is why the access TTL is a shift rather than a month.
 	Roles []string `json:"roles,omitempty"`
 
-	// CashierDeskID scopes a cashier to a physical desk. Receipt series are
-	// allocated per (academic year, desk), so a cashier whose token carries no
-	// desk cannot post cash payments at all.
-	CashierDeskID *string `json:"cashier_desk_id,omitempty"`
-
 	// SessionID mirrors the registered "jti". It is duplicated under a plain
 	// name so that the audit trail's field matches shared.Actor.SessionID
 	// without every reader having to know JOSE vocabulary.
@@ -66,11 +61,6 @@ type Claims struct {
 	// parameter of the same spelling, which is unrelated: this one lives in the
 	// payload and is signed along with everything else.
 	Type TokenType `json:"typ"`
-
-	// StudentID is set on a student's credential. It is what every route a
-	// student can reach compares the row in question against, so it travels
-	// with the token like the roles do.
-	StudentID string `json:"student_id,omitempty"`
 
 	// ScopeMode and the two lists carry the actor's organisational reach.
 	//
@@ -165,34 +155,34 @@ func (s *TokenService) RefreshTTL() time.Duration { return s.refreshTTL }
 //
 // A login flow normally wants IssuePair instead, so that the refresh token it
 // hands out belongs to the same session as the access token.
-func (s *TokenService) Issue(u *port.User, deskID *shared.ID) (string, time.Time, error) {
+func (s *TokenService) Issue(u *port.User) (string, time.Time, error) {
 	sessionID, err := newSessionID()
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	return s.issue(u, deskID, TokenTypeAccess, s.accessTTL, sessionID)
+	return s.issue(u, TokenTypeAccess, s.accessTTL, sessionID)
 }
 
 // IssueRefresh mints a refresh token for the user under a fresh session id.
-func (s *TokenService) IssueRefresh(u *port.User, deskID *shared.ID) (string, time.Time, error) {
+func (s *TokenService) IssueRefresh(u *port.User) (string, time.Time, error) {
 	sessionID, err := newSessionID()
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	return s.issue(u, deskID, TokenTypeRefresh, s.refreshTTL, sessionID)
+	return s.issue(u, TokenTypeRefresh, s.refreshTTL, sessionID)
 }
 
 // IssuePair mints an access and a refresh token sharing one session id.
-func (s *TokenService) IssuePair(u *port.User, deskID *shared.ID) (Pair, error) {
+func (s *TokenService) IssuePair(u *port.User) (Pair, error) {
 	sessionID, err := newSessionID()
 	if err != nil {
 		return Pair{}, err
 	}
-	access, accessExpiry, err := s.issue(u, deskID, TokenTypeAccess, s.accessTTL, sessionID)
+	access, accessExpiry, err := s.issue(u, TokenTypeAccess, s.accessTTL, sessionID)
 	if err != nil {
 		return Pair{}, err
 	}
-	refresh, refreshExpiry, err := s.issue(u, deskID, TokenTypeRefresh, s.refreshTTL, sessionID)
+	refresh, refreshExpiry, err := s.issue(u, TokenTypeRefresh, s.refreshTTL, sessionID)
 	if err != nil {
 		return Pair{}, err
 	}
@@ -209,17 +199,16 @@ func (s *TokenService) IssuePair(u *port.User, deskID *shared.ID) (Pair, error) 
 // keeping the session id so the whole login remains one thread in the audit
 // trail. The caller is responsible for re-reading the user first: roles and
 // the active flag may have changed since the refresh token was issued.
-func (s *TokenService) RenewFromRefresh(u *port.User, deskID *shared.ID, sessionID string) (string, time.Time, error) {
+func (s *TokenService) RenewFromRefresh(u *port.User, sessionID string) (string, time.Time, error) {
 	if sessionID == "" {
 		return "", time.Time{}, shared.Internal("auth.token_issue_failed", nil,
 			"cannot renew a token without the session it belongs to")
 	}
-	return s.issue(u, deskID, TokenTypeAccess, s.accessTTL, sessionID)
+	return s.issue(u, TokenTypeAccess, s.accessTTL, sessionID)
 }
 
 func (s *TokenService) issue(
 	u *port.User,
-	deskID *shared.ID,
 	typ TokenType,
 	ttl time.Duration,
 	sessionID string,
@@ -242,12 +231,6 @@ func (s *TokenService) issue(
 	roles := make([]string, 0, len(u.Roles))
 	for _, role := range u.Roles {
 		roles = append(roles, string(role))
-	}
-
-	var desk *string
-	if deskID != nil && !shared.IsNil(*deskID) {
-		text := deskID.String()
-		desk = &text
 	}
 
 	scope := u.Scope()
@@ -274,8 +257,6 @@ func (s *TokenService) issue(
 		},
 		Username:         u.Username,
 		Roles:            roles,
-		StudentID:        studentIDClaim(u),
-		CashierDeskID:    desk,
 		SessionID:        sessionID,
 		Type:             typ,
 		ScopeMode:        scopeMode,
@@ -406,16 +387,6 @@ func actorFromClaims(claims *Claims) (*shared.Actor, error) {
 		}
 	}
 
-	var deskID *shared.ID
-	if claims.CashierDeskID != nil {
-		parsed, err := shared.ParseID(*claims.CashierDeskID)
-		if err != nil {
-			return nil, shared.Unauthorized("auth.token_invalid_desk",
-				"the token carries an invalid cashier desk identifier").WithCause(err)
-		}
-		deskID = &parsed
-	}
-
 	sessionID := claims.SessionID
 	if sessionID == "" {
 		sessionID = claims.ID
@@ -427,30 +398,13 @@ func actorFromClaims(claims *Claims) (*shared.Actor, error) {
 	}
 
 	actor := &shared.Actor{
-		UserID:        userID,
-		Username:      claims.Username,
-		Roles:         roles,
-		CashierDeskID: deskID,
-		SessionID:     sessionID,
-		Scope:         scope,
-	}
-	if claims.StudentID != "" {
-		studentID, err := shared.ParseID(claims.StudentID)
-		if err != nil {
-			return nil, shared.Unauthorized("auth.token_invalid_student",
-				"the token carries an unreadable student identifier").WithCause(err)
-		}
-		actor.StudentID = &studentID
+		UserID:    userID,
+		Username:  claims.Username,
+		Roles:     roles,
+		SessionID: sessionID,
+		Scope:     scope,
 	}
 	return actor, nil
-}
-
-// studentIDClaim renders the student link for a token.
-func studentIDClaim(u *port.User) string {
-	if u.StudentID == nil {
-		return ""
-	}
-	return u.StudentID.String()
 }
 
 // scopeFromClaims rebuilds the organisational reach carried in a token.

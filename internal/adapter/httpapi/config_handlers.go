@@ -46,49 +46,45 @@ func NewConfigHandlers(config *app.ConfigService) *ConfigHandlers {
 // answering the same question at the counter, both need to see the
 // configuration and neither can change it.
 func (h *ConfigHandlers) Register(g *gin.RouterGroup) {
-	write := httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin)
-	read := httpx.RequireRoles(shared.RoleFinanceManager, shared.RoleAdmin,
-		shared.RoleAuditor, shared.RoleRegistrar)
-	admin := httpx.RequireRoles(shared.RoleAdmin)
 
 	policies := g.Group("/fee-policies")
-	policies.POST("", write, h.DefineFeePolicy)
-	policies.GET("", read, h.ListFeePolicies)
-	policies.GET("/:id", read, h.GetFeePolicy)
-	policies.POST("/:id/publish", write, h.PublishFeePolicy)
-	policies.POST("/:id/retire", write, h.RetireFeePolicy)
+	policies.POST("", h.DefineFeePolicy)
+	policies.GET("", h.ListFeePolicies)
+	policies.GET("/:id", h.GetFeePolicy)
+	policies.POST("/:id/publish", h.PublishFeePolicy)
+	policies.POST("/:id/retire", h.RetireFeePolicy)
 	// A preview writes nothing; it is a POST because the scope it is asked
 	// about is six fields, and because the same shape is what account
 	// generation's dry run already uses.
-	policies.POST("/preview-resolution", read, h.PreviewFeeResolution)
+	policies.POST("/preview-resolution", h.PreviewFeeResolution)
 	// The one-call configuration surface for a study type's default debt on
 	// creation — same authority as defining any other policy, since that is
 	// exactly what this does under one name.
-	policies.POST("/study-type-defaults", write, h.SetStudyTypeInitialDebt)
+	policies.POST("/study-type-defaults", h.SetStudyTypeInitialDebt)
 
 	templates := g.Group("/installment-templates")
-	templates.POST("", write, h.DefineInstallmentTemplate)
-	templates.GET("", read, h.ListInstallmentTemplates)
-	templates.GET("/:id", read, h.GetInstallmentTemplate)
-	templates.POST("/:id/publish", write, h.PublishInstallmentTemplate)
-	templates.POST("/:id/retire", write, h.RetireInstallmentTemplate)
+	templates.POST("", h.DefineInstallmentTemplate)
+	templates.GET("", h.ListInstallmentTemplates)
+	templates.GET("/:id", h.GetInstallmentTemplate)
+	templates.POST("/:id/publish", h.PublishInstallmentTemplate)
+	templates.POST("/:id/retire", h.RetireInstallmentTemplate)
 	// The one-call configuration surface for a study type's default
 	// installment plan — same authority as defining any other template.
-	templates.POST("/study-type-defaults", write, h.SetStudyTypeInstallmentPlan)
+	templates.POST("/study-type-defaults", h.SetStudyTypeInstallmentPlan)
 
 	discounts := g.Group("/discounts")
-	discounts.POST("/definitions", write, h.DefineDiscount)
-	discounts.GET("/definitions", read, h.ListDiscounts)
-	discounts.GET("/definitions/:id", read, h.GetDiscount)
-	discounts.POST("/definitions/:id/versions", write, h.AddDiscountVersion)
-	discounts.GET("/versions/:id", read, h.GetDiscountVersion)
-	discounts.POST("/versions/:id/publish", write, h.PublishDiscountVersion)
+	discounts.POST("/definitions", h.DefineDiscount)
+	discounts.GET("/definitions", h.ListDiscounts)
+	discounts.GET("/definitions/:id", h.GetDiscount)
+	discounts.POST("/definitions/:id/versions", h.AddDiscountVersion)
+	discounts.GET("/versions/:id", h.GetDiscountVersion)
+	discounts.POST("/versions/:id/publish", h.PublishDiscountVersion)
 
 	// Reference data is created where it is already listed, so a client
 	// discovers both halves at one path.
-	g.POST("/colleges", admin, h.CreateCollege)
-	g.POST("/departments", admin, h.CreateDepartment)
-	g.POST("/study-types", admin, h.CreateStudyType)
+	g.POST("/colleges", h.CreateCollege)
+	g.POST("/departments", h.CreateDepartment)
+	g.POST("/study-types", h.CreateStudyType)
 }
 
 // ---------------------------------------------------------------------------

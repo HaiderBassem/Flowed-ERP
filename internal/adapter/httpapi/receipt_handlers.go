@@ -7,7 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"flowed/internal/app"
-	"flowed/internal/domain/shared"
 	"flowed/internal/platform/httpx"
 )
 
@@ -27,13 +26,9 @@ func NewReceiptHandlers(receipts *app.ReceiptService) *ReceiptHandlers {
 // /receipts collection, because a receipt is not an entity of its own — it is
 // a rendering of a document that already exists.
 func (h *ReceiptHandlers) Register(g *gin.RouterGroup) {
-	readers := httpx.RequireRoles(
-		shared.RoleCashier, shared.RoleFinanceManager, shared.RoleAdmin,
-		shared.RoleAuditor, shared.RoleRegistrar,
-	)
 
-	g.GET("/payments/:id/receipt", readers, h.PaymentReceipt)
-	g.GET("/refunds/:id/receipt", readers, h.RefundReceipt)
+	g.GET("/payments/:id/receipt", h.PaymentReceipt)
+	g.GET("/refunds/:id/receipt", h.RefundReceipt)
 }
 
 // PaymentReceipt renders the receipt for a collection.

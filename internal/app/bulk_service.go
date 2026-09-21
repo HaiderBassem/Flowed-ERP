@@ -198,10 +198,6 @@ type PromoteBulkResult struct {
 func (s *BulkService) PromoteStudentsBulk(
 	ctx context.Context, actor shared.Actor, in PromoteBulkInput,
 ) (*PromoteBulkResult, error) {
-	if err := actor.RequireAnyRole("PromoteStudentsBulk",
-		shared.RoleAcademicOfficer, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	if in.SourceYearID == in.TargetYearID {
 		return nil, shared.Validation("promotion.same_year",
 			"a promotion must move students between two different academic years")
@@ -732,10 +728,6 @@ type GenerateAccountsBulkResult struct {
 func (s *BulkService) GenerateFinancialAccountsBulk(
 	ctx context.Context, actor shared.Actor, in GenerateAccountsBulkInput,
 ) (*GenerateAccountsBulkResult, error) {
-	if err := actor.RequireAnyRole("GenerateFinancialAccountsBulk",
-		shared.RoleFinanceManager, shared.RoleAdmin); err != nil {
-		return nil, err
-	}
 	if !in.DryRun && len(in.Approved) == 0 {
 		return nil, shared.PreconditionFailed("account.bulk_dry_run_required",
 			"run this generation as a dry run first and submit the per-row preview hashes it returns").

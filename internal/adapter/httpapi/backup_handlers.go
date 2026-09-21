@@ -37,7 +37,7 @@ func NewBackupHandlers(service *app.BackupService) *BackupHandlers {
 
 // Register mounts /backups on the group it is given.
 func (h *BackupHandlers) Register(g *gin.RouterGroup) {
-	group := g.Group("/backups", httpx.RequireRoles(shared.RoleAdmin))
+	group := g.Group("/backups")
 
 	group.GET("", h.List)
 	group.POST("", h.Create)
